@@ -1,39 +1,35 @@
 # Implementation Plan: DLSS Version Toolkit
 
-**Branch**: `001-dlss-version-checker` | **Date**: 2026-04-20 | **Spec**: [spec.md](./spec.md)
-
-**Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/plan-template.md` for the execution workflow.
+**Branch**: `001-dlss-version-checker` | **Date**: 2026-04-20 | **Spec**: [spec.md](spec.md)
+**Input**: Feature specification: Windows tool for checking and upgrading NVIDIA DLSS versions on a user's system with PowerShell module distribution.
 
 ## Summary
 
-The DLSS Version Toolkit is a Windows PowerShell CLI tool that enables PC gamers to check installed NVIDIA DLSS versions (Release and Staging) and optionally upgrade their Release DLSS to the latest Staging version. The tool scans NVIDIA NGX folder structures, parses version config files, and provides upgrade functionality by copying staging DLLs to the release location. The project also includes packaging for distribution via PowerShell Gallery, Scoop, and winget.
+A PowerShell CLI tool and module for inspecting and upgrading NVIDIA DLSS override versions. Reads NVIDIA NGX folder structure (Release and Staging locations), parses `nvngx_package_config.txt` for component versions, and optionally upgrades Release DLSS to match the latest Staging version. Technical approach: PowerShell 5.1-compatible module with standalone script entry point, read-only by default with explicit upgrade safety via backup/restore.
 
 ## Technical Context
 
-**Language/Version**: PowerShell 5.1+ (compatible with Windows PowerShell 5.1 and PowerShell 7+)  
-**Primary Dependencies**: None (pure PowerShell, no external modules required)  
-**Storage**: Local file system only - reads from NVIDIA NGX folders  
-**Testing**: Pester (PowerShell testing framework)  
-**Target Platform**: Windows 10/11 (x64)  
-**Project Type**: CLI tool / PowerShell Module  
-**Performance Goals**: Execute version scan in under 5 seconds  
-**Constraints**: Must work without administrative elevation for read operations; upgrade requires write access to ProgramData  
-**Scale/Scope**: Single-user local tool, approximately 200-300 lines of code expected
+**Language/Version**: PowerShell 5.1+ (Windows PowerShell, PS5.1 baseline, compatible with PS7)
+**Primary Dependencies**: None (pure PowerShell, no external modules, Pester dev-only for testing)
+**Storage**: Local file system (NVIDIA NGX folders at C:\ProgramData\NVIDIA\NGX)
+**Testing**: Pester (PowerShell testing framework, dev-only dependency, not bundled with tool)
+**Target Platform**: Windows 10 version 2004+ / Windows 11 x64
+**Project Type**: CLI tool / PowerShell Module (DLSSVersion.psm1 + check-dlss-versions.ps1 entry point)
+**Performance Goals**: Version scan in under 5 seconds
+**Constraints**: No admin elevation for read operations; upgrade needs write access to ProgramData; no PS7+ syntax (no ternary, no null-coalescing, no &&/||); UTF8 encoding for file I/O
+**Scale/Scope**: ~200-300 LOC, single-user local tool
 
 ## Constitution Check
 
-The following principles guide this implementation:
+*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-| Principle | Application |
-|-----------|-------------|
-| **Simplicity** | Tool does one thing well - check and upgrade DLSS versions. No unnecessary features. |
-| **Windows-First** | Native PowerShell solution optimized for Windows 10/11. No cross-platform complexity. |
-| **No Dependencies** | Pure PowerShell 5.1 with no external module requirements. Works offline. |
-| **Safe Upgrades** | Upgrade only copies files, never deletes. Clear feedback on what changed. |
-
-**GATE**: Must pass before Phase 0 research. Re-check after Phase 1 design.
-
-The implementation uses only standard PowerShell cmdlets and .NET types already available in Windows, ensuring maximum compatibility.
+| Principle | Status | Justification |
+|-----------|--------|---------------|
+| **Zero Dependencies** | PASS | Pure PowerShell 5.1 with no external modules or runtimes. Pester is dev-only, not bundled. |
+| **Safe by Default** | PASS | Default invocation is read-only (check only). Upgrade requires explicit -Upgrade flag. Backup created before any writes, restore on failure. |
+| **Windows-First** | PASS | Uses Windows paths, PS5.1-compatible syntax only, UTF8 encoding with -Raw flag for file reads. No cross-platform abstractions. |
+| **Distributable as Module** | PASS | Structured as PowerShell module (DLSSVersion.psm1 + DLSSVersion.psd1). Standalone script preserved for zero-setup execution. Supports PowerShell Gallery, Scoop, winget. |
+| **Simplicity Over Flexibility** | PASS | Single-purpose tool: inspect and upgrade DLSS versions. No game detection, driver management, or NVIDIA App integration. |
 
 ## Project Structure
 
@@ -42,60 +38,44 @@ The implementation uses only standard PowerShell cmdlets and .NET types already 
 ```text
 specs/001-dlss-version-checker/
 ├── plan.md              # This file
-├── spec.md              # Feature specification
-├── tasks.md             # Task breakdown
-└── research.md          # Phase 0 output (if needed)
+├── research.md          # Phase 0 output
+├── data-model.md        # Phase 1 output
+├── quickstart.md        # Phase 1 output
+├── contracts/           # Phase 1 output
+│   ├── cli-interface.md
+│   └── module-interface.md
+└── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created here)
 ```
 
 ### Source Code (repository root)
 
 ```text
-C:\Users\jolti.PHANERON\dlss-version-toolkit/
-├── check-dlss-versions.ps1    # Main script (existing)
+dlss-version-toolkit/
+├── check-dlss-versions.ps1  # Standalone script entry point (preserves zero-setup usage)
 ├── src/
-│   ├── DLSSVersion.psm1       # Module (refactored from script)
-│   └── DLSSVersion.psd1       # Module manifest
+│   ├── DLSSVersion.psm1     # Module implementation (core functions)
+│   └── DLSSVersion.psd1     # Module manifest (metadata for PowerShell Gallery)
 ├── tests/
-│   └── DLSSVersion.Tests.ps1  # Pester tests
-├── specs/
-│   └── 001-dlss-version-checker/
-│       ├── spec.md
-│       ├── plan.md
-│       └── tasks.md
-└── README.md                   # Documentation
+│   └── DLSSVersion.Tests.ps1  # Pester tests (dev-only)
+└── README.md
 ```
 
-**Structure Decision**: The project follows a single-project structure with `src/` containing the PowerShell module files and `tests/` containing Pester tests. The existing `check-dlss-versions.ps1` script will be preserved for standalone usage while a proper PowerShell module is created for distribution. This dual approach supports both direct script execution and proper module installation via package managers.
+**Structure Decision**: Chose PowerShell Module structure per Constitution Principle IV (Distributable as Module). The `src/` directory contains the module files (DLSSVersion.psm1 + .psd1) which enables `Import-Module DLSSVersion` and PowerShell Gallery publishing. The standalone script (`check-dlss-versions.ps1`) remains at root as a convenience entry point for users who prefer direct execution without module installation — preserving the zero-setup experience while meeting module distribution requirements.
 
 ## Complexity Tracking
 
-> **Fill ONLY if Constitution Check has violations that must be justified**
-
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| PowerShell Module | Required for PowerShell Gallery distribution and proper cmdlet export | Script-only approach would work but lacks proper module structure for distribution |
-| Pester Tests | Ensures reliability for a tool that modifies system files | Manual testing possible but risks regressions |
+| PowerShell Module structure adds file separation (.psm1 + .psd1 + standalone script) | Required by Constitution Principle IV - Distributable as Module for PowerShell Gallery publishing. Module structure enables `Install-Module DLSSVersion`, proper cmdlet naming via verb-noun, and Get-Help integration. | Simpler: Single .ps1 file. REJECTED: Would block PowerShell Gallery distribution, no proper Export-ModuleMember, no Get-Help integration, no version tracking. Module structure is minimal overhead (~5 lines) for significant distribution capability. |
 
-No major complexity violations are anticipated. The tool uses a straightforward file-copy approach for upgrades.
+## Post-Design Constitution Check
 
-## Implementation Phases
+*Re-evaluation after Phase 1 design completed.*
 
-### Phase 1: Module Refactoring
-- Refactor existing script into proper PowerShell module (.psm1)
-- Create module manifest (.psd1) with proper metadata
-- Ensure backward compatibility with existing script
-
-### Phase 2: Testing Infrastructure
-- Set up Pester test framework
-- Write unit tests for version parsing functions
-- Write integration tests for file system operations
-
-### Phase 3: Distribution Packaging
-- Create PowerShell Gallery package
-- Create Scoop bucket manifest
-- Create winget manifest
-
-### Phase 4: Documentation
-- Write README with usage instructions
-- Document all cmdlets with examples
-- Create quickstart guide
+| Principle | Status | Justification |
+|-----------|--------|---------------|
+| **Zero Dependencies** | PASS | Pure PowerShell 5.1. No external modules. Pester dev-only, not bundled. |
+| **Safe by Default** | PASS | Read-only default. -Upgrade flag required. Backup created before writes. Restore on failure. |
+| **Windows-First** | PASS | Windows paths. PS5.1 syntax (no ternary, no &&/||). UTF8 encoding with -Raw. |
+| **Distributable as Module** | PASS | Module structure enables Gallery/Scoop/winget. Entry points documented in quickstart.md. |
+| **Simplicity Over Flexibility** | PASS | Single-purpose: inspect and upgrade DLSS. No extra features. ~200-300 LOC. |
