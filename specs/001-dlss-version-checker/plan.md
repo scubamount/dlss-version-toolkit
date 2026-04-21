@@ -70,12 +70,20 @@ dlss-version-toolkit/
 
 ## Post-Design Constitution Check
 
-*Re-evaluation after Phase 1 design completed.*
+*Re-evaluation after Phase 1 design completed. References specific design decisions from research.md, data-model.md, and contracts/.*
 
 | Principle | Status | Justification |
 |-----------|--------|---------------|
-| **Zero Dependencies** | PASS | Pure PowerShell 5.1. No external modules. Pester dev-only, not bundled. |
-| **Safe by Default** | PASS | Read-only default. -Upgrade flag required. Backup created before writes. Restore on failure. |
-| **Windows-First** | PASS | Windows paths. PS5.1 syntax (no ternary, no &&/||). UTF8 encoding with -Raw. |
-| **Distributable as Module** | PASS | Module structure enables Gallery/Scoop/winget. Entry points documented in quickstart.md. |
-| **Simplicity Over Flexibility** | PASS | Single-purpose: inspect and upgrade DLSS. No extra features. ~200-300 LOC. |
+| **Zero Dependencies** | PASS | Pure PowerShell 5.1 with no external modules or runtimes. Pester is dev-only (not bundled, not required for end-user execution). The `-Path` parameter on module functions uses only built-in PowerShell types (string). No .NET SDK, no Python, no Node.js required. |
+| **Safe by Default** | PASS | Default invocation is read-only (check only). Upgrade requires explicit `-Upgrade` flag (CLI) or `Start-DLSSUpgrade` call (module). Backup strategy: timestamped `.dlss-backup-<yyyyMMdd-HHmmss>` folder created before any writes, with automatic rollback on failure and manual restore path if rollback also fails. `Start-DLSSUpgrade` supports `-WhatIf` for dry-run and `-Confirm` for interactive gate. Exit code 1 on any error. |
+| **Windows-First** | PASS | All paths use Windows conventions (`C:\ProgramData\NVIDIA\NGX\...`). PS5.1-compatible syntax enforced: no ternary `?:`, no null-coalescing `??`, no chain operators `&&`/`||`. File reads use `Get-Content -Raw` to handle encoding correctly. File copies during upgrade use `Copy-Item` (preserves original encoding byte-for-byte, avoids PS5.1 UTF-16LE default on `Set-Content`). No cross-platform abstractions. |
+| **Distributable as Module** | PASS | Structured as PowerShell module (`DLSSVersion.psm1` + `DLSSVersion.psd1`) with explicit `Export-ModuleMember` for three functions. Manifest includes all required PowerShell Gallery fields (GUID, ModuleVersion, Author, Description, PowerShellVersion, FunctionsToExport). Standalone script (`check-dlss-versions.ps1`) preserved as thin wrapper (~20 LOC) that imports the module. Distribution channels documented: PowerShell Gallery (primary), Scoop (secondary), winget (tertiary). |
+| **Simplicity Over Flexibility** | PASS | Single-purpose tool: inspect and upgrade NVIDIA DLSS override versions. Three exported functions only (Get-DLSSVersions, Get-DLSSLatestVersion, Start-DLSSUpgrade). No game detection, no driver management, no NVIDIA App integration, no download capability. ~200-300 LOC. The `-Path` parameter is the only extensibility point, justified solely for testability (not a feature extension). Module structure is minimal overhead per Complexity Tracking table. |
+
+### Design Decisions Validated by Constitution
+
+1. **Backup format `.dlss-backup-<timestamp>`**: Chosen over temp directory backup because it stays within the same ACL context (Constitution Principle II: Safe by Default -- backup must be accessible for manual restore).
+2. **`Copy-Item` over `Get-Content | Set-Content`**: Chosen for upgrade file copies to preserve original encoding (Constitution Principle III: Windows-First -- avoids PS5.1 UTF-16LE encoding corruption).
+3. **`$TestDrive` fixtures over cmdlet mocks**: Chosen for test isolation because it tests real filesystem interaction without requiring NVIDIA software (Constitution Principle I: Zero Dependencies -- Pester is dev-only, tests must run on any machine).
+4. **Three distribution channels (Gallery/Scoop/winget)**: Chosen to cover the Windows audience without adding Chocolatey (Constitution Principle V: Simplicity Over Flexibility -- three channels are sufficient, four would be scope creep).
+5. **`-Path` parameter default to real NGX path**: Chosen over environment variable override because it is scoped per call, avoiding global state leakage between tests (Constitution Principle V: Simplicity -- parameter injection is simpler than environment-based configuration).

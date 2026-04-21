@@ -1,0 +1,26 @@
+# PowerShell
+*.psm1.help.xml
+Modules/
+*.dll
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Distribution artifacts
+dist/
+*.nupkg
+
+# Environment
+.env*
+*.log
+
+# OS
+.DS_Store

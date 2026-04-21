@@ -1,159 +1,162 @@
-# Phase 0 Research: DLSS Version Toolkit
+# Research: DLSS Version Toolkit
 
-**Branch**: `001-dlss-version-checker` | **Date**: 2026-04-20
-**Input**: `/speckit.plan` command - Technical research for implementation planning.
-
----
-
-## Research 1: PowerShell Module Structure Best Practices
-
-**Decision**: Use explicit `.psm1` module with `Export-ModuleMember` and `.psd1` manifest with proper metadata fields.
-
-**Rationale**: PowerShell module structure (`.psm1` + `.psd1`) enables:
-- `Import-Module DLSSVersion` for session import
-- `Install-Module DLSSVersion` for PowerShell Gallery distribution
-- Proper cmdlet export via `Export-ModuleMember` (explicit is better than implicit)
-- Get-Help integration for `Get-Help Get-DLSSVersions`
-- Version tracking via module manifest
-
-The existing `check-dlss-versions.ps1` serves as standalone entry point that imports the module, preserving zero-setup usage.
-
-**Alternatives Considered**:
-1. *Single .ps1 file*: Would block PowerShell Gallery distribution, no `Export-ModuleMember`, no version metadata, no Get-Help.
-2. *Autoload via Functions folder*: More complex, not needed for <300 LOC tool.
-3. *Nested module structure*: Overkill for single-module project.
+**Branch**: `001-dlss-version-checker` | **Date**: 2026-04-20 | **Phase**: 0
 
 ---
 
-## Research 2: PS5.1 Compatibility
+## 1. PowerShell Module Structure Best Practices
 
-**Decision**: Use PS5.1-compatible syntax only: avoid ternary `?:`, null-coalescing `??`, pipe chain operators `&&`/`||`.
+### Decision
 
-**Rationale**: Per Constitution Principle III (Windows-First), tool must run on Windows PowerShell 5.1 which ships with every Windows 10/11 installation. PS7+ syntax would require users to install PowerShell 7 separately, breaking zero-setup experience.
+Use the standard PowerShell module pattern: `DLSSVersion.psm1` (implementation) + `DLSSVersion.psd1` (manifest). The `.psm1` file contains all function definitions and uses `Export-ModuleMember` to explicitly control the public surface. The `.psd1` manifest declares module metadata (GUID, version, author, description, exported functions, minimum PowerShell version). Place both files in `src/` to separate module code from the standalone script entry point.
 
-PS5.1-compatible patterns:
-- Use `if/else` instead of ternary: `(condition) ? $trueVal : $falseVal` -> `if (condition) { $trueVal } else { $falseVal }`
-- Use `-eq $null` or explicit check instead of null-coalescing
-- Use `-and` `-or` instead of `&&`/`||`
-- Use `[version]::Parse()` instead of `-split` with `-replace`
-- Use `Get-Content -Raw` for single-string reads
+### Rationale
 
-**Alternatives Considered**:
-1. *PS7+ required*: Would add installation barrier, violate Zero Dependencies and Simplicity.
-2. *Feature detection*: Runtime version check with fallback adds complexity, not worth it for a small tool.
-3. *Conditional syntax*: Would still fail on PS5.1, just with less clear error.
+- PowerShell Gallery requires a `.psd1` manifest for `Publish-Module`. Without it, the module cannot be distributed via the standard channel.
+- `Export-ModuleMember -Function Get-DLSSVersions, Get-DLSSLatestVersion, Start-DLSSUpgrade` prevents internal helper functions from leaking into the user's session.
+- The manifest's `FunctionsToExport` field enables tab completion and `Get-Command -Module DLSSVersion` without loading the entire module.
+- Placing module files in `src/` keeps the repository root clean (only `check-dlss-versions.ps1` and `README.md` at root) while allowing `Import-Module ./src/DLSSVersion.psd1` for development.
 
----
+### Alternatives Considered
 
-## Research 3: Backup Strategy for Safe Upgrades
-
-**Decision**: Create timestamped backup of Release folder before any writes during upgrade. Backup format: `C:\ProgramData\NVIDIA\NGX\models\dlss_override\versions Backup-{timestamp}\`. Restore from backup on any failure.
-
-**Rationale**: Per Constitution Principle II (Safe by Default), upgrade must be safe and reversible. The backup strategy:
-1. Check if backup already exists for today — skip if upgrade was just performed
-2. Copy entire Release version folder to `Backup-{timestamp}` subfolder before copying new files
-3. Perform upgrade operations (DLL copy, config update)
-4. If any step fails: log error, leave backup in place for manual restore, exit with error code
-
-What to backup:
-- All files in the Release version folder (nvngx_*.dll, nvngx_package_config.txt)
-- Subdirectory structure is preserved in backup
-
-**Alternatives Considered**:
-1. *No backup*: TOO RISKY — NVIDIA files could be corrupted, no way to restore.
-2. *Backup to temp folder*: Less useful for manual restore if user needs fallback later.
-3. *Shadow copy*: Requires admin, adds complexity, not needed for local tool.
-4. *Mirror imaging*: Could create full image, but storage-heavy for frequent upgrades.
+- **Single .ps1 file (no module)**: Simpler structure but blocks PowerShell Gallery distribution, no proper cmdlet naming, no Get-Help integration, no version tracking. Rejected per Constitution Principle IV.
+- **Flat root layout (psm1/psd1 at root)**: Would work but clutters root with module files alongside the standalone script. The `src/` directory provides a clean separation between "entry point" and "implementation."
+- **Nested module with submodules**: Overkill for ~200-300 LOC. Adds unnecessary directory depth and complexity. Rejected per Constitution Principle V (Simplicity Over Flexibility).
 
 ---
 
-## Research 4: Encoding Handling on Windows
+## 2. PowerShell 5.1 Compatibility Handling
 
-**Decision**: Use `-Encoding UTF8` for file writes, `-Raw` flag for file reads to get full content as single string. Account for console output cp1252 limitations.
+### Decision
 
-**Rationale**: Windows file encoding can cause corruption:
-- File writes without `-Encoding UTF8` may use system default (often cp1252 on Windows)
-- File reads without `-Raw` may split content at newlines inconsistently
-- Console output in default Windows Terminal/ConHost may render UTF-8 differently
+Enforce PS5.1 syntax throughout all code. Use `if/else` instead of ternary `? :`, explicit null checks with `if ($null -ne $var)` instead of `??`, and separate statements instead of `&&`/`||` chain operators. Use `$PSVersionTable.PSVersion` for runtime version detection if needed. Avoid `foreach -Parallel`, `ConstrainedLanguage` mode assumptions, and any cmdlet introduced after PS5.1.
 
-Specific handling:
-- `Get-Content -Path $file -Raw` to get config content as single string (preserves version patterns)
-- `Set-Content -Path $file -Value $content -Encoding UTF8` for writes (ensures UTF8)
-- `[System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)` for more control if needed
-- Console output: use `Write-Host` (handles basic output), no special encoding needed for simple version display
+### Rationale
 
-**Alternatives Considered**:
-1. *Default encoding*: May corrupt config files on non-English Windows (cp1252 default causes version string issues).
-2. *Binary read*: Too complex for simple config parsing.
-3. *Third-party encoding library*: Violates Zero Dependencies.
+- Windows 10 ships with PowerShell 5.1 by default. Many users will not have PS7 installed, and requiring it violates Constitution Principle I (Zero Dependencies).
+- PS7-only syntax causes parse errors in PS5.1, not just runtime errors. The script will fail to load entirely, not just behave differently.
+- The existing `check-dlss-versions.ps1` already uses PS5.1-compatible patterns (if/else, -match, try/catch). The module must maintain this compatibility.
+- Specific patterns to avoid and their replacements:
+  - `$x ? $x : $default` -> `if ($x) { $x } else { $default }`
+  - `$x ?? $default` -> `if ($null -ne $x) { $x } else { $default }`
+  - `cmd1 && cmd2` -> `cmd1; if ($LASTEXITCODE -eq 0) { cmd2 }` or `cmd1; if ($?) { cmd2 }`
+  - `cmd1 || cmd2` -> `cmd1; if (-not $?) { cmd2 }`
 
----
+### Alternatives Considered
 
-## Research 5: Distribution Packaging
-
-**Decision**: Support three distribution channels with these formats:
-1. **PowerShell Gallery** (primary): `.psd1` manifest with required fields
-2. **Scoop**: JSON manifest (scoop manifest format)
-3. **winget**: YAML file (winget YAML format)
-
-**Rationale**: Per Constitution Principle IV (Distributable as Module), the tool must support standard Windows package managers:
-
-PowerShell Gallery (primary):
-- Uses `.psd1` manifest with fields: RootModule, ModuleVersion, GUID, Author, Description, PowerShellVersion
-- Publish via `Publish-Module -Path <path> -NuGetApiKey <key>`
-- Install via `Install-Module DLSSVersion -Scope CurrentUser`
-
-Scoop (secondary, popular with power users):
-- JSON manifest with: version, description, homepage, license, url, hash, checkver, ps1_update
-- Install to `$ scoop bucket add ngc`, then `scoop install dlss-version-toolkit`
-
-winget (tertiary, Microsoft-backed):
-- YAML with: Id, Version, Publisher, License, InstallerType, Installers, Files
-- Add to winget-pkgs repo via PR
-
-**Alternatives Considered**:
-1. *PowerShell Gallery only*: Would miss users who prefer Scoop or winget.
-2. *Chocolatey*: Less common in gaming communities, more enterprise-focused.
-3. *Direct download*: No package management, harder to update.
+- **Require PS7**: Would enable modern syntax and better performance. Rejected: violates Constitution Principle I and III (Windows-First explicitly states "no PS7+ features").
+- **Dual codebase with #requires**: Would double maintenance surface for a ~200 LOC tool. Rejected per Constitution Principle V.
+- **Transpilation via PSCompat**: Adds a build step and external dependency. Rejected per Constitution Principle I.
 
 ---
 
-## Research 6: Pester Test Patterns for Filesystem-Dependent Code
+## 3. Backup Strategy for Safe Upgrades
 
-**Decision**: Use Pester 5.x for testing, mock NVIDIA NGX paths with `Mock -MockWith` to avoid dependency on actual NVIDIA installations. Provide sample test patterns.
+### Decision
 
-**Rationale**: Filesystem-dependent code is hard to test because:
-- Requires actual NVIDIA NGX folder structure on test machine
-- May fail on machines without NVIDIA software
-- Can't test edge cases (missing folders, corrupted configs) easily
+Before any upgrade operation, create a timestamped backup of the entire Release version folder (not just individual DLLs) to a subdirectory within the same parent path: `C:\ProgramData\NVIDIA\NGX\models\dlss_override\versions\.dlss-backup-<yyyyMMdd-HHmmss>`. Copy all files (DLLs + config) from the target Release build folder into the backup. After backup verification (confirm backup directory exists and file count matches source), proceed with the upgrade. If any copy operation fails mid-upgrade, restore all files from the backup to their original locations. On successful upgrade completion, leave the backup in place (do not auto-delete) so users can manually roll back if needed.
 
-Solution: Mock filesystem operations:
-```powershell
-Mock Get-ChildItem -MockWith { # return test objects }
-Mock Get-Content -MockWith { "dlss, 310.6.0.0`ndlssg, 310.6.0.0" }
-Mock Test-Path -MockWith { $true }
-```
+### Rationale
 
-Test patterns to include:
-1. *Happy path*: Mocked NGX folders with valid configs
-2. *Missing folders*: Mock Test-Path to return $false
-3. *Corrupted config*: Mock invalid config content
-4. *Permission error*: Mock to throw termination error
-5. *Version comparison*: Test semantic version sorting
+- Constitution Principle II (Safe by Default) mandates backup before writes and restore on failure.
+- Backing up the entire folder (rather than individual files) is simpler and guarantees a complete restore point. Individual file backups require tracking which files were modified vs. created, which adds complexity.
+- Using a `.dlss-backup-` prefix with timestamp keeps backups discoverable and ordered. The dot prefix makes them sort separately from version build folders.
+- Leaving backups in place (no auto-delete) is the safest default. Users can manually clean up or re-run the tool to check backup status. Auto-deletion risks removing the only recovery path if the user discovers a problem later.
+- The backup location is within the same ProgramData path, avoiding permission issues (the user already has write access if they triggered an upgrade).
 
-**Alternatives Considered**:
-1. *Integration tests only*: Would require real NVIDIA installation on CI, flaky.
-2. *No tests*: Would violate Safe by Default, regression risk too high.
-3. *Test with temp folders*: More realistic but more setup, easier to skip test runs.
+### Alternatives Considered
+
+- **Individual file backup (per-DLL)**: More granular but requires tracking state across multiple files. If the config file copy fails after two DLLs succeed, partial restore is complex. Folder-level backup is atomic by comparison.
+- **Backup to temp directory ($env:TEMP)**: Simpler path but risks cleanup by other processes or system reboots. Also introduces a different ACL context that might cause permission issues.
+- **Shadow copy (VSS)**: Overkill for a few small files. Requires admin elevation for VSS API calls. Rejected per Constitution Principle V.
+- **No backup (trust the operation)**: Directly violates Constitution Principle II. Rejected.
 
 ---
 
-## Post-Design Constitution Check
+## 4. Encoding Handling on Windows
 
-| Principle | Status | Justification |
-|-----------|--------|---------------|
-| **Zero Dependencies** | PASS | Pure PowerShell 5.1. Pester is dev-only, not bundled with tool. |
-| **Safe by Default** | PASS | Explicit backup before upgrade, restore on failure, read-only default. |
-| **Windows-First** | PASS | PS5.1 syntax, UTF8 encoding, Windows paths, no cross-platform code. |
-| **Distributable as Module** | PASS | Module structure supports Gallery/Scoop/winget. Standalone entry point preserved. |
-| **Simplicity Over Flexibility** | PASS | Single-purpose: inspect and upgrade DLSS. No extra features. |
+### Decision
+
+Use `-Raw` flag for all `Get-Content` calls on configuration files. This reads the entire file as a single string, preserving line endings and avoiding array-of-lines overhead. For `Set-Content`, use `-Encoding UTF8` explicitly. Never rely on the default encoding (which varies between PS5.1 and PS7). When parsing `nvngx_package_config.txt`, use `-Raw` to get the full content as a string before regex matching, which avoids line-by-line encoding issues. For upgrade file copies, prefer `Copy-Item` over read-then-write patterns to preserve the original file encoding exactly.
+
+### Rationale
+
+- PS5.1 defaults to UTF-16LE for `Set-Content` and the system locale encoding for `Get-Content`. PS7 defaults to UTF-8 without BOM. This mismatch causes corruption if the tool is run under different PowerShell versions.
+- The existing script already uses `-Raw` for `Get-Content` (lines 21, 40, 111 of `check-dlss-versions.ps1`). This pattern is proven and must be preserved.
+- NVIDIA's `nvngx_package_config.txt` files are UTF-8 encoded. Using `-Raw` reads them correctly regardless of the console's current code page.
+- For upgrade operations, `Copy-Item` preserves the source file's encoding byte-for-byte. This is safer than `Get-Content | Set-Content` which re-encodes through PowerShell's encoding pipeline.
+- For console output (Write-Host), cp1252 limitations are acceptable since we only display ASCII-safe version numbers and labels. No special handling needed for output.
+- Constitution Principle III (Windows-First) explicitly requires `-Encoding UTF8` or `-Raw` for file I/O.
+
+### Alternatives Considered
+
+- **Explicit BOM handling**: Read with `-Encoding UTF8` and write with `-Encoding UTF8`. Risk: PS5.1's `-Encoding UTF8` writes UTF-8 with BOM, which might confuse NVIDIA's parser. Using `-Raw` for reads avoids this; for writes, we copy the staging config file directly with `Copy-Item` rather than reading and re-writing content.
+- **[System.IO.File]::ReadAllText()**: More explicit encoding control but adds .NET API surface for a simple file read. `Get-Content -Raw` is idiomatic PowerShell and sufficient.
+- **Encoding-agnostic approach (try both)**: Overly complex. The NVIDIA config files are consistently UTF-8. Rejected per Constitution Principle V.
+
+---
+
+## 5. Distribution Packaging
+
+### Decision
+
+Primary: PowerShell Gallery via `Publish-Module`. Secondary: Scoop manifest in a separate `scoop/` directory or a dedicated bucket repository. Tertiary: winget YAML manifest submitted as a PR to the `microsoft/winget-pkgs` repository.
+
+**PowerShell Gallery**: The `.psd1` manifest already contains all required metadata (GUID, version, author, description, FunctionsToExport). Publishing is `Publish-Module -Path ./src -NuGetApiKey <key>`. Users install with `Install-Module DLSSVersion -Scope CurrentUser`.
+
+**Scoop**: Create a `dlss-version-toolkit.json` manifest with URL to the PowerShell Gallery module or a GitHub release ZIP. The manifest specifies the PowerShell script as the install target. Users install with `scoop install dlss-version-toolkit`.
+
+**winget**: Create a `DLSSVersionToolkit.yaml` manifest following the winget manifest schema (version 1.6+). Submit as a PR to `microsoft/winget-pkgs`. The installer type is `zip` or `portable` since this is a PowerShell module, not an MSI. Users install with `winget install DLSSVersionToolkit`.
+
+### Rationale
+
+- PowerShell Gallery is the native distribution channel for PowerShell modules. It provides `Install-Module`, `Update-Module`, and `Find-Module` out of the box. This is the primary channel per Constitution Principle IV.
+- Scoop is popular among Windows power users and developers. A Scoop manifest is a single JSON file with minimal maintenance overhead.
+- winget is the built-in Windows package manager (ships with Windows 11, available on Windows 10). It has the broadest reach but the highest submission friction (manual PR to microsoft/winget-pkgs).
+- The standalone script (`check-dlss-versions.ps1`) enables zero-install usage: download and run. This covers users who do not use any package manager.
+
+### Alternatives Considered
+
+- **Chocolatey**: Requires a `.nuspec` file and Chocolatey-specific packaging conventions. Adds a third packaging format for marginal additional reach. winget + Scoop + PowerShell Gallery covers the Windows audience sufficiently. Rejected per Constitution Principle V.
+- **GitHub Releases only**: No package manager integration. Users must download ZIPs manually. Does not meet spec requirement FR-010 (packageable for standard Windows distribution channels).
+- **Self-extracting EXE**: Requires a build tool (like ps2exe or Invoke-Build). Adds a compiled artifact that cannot be inspected. Violates Constitution Principle I (Zero Dependencies) for the build step and Principle V (Simplicity).
+
+---
+
+## 6. Pester Test Patterns for Filesystem-Dependent Code
+
+### Decision
+
+Use Pester 5.x with `$TestDrive` fixtures for filesystem-dependent tests. Create a temporary NGX directory structure in `BeforeAll` blocks using Pester's built-in `$TestDrive` variable (auto-cleaned per Describe block). Build sample `nvngx_package_config.txt` files and dummy `nvngx_*.dll` files in the fixture. Inject the fixture path into module functions via a `-Path` parameter (with default to the real NGX path), enabling both production use and test isolation.
+
+### Rationale
+
+- Pester's `$TestDrive` provides an isolated temporary directory that is automatically cleaned up after each `Describe` block. This avoids test pollution and does not require manual cleanup.
+- The real NVIDIA NGX directories require NVIDIA software to be installed and may require admin permissions. Tests must run on any development machine without these prerequisites.
+- Adding a `-Path` parameter to `Get-DLSSVersions` and `Start-DLSSUpgrade` is a minimal change that enables testability without adding complexity. The default value points to the real path, so production usage is unchanged.
+- This approach follows the "dependency injection via parameter default" pattern, which is idiomatic in PowerShell testing.
+- Test fixture structure:
+  ```
+  $TestDrive/
+  └── NGX/
+      └── models/
+          └── dlss_override/
+              └── versions/
+                  ├── Build_001/
+                  │   ├── subfolder/
+                  │   │   ├── nvngx_dlss.dll
+                  │   │   ├── nvngx_dlssg.dll
+                  │   │   └── nvngx_package_config.txt
+                  └── Build_002/
+                      └── subfolder/
+                          ├── nvngx_dlss.dll
+                          ├── nvngx_dlssg.dll
+                          └── nvngx_package_config.txt
+  ```
+
+### Alternatives Considered
+
+- **Mock Get-ChildItem and Get-Content**: Pester's `Mock` can intercept cmdlet calls. However, mocking core cmdlets makes tests brittle and does not test the actual filesystem interaction logic (path construction, file discovery). Real fixture files test the actual code path. Mocks are acceptable for error scenarios (permission denied, corrupted content) where creating real error conditions is impractical.
+- **Test against real NGX directories**: Requires NVIDIA software installed on the CI/CD machine. Not portable. Tests would fail on any machine without the exact directory structure.
+- **Environment variable for path override**: More global than a parameter. Risks leaking state between tests if not carefully reset. The `-Path` parameter is scoped per call and cleaner.
+- **Registry-based fixture**: Overkill. The tool reads files, not registry keys. File-based fixtures are simpler and more representative.

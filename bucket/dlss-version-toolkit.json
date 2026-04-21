@@ -1,0 +1,16 @@
+{
+    "version": "0.1.0",
+    "description": "Check and upgrade NVIDIA DLSS override versions on Windows",
+    "homepage": "https://github.com/username/dlss-version-toolkit",
+    "license": "MIT",
+    "url": "https://github.com/username/dlss-version-toolkit/archive/refs/tags/v0.1.0.zip",
+    "hash": "",
+    "checkver": {
+        "url": "https://github.com/username/dlss-version-toolkit/releases/latest",
+        "regex": "tag/v([\\d.]+)"
+    },
+    "psmodule": {
+        "name": "DLSSVersion"
+    },
+    "bin": "check-dlss-versions.ps1"
+}
