@@ -126,78 +126,18 @@ if ($All) {
         Write-Host "  All sources already at newest version!" -ForegroundColor Green
     } else {
         foreach ($rec in $analysis.Recommendations) {
-            Write-Host "  → $($rec.Description)" -ForegroundColor Yellow
+            Write-Host "  -> $($rec.Description)" -ForegroundColor Yellow
         }
         
-        $confirm = "y"
-        if (-not $Force) {
-            $confirm = Read-Host "  Apply these updates? (y/n)"
-        }
-        
-        if ($confirm -eq "y") {
-            Sync-DLSSVersions -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath -Confirm:$false
-        }
+        Sync-DLSSVersions -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath -Force
     }
     
     Write-Host ""
     Write-Host "=== Complete ===" -ForegroundColor Cyan
     exit 0
 }
-    Write-Host "To install locally, run:" -ForegroundColor Yellow
-    Write-Host "  powershell -ExecutionPolicy Bypass -File install.ps1"
-    exit 1
-}
 
-# Auto-detect Streamline SDK path if not provided
-if ($StreamlinePath -eq "") {
-    $searchPaths = @(
-        "$env:USERPROFILE\Downloads\streamline-sdk-v2.11.1",
-        "C:\Users\jolti.PHANERON\Downloads\streamline-sdk-v2.11.1"
-    )
-    foreach ($sp in $searchPaths) {
-        if (Test-Path (Join-Path $sp "bin\x64\nvngx_dlss.dll")) {
-            $StreamlinePath = $sp
-            break
-        }
-    }
-}
-
-# Handle Compare (-Compare) mode - compare all sources
-if ($Compare) {
-    Write-Host "=== DLSS Version Comparison ===" -ForegroundColor Cyan
-    Write-Host ""
-    
-    if ($StreamlinePath -ne "") {
-        Write-Host "Streamline SDK detected: $StreamlinePath" -ForegroundColor Green
-    } else {
-        Write-Host "WARNING: Streamline SDK not found in Downloads!" -ForegroundColor Yellow
-        Write-Host "  Run: Compare-DLSSAllSources -StreamlinePath 'C:\path\to\streamline-sdk-...'" -ForegroundColor Yellow
-    }
-    
-    Compare-DLSSAllSources -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath -ShowDetails
-    exit 0
-}
-
-# Handle Sync (-Sync) mode - find newest and sync
-if ($Sync) {
-    Write-Host "=== DLSS Version Sync ===" -ForegroundColor Cyan
-    Write-Host ""
-    
-    $params = @{}
-    if ($StreamlinePath -ne "") { $params["StreamlinePath"] = $StreamlinePath }
-    if ($GlobalPath -ne "") { $params["GlobalPath"] = $GlobalPath }
-    
-    Sync-DLSSVersions @params -Confirm:$false
-    exit 0
-}
-
-Write-Host "=== DLSS Version Checker ===" -ForegroundColor Cyan
-Write-Host ""
-    Write-Host "To install locally, run:" -ForegroundColor Yellow
-    Write-Host "  powershell -ExecutionPolicy Bypass -File install.ps1"
-    exit 1
-}
-
+# Basic check (default mode)
 Write-Host "=== DLSS Version Checker ===" -ForegroundColor Cyan
 Write-Host ""
 
