@@ -34,8 +34,19 @@ Supports DLSS 3.x, DLSS Frame Generation, DLSS Deep Learning (HDR), DeepDVC, and
 Download or clone the repository and run the script directly:
 
 ```powershell
-# Clone or download, then run:
+# Quick check (NGX Release + Staging only)
 powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1
+
+# FULL HOLISTIC UPDATE (recommended!) - compares all sources and syncs newest:
+powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1 -All
+
+# The -All flag does EVERYTHING:
+# 1. Auto-detects Streamline SDK in Downloads
+# 2. Auto-detects AnWave (dlssglom) in Downloads  
+# 3. Scans all 4 sources (NGX Release, Staging, Streamline SDK, AnWave)
+# 4. Shows version comparison table
+# 5. Determines newest for each component
+# 6. Applies all updates automatically
 ```
 
 ### Option 2: Local Install to PowerShell Modules

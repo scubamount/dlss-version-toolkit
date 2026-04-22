@@ -1,12 +1,13 @@
 # DLSS Version Checker
 # Usage: Run this script to check installed DLSS versions and optionally upgrade to latest
-# Check versions: powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1
-# Full sync with compare: powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1 -Compare
+# Quick check: powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1
+# Full sync: powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1 -All
 
 param(
     [switch]$Upgrade,
     [switch]$Compare,
     [switch]$Sync,
+    [switch]$All,
     [string]$GlobalPath = "",
     [string]$StreamlinePath = ""
 )
@@ -44,6 +45,104 @@ foreach ($dir in $moduleDirs) {
 if (-not $loaded) {
     Write-Host "DLSSVersion module not found." -ForegroundColor Red
     Write-Host ""
+    Write-Host "To install locally, run:" -ForegroundColor Yellow
+    Write-Host "  powershell -ExecutionPolicy Bypass -File install.ps1"
+    exit 1
+}
+
+# Auto-detect Streamline SDK path if not provided
+if ($StreamlinePath -eq "") {
+    $searchPaths = @(
+        "$env:USERPROFILE\Downloads\streamline-sdk-v2.11.1",
+        "C:\Users\jolti.PHANERON\Downloads\streamline-sdk-v2.11.1",
+        "$env:USERPROFILE\Downloads\streamline-sdk"
+    )
+    foreach ($sp in $searchPaths) {
+        if (Test-Path (Join-Path $sp "bin\x64\nvngx_dlss.dll")) {
+            $StreamlinePath = $sp
+            break
+        }
+    }
+}
+
+# Auto-detect AnWave/Global if not provided (common location)
+if ($GlobalPath -eq "") {
+    $globalSearch = @(
+        "$env:USERPROFILE\Downloads\nvidiaDlssGlom",
+        "$env:USERPROFILE\Downloads\dlssglom",
+        "C:\Users\jolti.PHANERON\Downloads\nvidiaDlssGlom"
+    )
+    foreach ($gp in $globalSearch) {
+        if (Test-Path (Join-Path $gp "nvidiaDlssGlom.exe")) {
+            $GlobalPath = $gp
+            break
+        }
+    }
+}
+
+# HOLISTIC: Everything in one command (-All) = Compare + Auto-Sync
+if ($All) {
+    Write-Host "=== DLSS Version Toolkit: Full Update ===" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Step 1: Check dependencies
+    Write-Host "[1/4] Checking dependencies..." -ForegroundColor Gray
+    
+    $issues = @()
+    
+    if ($StreamlinePath -eq "") {
+        $issues += "Streamline SDK not found in Downloads folder"
+    }
+    if ($GlobalPath -eq "") {
+        $issues += "AnWave (dlssglom) not found in Downloads folder"
+    }
+    
+    if ($issues.Count -gt 0) {
+        Write-Host "WARNING: Some components not found:" -ForegroundColor Yellow
+        foreach ($issue in $issues) {
+            Write-Host "  - $issue" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  Streamline SDK: $StreamlinePath" -ForegroundColor Green
+        Write-Host "  AnWave: $GlobalPath" -ForegroundColor Green
+    }
+    
+    # Step 2: Compare all sources
+    Write-Host ""
+    Write-Host "[2/4] Comparing all sources..." -ForegroundColor Gray
+    Compare-DLSSAllSources -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath -ShowDetails
+    
+    # Step 3: Find what needs updating
+    Write-Host ""
+    Write-Host "[3/4] Determining updates needed..." -ForegroundColor Gray
+    
+    $analysis = Compare-DLSSAllSources -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath
+    
+    # Step 4: Apply updates
+    Write-Host ""
+    Write-Host "[4/4] Applying updates..." -ForegroundColor Gray
+    
+    if ($analysis.Recommendations.Count -eq 0) {
+        Write-Host "  All sources already at newest version!" -ForegroundColor Green
+    } else {
+        foreach ($rec in $analysis.Recommendations) {
+            Write-Host "  → $($rec.Description)" -ForegroundColor Yellow
+        }
+        
+        $confirm = "y"
+        if (-not $Force) {
+            $confirm = Read-Host "  Apply these updates? (y/n)"
+        }
+        
+        if ($confirm -eq "y") {
+            Sync-DLSSVersions -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath -Confirm:$false
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "=== Complete ===" -ForegroundColor Cyan
+    exit 0
+}
     Write-Host "To install locally, run:" -ForegroundColor Yellow
     Write-Host "  powershell -ExecutionPolicy Bypass -File install.ps1"
     exit 1
