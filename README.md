@@ -1,6 +1,6 @@
 # DLSS Version Toolkit
 
-A Windows PowerShell tool for checking and upgrading NVIDIA DLSS versions installed via the NVIDIA App DLSS override feature.
+A Windows PowerShell tool for checking and upgrading NVIDIA DLSS versions installed via the NVIDIA App DLSS override feature, with support for AnWave (dlssglom) global override scanning.
 
 ## Prerequisites
 
@@ -58,6 +58,48 @@ Get-DLSSVersions
 
 Output:
 
+```text
+=== DLSS Version Checker ===
+
+Location BuildID    DLSS      FrameGen  DLSSD     DeepDVC  StreamlineSDK
+-------- -------    ----      --------  -----     -------  -------------
+Release  310.6.0.0  310.6.0.0 310.6.0.0 310.6.0.0 310.6.0 Unknown
+Staging  310.7.0.0  310.7.0.0 310.7.0.0 310.7.0.0 310.7.0 Unknown
+
+Latest available: DLSS 310.7.0.0, Frame Gen 310.7.0.0, DLSSD 310.7.0.0, DeepDVC 310.7.0.0 in Staging build 310.7.0.0
+```
+
+### Check Global Override Versions (AnWave / dlssglom)
+
+AnWave (dlssglom) provides global DLSS/Streamline DLL overrides by injecting DLLs from its own folder. Use the `-GlobalPath` parameter to scan it alongside your NGX versions:
+
+```powershell
+# Direct execution with AnWave path
+powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1 -GlobalPath "C:\Path\To\nvidiaDlssGlom"
+
+# Module
+Import-Module DLSSVersion
+Get-DLSSVersions -GlobalPath "C:\Path\To\nvidiaDlssGlom"
+```
+
+Output with Global:
+
+```text
+=== DLSS Version Checker ===
+
+Location BuildID    DLSS      FrameGen  DLSSD     DeepDVC  StreamlineSDK
+-------- -------    ----      --------  -----     -------  -------------
+Release  310.6.0.0  310.6.0.0 310.6.0.0 310.6.0.0 310.6.0 Unknown
+Staging  310.7.0.0  310.7.0.0 310.7.0.0 310.7.0.0 310.7.0 Unknown
+Global   310.6.0.0  310.6.0.0 310.6.0.0 310.6.0.0 310.6.0 2.11.1.0
+
+Latest available: DLSS 310.7.0.0, Frame Gen 310.7.0.0, DLSSD 310.7.0.0, DeepDVC 310.7.0.0 in Staging build 310.7.0.0
+```
+
+> **Note**: Unlike Release/Staging which read versions from `nvngx_package_config.txt`, Global overrides read versions directly from DLL file metadata using `[System.Diagnostics.FileVersionInfo]`.
+
+Output:
+
 ```
 === DLSS Version Checker ===
 
@@ -93,6 +135,9 @@ The upgrade process:
 Import-Module DLSSVersion
 $latest = Get-DLSSLatestVersion
 Write-Host "Latest: $($latest.DLSS) in $($latest.Location)"
+
+# Filter by location
+$global = Get-DLSSLatestVersion -GlobalPath "C:\Path\To\nvidiaDlssGlom" -Location "Global"
 ```
 
 ### Get Help
@@ -115,6 +160,7 @@ Ensure the NVIDIA App is installed and DLSS override is enabled. The tool scans 
 
 - `C:\ProgramData\NVIDIA\NGX\models\dlss_override\versions\` (Release)
 - `C:\ProgramData\NVIDIA\NGX\Staging\models\dlss_override\versions\` (Staging)
+- (AnWave install directory) — use `-GlobalPath` to specify
 
 ### "NVIDIA NGX folder not found"
 
@@ -135,6 +181,32 @@ The tool uses UTF-8 encoding for file reads. If you see garbled text, ensure you
 ## Project Structure
 
 ```
+dlss-version-toolkit/
+├── check-dlss-versions.ps1 # CLI entry point (standalone script)
+├── src/
+│   ├── DLSSVersion.psm1 # Module implementation
+│   └── DLSSVersion.psd1 # Module manifest
+├── specs/001-dlss-version-checker/
+│   ├── data-model.md # Schema (DLSSVersion, DLSSComponent, UpgradeOperation, StreamlineComponent)
+│   ├── spec.md # Feature specification
+│   ├── contracts/module-interface.md
+│   └── research.md
+├── tests/
+│   └── DLSSVersion.Tests.ps1 # Pester tests (dev-only)
+├── bucket/
+│   └── dlss-version-toolkit.json # Scoop manifest
+├── winget/
+│   └── dlss-version-toolkit.yaml # winget manifest
+└── README.md
+```
+
+## Supported Locations
+
+| Location | Source | Version Source | Description |
+|----------|--------|----------------|-------------|
+| Release | NGX ProgramData | nvngx_package_config.txt | Active DLSS override |
+| Staging | NGX ProgramData | nvngx_package_config.txt | NVIDIA driver staging |
+| Global | AnWave/dlssglom folder | DLL file metadata | Global DLL injection override |
 dlss-version-toolkit/
 ├── check-dlss-versions.ps1    # CLI entry point (standalone script)
 ├── src/
