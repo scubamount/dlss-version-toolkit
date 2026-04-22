@@ -906,7 +906,7 @@ function Compare-DLSSAllSources {
     # AnWave/Global
     if ($GlobalPath -ne "") {
         Write-Host "Scanning AnWave (Global)..." -ForegroundColor Gray
-        $globalScan = Get-DLSSVersions -GlobalPath $GlobalPath -Location "Global" | Select-Object -First 1
+        $globalScan = Get-DLSSVersions -GlobalPath $GlobalPath | Where-Object { $_.Location -eq "Global" } | Select-Object -First 1
         if ($globalScan) {
             $sources["AnWave_Global"] = @{
                 Location = "Global"
