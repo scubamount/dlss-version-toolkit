@@ -1,6 +1,18 @@
 # DLSS Version Toolkit
 
-A Windows PowerShell tool for checking and upgrading NVIDIA DLSS versions installed via the NVIDIA App DLSS override feature, with support for AnWave (dlssglom) global override scanning.
+A Windows PowerShell tool for checking and upgrading NVIDIA DLSS versions across multiple sources:
+
+- **NVIDIA NGX Release** (`C:\ProgramData\NVIDIA\NGX\models\dlss_override\versions\`) - Active DLSS override from NVIDIA App
+- **NVIDIA NGX Staging** (`C:\ProgramData\NVIDIA\NGX\Staging\models\dlss_override\versions\`) - Driver-staged DLSS versions
+- **AnWave / dlssglom** (custom folder) - Global DLL injection overrides
+
+Supports DLSS 3.x, DLSS Frame Generation, DLSS Deep Learning (HDR), DeepDVC, and Streamline SDK plugin versions. Includes upgrade capability to copy newer Staging versions to Release location with automatic backup.
+
+**Use cases:**
+- Check what DLSS version is currently active on your system
+- Compare Release vs Staging vs Global override versions
+- Upgrade Release DLSS to match the latest Staging version
+- Scan AnWave/dlssglom folder for global override versions
 
 ## Prerequisites
 
