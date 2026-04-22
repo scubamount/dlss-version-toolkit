@@ -23,36 +23,43 @@ Supports DLSS 3.x, DLSS Frame Generation, DLSS Deep Learning (HDR), DeepDVC, and
 
 ## Installation
 
-### Option 1: Direct Execution (No Install)
+### Option 1: Direct Execution (Recommended - No Install Required)
 
-Download `check-dlss-versions.ps1` and run it directly. No installation required.
+Download or clone the repository and run the script directly:
 
 ```powershell
+# Clone or download, then run:
 powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1
 ```
 
-### Option 2: PowerShell Gallery
+### Option 2: Local Install to PowerShell Modules
+
+Run the included installer to install to your local PowerShell modules folder:
 
 ```powershell
-# Install the module (one-time)
-Install-Module DLSSVersion -Scope CurrentUser
+# Install locally (one-time)
+powershell -ExecutionPolicy Bypass -File install.ps1
 
-# Import and use
+# Now you can use from any session:
 Import-Module DLSSVersion
 Get-DLSSVersions
+
+# Or run the CLI directly:
+check-dlss-versions
+
+# To uninstall:
+powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall
 ```
 
-### Option 3: Scoop
+### Option 3: Manual Install
+
+Copy the `src` folder contents to your PowerShell modules folder:
 
 ```powershell
-# Add the bucket (one-time)
-scoop bucket add dlss-version-toolkit <bucket-url>
+# Target location:
+$env:USERPROFILE\Documents\PowerShell\Modules\DLSSVersion\
 
-# Install
-scoop install dlss-version-toolkit
-
-# Use
-check-dlss-versions
+# Copy DLSSVersion.psm1 and DLSSVersion.psd1 to that folder
 ```
 
 ## Usage

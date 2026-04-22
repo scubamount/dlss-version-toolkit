@@ -3,18 +3,48 @@
 # Check versions: powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1
 # With global overrides: powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1 -GlobalPath "C:\path\to\AnWave"
 # Upgrade to latest: powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1 -Upgrade
+# Local install: powershell -ExecutionPolicy Bypass -File install.ps1
 
 param(
     [switch]$Upgrade,
     [string]$GlobalPath = ""
 )
 
-# Import module from same directory
+# Suppress PSReadLine warnings for cleaner output
+$PSReadLineOptions = @{
+    PredictionSource = $null
+    PredictionViewStyle = $null
+    ColorSettings = @{
+        "MenuColor" = $null
+        "SelectionColor" = $null
+        "ListPredictionColor" = $null
+    }
+}
+
+# Import module from same directory tree (src folder or locally installed)
 $modulePath = Join-Path $PSScriptRoot "src\DLSSVersion.psm1"
-if (Test-Path $modulePath) {
-    Import-Module $modulePath -Force
-} else {
-    Write-Error "Cannot find DLSSVersion module at $modulePath"
+$moduleDirs = @(
+    $modulePath,
+    "$PSScriptRoot\src",
+    "$env:USERPROFILE\Documents\PowerShell\Modules\DLSSVersion",
+    "$env:USERPROFILE\Documents\WindowsPowerShell\Modules\DLSSVersion"
+)
+
+$loaded = $false
+foreach ($dir in $moduleDirs) {
+    $dllPath = Join-Path $dir "DLSSVersion.psm1"
+    if (Test-Path $dllPath) {
+        Import-Module $dllPath -Force
+        $loaded = $true
+        break
+    }
+}
+
+if (-not $loaded) {
+    Write-Host "DLSSVersion module not found." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "To install locally, run:" -ForegroundColor Yellow
+    Write-Host "  powershell -ExecutionPolicy Bypass -File install.ps1"
     exit 1
 }
 
