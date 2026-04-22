@@ -10,10 +10,11 @@ Represents an installed DLSS version from NVIDIA NGX folder structure.
 
 ```powershell
 [PSCustomObject]@{
-    Location = [string]'Release' | 'Staging'  # NGX location type
-    BuildID  = [string]                         # Folder name (e.g., "310.6.0.0")
-    DLSS     = [string]'310.6.0.0'              # DLSS component version
-    FrameGen = [string]'310.6.0.0'              # Frame Gen component version
+    Location = [string]'Release' | 'Staging' | 'Global' # NGX location type
+    BuildID = [string] # Folder name (e.g., "310.6.0.0")
+    DLSS = [string]'310.6.0.0' # DLSS component version
+    FrameGen = [string]'310.6.0.0' # Frame Gen component version
+    StreamlineSDK = [string]'2.11.1.0' # Streamline SDK (sl.*) suite version
 }
 ```
 
@@ -21,17 +22,19 @@ Represents an installed DLSS version from NVIDIA NGX folder structure.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `Location` | string | Yes | One of: `Release`, `Staging`. Identifies NGX folder source. |
+| `Location` | string | Yes | One of: `Release`, `Staging`, `Global`. Identifies NGX folder source. |
 | `BuildID` | string | Yes | Folder name from version directory. Format: `310.6.X.X` semantic version. |
 | `DLSS` | string | Yes | DLSS core component version from config. Parsed from line like `dlss, 310.6.0.0`. |
 | `FrameGen` | string | Yes | DLSS Frame Gen component version. Parsed from line like `dlssg, 310.6.0.0`. |
+| `StreamlineSDK` | string | No | Streamline SDK (sl.*) suite version. Format: `2.11.X.X`. `Unknown` if not applicable (Release/Staging). |
 
 ### Validation Rules
 
-- `Location`: Must be exact match to `Release` or `Staging` (case-sensitive)
+- `Location`: Must be exact match to `Release`, `Staging`, or `Global` (case-sensitive)
 - `BuildID`: Non-empty string, max 50 characters
 - `DLSS`: Must match pattern `^\d+\.\d+\.\d+\.\d+$` (semantic version)
 - `FrameGen`: Must match pattern `^\d+\.\d+\.\d+\.\d+$` or be `Unknown` if component not in config
+- `StreamlineSDK`: Must match pattern `^\d+\.\d+\.\d+\.\d+$` or be `Unknown` if not applicable (Release/Staging locations)
 - `Unknown` is valid for components not present in config (e.g., DeepDVC may not be in all configs)
 
 ### State Transitions
@@ -141,6 +144,58 @@ Transition rules:
 
 ---
 
+## Entity 4: StreamlineComponent
+
+Represents individual Streamline (sl.*) DLL components from AnWave/dlssglom injection.
+
+```powershell
+[PSCustomObject]@{
+    Name     = [string]   # Component name: 'sl.common', 'sl.dlss', 'sl.dlss_d', 'sl.dlss_g', etc.
+    Version = [string]   # Component version from DLL file metadata (e.g., '2.11.1.0')
+    DllFile = [string]   # DLL filename (e.g., 'sl.common.dll')
+    FileSize = [long]    # File size in bytes
+}
+```
+
+### Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `Name` | string | Yes | Component identifier. Valid names below. |
+| `Version` | string | Yes | Version from DLL file metadata. Format: `2.11.X.X`. |
+| `DllFile` | string | Yes | DLL filename. |
+| `FileSize` | long | Yes | File size in bytes from filesystem. |
+
+### Known Components
+
+| Name | DLL File | Description |
+|------|----------|-------------|
+| `sl.common` | `sl.common.dll` | Streamline common library |
+| `sl.dlss` | `sl.dlss.dll` | Streamline DLSS plugin |
+| `sl.dlss_d` | `sl.dlss_d.dll` | Streamline DLSS Ray Reconstruction plugin |
+| `sl.dlss_g` | `sl.dlss_g.dll` | Streamline DLSS Frame Generation plugin |
+| `sl.deepdvc` | `sl.deepdvc.dll` | Streamline DeepDVC plugin |
+| `sl.directsr` | `sl.directsr.dll` | Streamline DirectSR plugin |
+| `sl.imgui` | `sl.imgui.dll` | Streamline ImGui debug plugin |
+| `sl.interposer` | `sl.interposer.dll` | Streamline interposer module |
+| `sl.nis` | `sl.nis.dll` | Streamline NIS plugin |
+| `sl.nvperf` | `sl.nvperf.dll` | Streamline NVPerf plugin |
+| `sl.pcl` | `sl.pcl.dll` | Streamline PCL plugin |
+| `sl.reflex` | `sl.reflex.dll` | Streamline Reflex plugin |
+
+### Validation Rules
+
+- `Name`: Must be one of known component names (case-sensitive exact match)
+- `Version`: Must match pattern `^\d+\.\d+\.\d+\.\d+$` (semantic version)
+- `DllFile`: Must match pattern `^sl\..+\.dll$` (case-sensitive)
+- `FileSize`: Must be greater than 0
+
+### State Transitions
+
+N/A -- StreamlineComponent is parsed from DLL metadata, not a stateful entity.
+
+---
+
 ## Configuration File Format
 
 NVIDIA NGX uses `nvngx_package_config.txt` with line-delimited component versions:
@@ -193,6 +248,7 @@ C:\ProgramData\NVIDIA\NGX\
 |----------|----------|-------|
 | Release | `C:\ProgramData\NVIDIA\NGX\models\dlss_override\versions\` | User-accessible DLSS |
 | Staging | `C:\ProgramData\NVIDIA\NGX\Staging\models\dlss_override\versions\` | NVIDIA driver staging |
+| Global | (AnWave install directory) | DLL injection override via AnWave/dlssglom |
 
 ### Path Override for Testing
 
@@ -213,6 +269,29 @@ Get-DLSSVersions -Path "$TestDrive\NGX"
 3. For each version folder, find config file recursively: `nvngx_package_config.txt`
 4. Parse config to get component versions using regex matching
 5. Return array of DLSSVersion objects
+
+---
+
+## Global Override Path (AnWave / dlssglom)
+
+AnWave (dlssglom) provides global DLSS/Streamline DLL overrides by injecting DLLs from its own folder.
+Unlike NGX Release/Staging which use nvngx_package_config.txt, Global overrides store DLLs directly
+in the AnWave installation directory. Version info is read from DLL file metadata (FileVersion).
+
+### Path Configuration
+
+| Location | Base Path | Notes |
+|----------|----------|-------|
+| Global | (configurable, default: AnWave install directory) | DLL injection from own folder |
+
+Default Global path: The directory containing `nvidiaDlssGlom.exe`
+
+### Scan Rules (Global)
+
+1. Check if Global path exists (Test-Path)
+2. Enumerate DLL files matching known component names (`nvngx_*.dll`, `sl.*.dll`)
+3. Extract version from DLL file metadata using `[System.Diagnostics.FileVersionInfo]::GetVersionInfo()`
+4. Return single DLSSVersion object with Location = "Global" and component versions from DLL metadata
 
 ---
 

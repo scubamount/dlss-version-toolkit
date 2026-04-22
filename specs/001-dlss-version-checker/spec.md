@@ -75,6 +75,23 @@ As a PC gamer who uses multiple NVIDIA DLSS features, I want to see versions for
 
 ---
 
+### User Story 5 - Check Global Override Versions via AnWave (Priority: P2)
+
+As a PC gamer using AnWave (dlssglom) for global DLSS overrides, I want to see the versions of all DLSS and Streamline DLLs in my AnWave folder alongside my NGX versions so that I can compare them and know if my global overrides are up to date.
+
+**Why this priority**: AnWave users need visibility into their global override DLL versions to know if they need updating. This is a natural extension of the version checking feature for a growing user base.
+
+**Independent Test**: Can be fully tested by running the tool with the -GlobalPath parameter pointing to an AnWave installation and verifying it displays all DLL versions from file metadata.
+
+**Acceptance Scenarios**:
+
+1. **Given** AnWave is installed with global override DLLs, **When** user runs tool with -GlobalPath parameter, **Then** display all Global DLL versions (DLSS, FrameGen, DLSSD, DeepDVC, StreamlineSDK) from file metadata
+2. **Given** Both NGX and Global overrides are present, **When** user runs tool, **Then** show combined list with Location column indicating "Release", "Staging", or "Global"
+3. **Given** AnWave folder does not exist, **When** user runs tool with -GlobalPath, **Then** display warning without errors, still show NGX versions
+4. **Given** Global override DLLs have older versions than NGX Release, **When** user runs tool, **Then** show all three locations enabling visual version comparison
+
+---
+
 ### Edge Cases
 
 - What happens when the NVIDIA DLSS folders do not exist at all (fresh system with no NVIDIA software)?
@@ -83,6 +100,9 @@ As a PC gamer who uses multiple NVIDIA DLSS features, I want to see versions for
 - How does the system handle permission denied errors when trying to copy files during upgrade?
 - What when game DLSS files have different versions than expected?
 - How does the tool handle systems with limited user permissions?
+- What when AnWave folder contains a mix of outdated and current DLLs (partial update)?
+- What when DLL file metadata is missing version information (unversioned DLLs)?
+- What when the Global path is specified but contains no recognized DLL files?
 
 ## Requirements *(mandatory)*
 
