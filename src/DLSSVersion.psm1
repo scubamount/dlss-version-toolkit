@@ -13,6 +13,28 @@ $script:ConfigFileName = "nvngx_package_config.txt"
 $script:DllNames = @("nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll")
 $script:BackupPrefix = ".dlss-backup-"
 
+# Global (AnWave/dlssglom) DLL names and Streamline mapping
+$script:GlobalDllNames = @(
+    "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll", "nvngx_deepdvc.dll",
+    "sl.common.dll", "sl.dlss.dll", "sl.dlss_d.dll", "sl.dlss_g.dll",
+    "sl.deepdvc.dll", "sl.directsr.dll", "sl.imgui.dll", "sl.interposer.dll",
+    "sl.nis.dll", "sl.nvperf.dll", "sl.pcl.dll", "sl.reflex.dll"
+)
+$script:StreamlineDllToComponentName = @{
+    "sl.common.dll"    = "sl.common"
+    "sl.dlss.dll"      = "sl.dlss"
+    "sl.dlss_d.dll"    = "sl.dlss_d"
+    "sl.dlss_g.dll"    = "sl.dlss_g"
+    "sl.deepdvc.dll"   = "sl.deepdvc"
+    "sl.directsr.dll"  = "sl.directsr"
+    "sl.imgui.dll"     = "sl.imgui"
+    "sl.interposer.dll"= "sl.interposer"
+    "sl.nis.dll"       = "sl.nis"
+    "sl.nvperf.dll"    = "sl.nvperf"
+    "sl.pcl.dll"       = "sl.pcl"
+    "sl.reflex.dll"    = "sl.reflex"
+}
+
 # ============================================================================
 # Private Functions (Not Exported)
 # ============================================================================
@@ -81,12 +103,92 @@ function Get-NgxVersionConfig {
     }
 }
 
+function Get-GlobalDllVersions {
+<#
+.SYNOPSIS
+Reads DLL versions from file metadata in a Global (AnWave/dlssglom) folder.
+.DESCRIPTION
+Unlike Release/Staging which use nvngx_package_config.txt, Global stores
+DLLs directly in a flat folder. Versions are read from DLL file metadata
+using [System.Diagnostics.FileVersionInfo]::GetVersionInfo().
+.PARAMETER GlobalPath
+Path to the Global (AnWave) folder containing the DLLs.
+.OUTPUTS
+PSCustomObject with DLSS, FrameGen, DLSSD, DeepDVC, and StreamlineSDK version strings.
+#>
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$GlobalPath
+)
+
+$dlssVersion = "Unknown"
+$frameGenVersion = "Unknown"
+$dlssdVersion = "Unknown"
+$deepdvcVersion = "Unknown"
+$streamlineVersion = "Unknown"
+
+if (-not (Test-Path $GlobalPath)) {
+    return [PSCustomObject]@{
+        DLSS        = $dlssVersion
+        FrameGen    = $frameGenVersion
+        DLSSD       = $dlssdVersion
+        DeepDVC     = $deepdvcVersion
+        StreamlineSDK = $streamlineVersion
+    }
+}
+
+try {
+    # Read NGX DLL versions from file metadata
+    $dlssDll = Join-Path $GlobalPath "nvngx_dlss.dll"
+    if (Test-Path $dlssDll) {
+        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dlssDll)
+        $dlssVersion = $vi.FileVersion -replace ',', '.'
+    }
+
+    $dlssgDll = Join-Path $GlobalPath "nvngx_dlssg.dll"
+    if (Test-Path $dlssgDll) {
+        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dlssgDll)
+        $frameGenVersion = $vi.FileVersion -replace ',', '.'
+    }
+
+    $dlssdDll = Join-Path $GlobalPath "nvngx_dlssd.dll"
+    if (Test-Path $dlssdDll) {
+        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dlssdDll)
+        $dlssdVersion = $vi.FileVersion -replace ',', '.'
+    }
+
+    $deepdvcDll = Join-Path $GlobalPath "nvngx_deepdvc.dll"
+    if (Test-Path $deepdvcDll) {
+        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($deepdvcDll)
+        $deepdvcVersion = $vi.FileVersion -replace ',', '.'
+    }
+
+    # Read Streamline version from sl.common.dll (canonical SL version indicator)
+    $slCommonDll = Join-Path $GlobalPath "sl.common.dll"
+    if (Test-Path $slCommonDll) {
+        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($slCommonDll)
+        $streamlineVersion = $vi.FileVersion -replace ',', '.'
+    }
+}
+catch {
+    Write-Warning "Failed to read Global DLL versions from '$GlobalPath': $($_.Exception.Message)"
+}
+
+return [PSCustomObject]@{
+    DLSS        = $dlssVersion
+    FrameGen    = $frameGenVersion
+    DLSSD       = $dlssdVersion
+    DeepDVC     = $deepdvcVersion
+    StreamlineSDK = $streamlineVersion
+}
+}
+
 function New-DLSSVersionObject {
     <#
     .SYNOPSIS
     Creates a DLSSVersion entity object.
     .PARAMETER Location
-    Either "Release" or "Staging".
+    Either "Release", "Staging", or "Global".
     .PARAMETER BuildID
     The version folder name (build identifier).
     .PARAMETER DLSS
@@ -97,12 +199,14 @@ function New-DLSSVersionObject {
     The DLSSD version string.
     .PARAMETER DeepDVC
     The DeepDVC version string.
+    .PARAMETER StreamlineSDK
+    The Streamline SDK version string.
     .OUTPUTS
-    PSCustomObject with Location, BuildID, DLSS, FrameGen, DLSSD, DeepDVC properties.
+    PSCustomObject with Location, BuildID, DLSS, FrameGen, DLSSD, DeepDVC, StreamlineSDK properties.
     #>
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("Release", "Staging")]
+        [ValidateSet("Release", "Staging", "Global")]
         [string]$Location,
 
         [Parameter(Mandatory = $true)]
@@ -118,7 +222,10 @@ function New-DLSSVersionObject {
         [string]$DLSSD = "Unknown",
 
         [Parameter(Mandatory = $false)]
-        [string]$DeepDVC = "Unknown"
+        [string]$DeepDVC = "Unknown",
+
+        [Parameter(Mandatory = $false)]
+        [string]$StreamlineSDK = "Unknown"
     )
 
     return [PSCustomObject]@{
@@ -126,8 +233,9 @@ function New-DLSSVersionObject {
         BuildID  = $BuildID
         DLSS     = $DLSS
         FrameGen = $FrameGen
-        DLSSD    = $DLSSD
+        DLSSD   = $DLSSD
         DeepDVC  = $DeepDVC
+StreamlineSDK = $StreamlineSDK
     }
 }
 
@@ -257,21 +365,29 @@ function Restore-DLSSBackup {
 function Get-DLSSVersions {
     <#
     .SYNOPSIS
-    Gets all installed DLSS versions from Release and Staging locations.
+    Gets all installed DLSS versions from Release, Staging, and Global locations.
     .DESCRIPTION
-    Scans the NVIDIA NGX Release and Staging directories for installed
-    DLSS versions and returns detailed version information including
-    DLSS, FrameGen (dlssg), DLSSD, and DeepDVC component versions.
+    Scans the NVIDIA NGX Release and Staging directories, and optionally
+    the Global (AnWave/dlssglom) directory for installed DLSS versions
+    and returns detailed version information including DLSS, FrameGen (dlssg),
+    DLSSD, DeepDVC, and StreamlineSDK component versions.
     .PARAMETER Path
     Base NGX directory path. Defaults to C:\ProgramData\NVIDIA\NGX.
     Override for testing with fixture directories.
+    .PARAMETER GlobalPath
+    Path to the Global (AnWave/dlssglom) folder. If not specified, Global
+    scanning is skipped.
     .OUTPUTS
-    Array of DLSSVersion objects with Location, BuildID, DLSS, FrameGen, DLSSD, and DeepDVC properties.
+    Array of DLSSVersion objects with Location, BuildID, DLSS, FrameGen,
+    DLSSD, DeepDVC, and StreamlineSDK properties.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $false)]
-        [string]$Path = $script:DefaultNgxBasePath
+        [string]$Path = $script:DefaultNgxBasePath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$GlobalPath = ""
     )
 
     $results = @()
@@ -321,6 +437,22 @@ function Get-DLSSVersions {
         }
     }
 
+    # Scan Global path (AnWave/dlssglom)
+    if ($GlobalPath -ne "" -and (Test-Path $GlobalPath)) {
+        try {
+            $globalConfig = Get-GlobalDllVersions -GlobalPath $GlobalPath
+            # Use the DLSS version as BuildID for Global (no folder-based BuildID)
+            $buildId = if ($globalConfig.DLSS -ne "Unknown") { $globalConfig.DLSS } else { "unknown" }
+            $results += New-DLSSVersionObject -Location "Global" -BuildID $buildId `
+                -DLSS $globalConfig.DLSS -FrameGen $globalConfig.FrameGen `
+                -DLSSD $globalConfig.DLSSD -DeepDVC $globalConfig.DeepDVC `
+                -StreamlineSDK $globalConfig.StreamlineSDK
+        }
+        catch {
+            Write-Warning "Cannot scan Global path '$GlobalPath': $($_.Exception.Message)"
+        }
+    }
+
     return $results
 }
 
@@ -334,8 +466,11 @@ function Get-DLSSLatestVersion {
     .PARAMETER Path
     Base NGX directory path. Defaults to C:\ProgramData\NVIDIA\NGX.
     Override for testing with fixture directories.
+    .PARAMETER GlobalPath
+    Path to the Global (AnWave/dlssglom) folder. If not specified, Global
+    scanning is skipped.
     .PARAMETER Location
-    Optional filter: "Release" or "Staging". Default is all locations.
+    Optional filter: "Release", "Staging", or "Global". Default is all locations.
     .OUTPUTS
     Single DLSSVersion object, or $null if no versions found.
     #>
@@ -345,11 +480,14 @@ function Get-DLSSLatestVersion {
         [string]$Path = $script:DefaultNgxBasePath,
 
         [Parameter(Mandatory = $false)]
-        [ValidateSet("", "Release", "Staging")]
+        [string]$GlobalPath = "",
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet("", "Release", "Staging", "Global")]
         [string]$Location = ""
     )
 
-    $allVersions = Get-DLSSVersions -Path $Path
+    $allVersions = Get-DLSSVersions -Path $Path -GlobalPath $GlobalPath
 
     if ($allVersions.Count -eq 0) {
         return $null
