@@ -747,11 +747,355 @@ function Start-DLSSUpgrade {
 }
 
 # ============================================================================
+# Streamline SDK Integration Functions
+# ============================================================================
+
+function Get-StreamlineVersions {
+    <#
+    .SYNOPSIS
+    Gets DLSS/Streamline versions from a Streamline SDK folder.
+    .PARAMETER Path
+    Path to the Streamline SDK (folder containing bin\x64 with DLLs).
+    .OUTPUTS
+    PSCustomObject with component versions or $null if not found.
+    #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Path = ""
+    )
+
+    $result = [PSCustomObject]@{
+        Source = "StreamlineSDK"
+        BasePath = $Path
+        Exists = $false
+        DLSS = "Unknown"
+        FrameGen = "Unknown"
+        DLSSD = "Unknown"
+        DeepDVC = "Unknown"
+        StreamlineSDK = "Unknown"
+        DllPaths = @{}
+    }
+
+    if ($Path -eq "") {
+        # Check common default locations
+        $searchPaths = @(
+            "$env:USERPROFILE\Downloads\streamline-sdk-v2.11.1",
+            "$env:USERPROFILE\Downloads\streamline-sdk",
+            "C:\Users\jolti.PHANERON\Downloads\streamline-sdk-v2.11.1"
+        )
+        foreach ($sp in $searchPaths) {
+            if (Test-Path (Join-Path $sp "bin\x64\nvngx_dlss.dll")) {
+                $Path = $sp
+                break
+            }
+        }
+    }
+
+    if ($Path -eq "" -or -not (Test-Path $Path)) {
+        return $result
+    }
+
+    $binPath = Join-Path $Path "bin\x64"
+    if (-not (Test-Path $binPath)) {
+        $binPath = $Path
+    }
+
+    if (-not (Test-Path (Join-Path $binPath "nvngx_dlss.dll"))) {
+        return $result
+    }
+
+    $result.Exists = $true
+    $result.BasePath = $binPath
+
+    # Read versions from DLL metadata
+    $dlls = @{
+        "nvngx_dlss.dll" = "DLSS"
+        "nvngx_dlssg.dll" = "FrameGen"
+        "nvngx_dlssd.dll" = "DLSSD"
+        "nvngx_deepdvc.dll" = "DeepDVC"
+        "sl.common.dll" = "StreamlineSDK"
+    }
+
+    foreach ($dll in $dlls.Keys) {
+        $fullPath = Join-Path $binPath $dll
+        if (Test-Path $fullPath) {
+            $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($fullPath)
+            $version = $vi.FileVersion -replace ',', '.'
+            $prop = $dlls[$dll]
+            $result.$prop = $version
+            $result.DllPaths[$dll] = $fullPath
+        }
+    }
+
+    return $result
+}
+
+function Compare-DLSSAllSources {
+    <#
+    .SYNOPSIS
+    Compares DLSS/Streamline versions across all sources.
+    .PARAMETER StreamlinePath
+    Path to local Streamline SDK. Auto-detected if not provided.
+    .PARAMETER GlobalPath  
+    Path to AnWave/dlssglom folder.
+    .PARAMETER ShowDetails
+    Show detailed comparison table.
+    .OUTPUTS
+    Hashtable with all sources and recommendations.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$StreamlinePath = "",
+
+        [Parameter(Mandatory = $false)]
+        [string]$GlobalPath = "",
+
+        [Parameter(Mandatory = $false)]
+        [switch]$ShowDetails
+    )
+
+    $sources = @{}
+
+    # NGX Release
+    Write-Host "Scanning NGX Release..." -ForegroundColor Gray
+    $ngxRelease = Get-DLSSLatestVersion -Location "Release"
+    if ($ngxRelease) {
+        $sources["NGX_Release"] = @{
+            Location = "Release"
+            DLSS = $ngxRelease.DLSS
+            FrameGen = $ngxRelease.FrameGen
+            DLSSD = $ngxRelease.DLSSD
+            DeepDVC = $ngxRelease.DeepDVC
+            StreamlineSDK = "N/A"
+        }
+    }
+
+    # NGX Staging
+    Write-Host "Scanning NGX Staging..." -ForegroundColor Gray
+    $ngxStaging = Get-DLSSLatestVersion -Location "Staging"
+    if ($ngxStaging) {
+        $sources["NGX_Staging"] = @{
+            Location = "Staging"
+            DLSS = $ngxStaging.DLSS
+            FrameGen = $ngxStaging.FrameGen
+            DLSSD = $ngxStaging.DLSSD
+            DeepDVC = $ngxStaging.DeepDVC
+            StreamlineSDK = "N/A"
+        }
+    }
+
+    # Streamline SDK
+    Write-Host "Scanning Streamline SDK..." -ForegroundColor Gray
+    $sl = Get-StreamlineVersions -Path $StreamlinePath
+    if ($sl.Exists) {
+        $sources["StreamlineSDK"] = @{
+            Location = "StreamlineSDK"
+            DLSS = $sl.DLSS
+            FrameGen = $sl.FrameGen
+            DLSSD = $sl.DLSSD
+            DeepDVC = $sl.DeepDVC
+            StreamlineSDK = $sl.StreamlineSDK
+            Path = $sl.BasePath
+            DllPaths = $sl.DllPaths
+        }
+    } else {
+        Write-Host "WARNING: Streamline SDK not found at specified path!" -ForegroundColor Yellow
+    }
+
+    # AnWave/Global
+    if ($GlobalPath -ne "") {
+        Write-Host "Scanning AnWave (Global)..." -ForegroundColor Gray
+        $globalScan = Get-DLSSVersions -GlobalPath $GlobalPath -Location "Global" | Select-Object -First 1
+        if ($globalScan) {
+            $sources["AnWave_Global"] = @{
+                Location = "Global"
+                DLSS = $globalScan.DLSS
+                FrameGen = $globalScan.FrameGen
+                DLSSD = $globalScan.DLSSD
+                DeepDVC = $globalScan.DeepDVC
+                StreamlineSDK = $globalScan.StreamlineSDK
+                Path = $GlobalPath
+            }
+        }
+    }
+
+    # Find newest for each component
+    $newest = @{
+        DLSS = @{ Version = "0.0.0.0"; Source = "" }
+        FrameGen = @{ Version = "0.0.0.0"; Source = "" }
+        DLSSD = @{ Version = "0.0.0.0"; Source = "" }
+        DeepDVC = @{ Version = "0.0.0.0"; Source = "" }
+        StreamlineSDK = @{ Version = "0.0.0.0"; Source = "" }
+    }
+
+    foreach ($src in $sources.Keys) {
+        $s = $sources[$src]
+        foreach ($comp in @("DLSS", "FrameGen", "DLSSD", "DeepDVC", "StreamlineSDK")) {
+            if ($s.$comp -ne "Unknown" -and $s.$comp -ne "N/A") {
+                try {
+                    $ver = [version]$s.$comp
+                    if ($ver -gt $newest[$comp].Version) {
+                        $newest[$comp] = @{ Version = $ver; Source = $src }
+                    }
+                } catch {}
+            }
+        }
+    }
+
+    # Recommendations
+    $recommendations = @()
+
+    # Check if Streamline SDK is newer than NGX
+    if ($sources["StreamlineSDK"] -and $sources["NGX_Release"]) {
+        $sl = $sources["StreamlineSDK"]
+        $ngx = $sources["NGX_Release"]
+        if ($sl.DLSS -ne "Unknown" -and $ngx.DLSS -ne "Unknown") {
+            try {
+                if ([version]$sl.DLSS -gt [version]$ngx.DLSS) {
+                    $recommendations += [PSCustomObject]@{
+                        Action = "Update_NGX_from_Streamline"
+                        Description = "Streamline SDK has newer DLSS ($($sl.DLSS) > $($ngx.DLSS))"
+                        From = "StreamlineSDK"
+                        To = "NGX Release"
+                    }
+                }
+            } catch {}
+        }
+    }
+
+    if ($ShowDetails) {
+        Write-Host ""
+        Write-Host "=== Version Comparison ===" -ForegroundColor Cyan
+        $table = @()
+        foreach ($src in $sources.Keys) {
+            $s = $sources[$src]
+            $table += [PSCustomObject]@{
+                Source = $src
+                DLSS = $s.DLSS
+                FrameGen = $s.FrameGen
+                DLSSD = $s.DLSSD
+                DeepDVC = $s.DeepDVC
+                Streamline = $s.StreamlineSDK
+            }
+        }
+        $table | Format-Table -AutoSize
+
+        Write-Host "=== Newest Versions ===" -ForegroundColor Cyan
+        foreach ($comp in $newest.Keys) {
+            $n = $newest[$comp]
+            Write-Host "$comp`: $($n.Version) (from $($n.Source))" -ForegroundColor Yellow
+        }
+    }
+
+    return @{
+        Sources = $sources
+        Newest = $newest
+        Recommendations = $recommendations
+    }
+}
+
+function Sync-DLSSVersions {
+    <#
+    .SYNOPSIS
+    Syncs newest DLSS/Streamline versions to target location.
+    .PARAMETER Source
+    Source location: "StreamlineSDK", "Staging", or "Global"
+    .PARAMETER Target
+    Target location: "NGX_Release", "AnWave", or "Global"
+    .PARAMETER StreamlinePath
+    Path to Streamline SDK folder.
+    .PARAMETER GlobalPath
+    Path to AnWave/dlssglom folder.
+    .PARAMETER Force
+    Overwrite without confirmation.
+    .OUTPUTS
+    Array of sync operations and results.
+    #>
+    [CmdletBinding(ConfirmImpact = 'High', SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $false)]
+        [ValidateSet("", "StreamlineSDK", "Staging", "Global")]
+        [string]$Source = "",
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet("", "NGX_Release", "AnWave")]
+        [string]$Target = "",
+
+        [Parameter(Mandatory = $false)]
+        [string]$StreamlinePath = "",
+
+        [Parameter(Mandatory = $false)]
+        [string]$GlobalPath = "",
+
+        [switch]$Force
+    )
+
+    # Get comparison first
+    Write-Host "Analyzing versions across all sources..." -ForegroundColor Cyan
+    $analysis = Compare-DLSSAllSources -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath
+
+    if ($analysis.Recommendations.Count -eq 0) {
+        Write-Host "No updates needed - all sources are at newest version." -ForegroundColor Green
+        return
+    }
+
+    Write-Host ""
+    Write-Host "=== Recommended Actions ===" -ForegroundColor Yellow
+    $analysis.Recommendations | Format-Table -AutoSize
+
+    if (-not $Force) {
+        $confirm = Read-Host "Proceed with sync? (y/n)"
+        if ($confirm -ne "y") {
+            Write-Host "Cancelled." -ForegroundColor Yellow
+            return
+        }
+    }
+
+    # Execute sync based on recommendation
+    foreach ($rec in $analysis.Recommendations) {
+        $src = $analysis.Sources[$rec.From]
+        $dstPath = ""
+
+        if ($rec.To -eq "NGX_Release") {
+            $dstPath = Join-Path $script:DefaultNgxBasePath $script:ReleaseSubPath
+            $folders = Get-ChildItem -Path $dstPath -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+            if ($folders) {
+                $dstPath = $folders[0].FullName
+            }
+        } elseif ($rec.To -eq "AnWave") {
+            $dstPath = $GlobalPath
+        }
+
+        if ($dstPath -and (Test-Path $dstPath)) {
+            Write-Host "Syncing from $($rec.From) to $($rec.To)..." -ForegroundColor Cyan
+            
+            # Copy DLLs
+            if ($src.DllPaths) {
+                foreach ($dll in $src.DllPaths.Keys) {
+                    $srcFile = $src.DllPaths[$dll]
+                    $dstFile = Join-Path $dstPath $dll
+                    if (Test-Path $dstFile) {
+                        Copy-Item -Path $srcFile -Destination $dstFile -Force
+                        Write-Host "  Copied: $dll" -ForegroundColor Green
+                    }
+                }
+            }
+        }
+    }
+
+    Write-Host "Sync complete!" -ForegroundColor Green
+}
+
+# ============================================================================
 # Export Module Members
 # ============================================================================
 
 Export-ModuleMember -Function @(
     'Get-DLSSVersions',
     'Get-DLSSLatestVersion',
-    'Start-DLSSUpgrade'
+    'Start-DLSSUpgrade',
+    'Get-StreamlineVersions',
+    'Sync-DLSSVersions',
+    'Compare-DLSSAllSources'
 )
