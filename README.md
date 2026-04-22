@@ -1,18 +1,24 @@
 # DLSS Version Toolkit
 
-A Windows PowerShell tool for checking and upgrading NVIDIA DLSS versions across multiple sources:
+A Windows PowerShell tool for checking, comparing, and syncing NVIDIA DLSS versions across multiple sources:
 
 - **NVIDIA NGX Release** (`C:\ProgramData\NVIDIA\NGX\models\dlss_override\versions\`) - Active DLSS override from NVIDIA App
 - **NVIDIA NGX Staging** (`C:\ProgramData\NVIDIA\NGX\Staging\models\dlss_override\versions\`) - Driver-staged DLSS versions
 - **AnWave / dlssglom** (custom folder) - Global DLL injection overrides
+- **Streamline SDK** (download folder) - Downloaded NVIDIA SDK with latest DLLs
 
-Supports DLSS 3.x, DLSS Frame Generation, DLSS Deep Learning (HDR), DeepDVC, and Streamline SDK plugin versions. Includes upgrade capability to copy newer Staging versions to Release location with automatic backup.
+Supports DLSS 3.x, DLSS Frame Generation, DLSS Deep Learning (HDR), DeepDVC, and Streamline SDK plugin versions. Includes:
+- Version checking across all sources
+- Comparison to find newest versions
+- Sync/copy newest DLLs to target locations
+- Upgrade Staging → Release with automatic backup
 
 **Use cases:**
 - Check what DLSS version is currently active on your system
-- Compare Release vs Staging vs Global override versions
+- Compare Release vs Staging vs Global vs Streamline SDK versions
+- Find the newest version across all sources
+- Sync/copy newest DLLs from Streamline SDK to NGX or AnWave
 - Upgrade Release DLSS to match the latest Staging version
-- Scan AnWave/dlssglom folder for global override versions
 
 ## Prerequisites
 
@@ -165,7 +171,87 @@ $global = Get-DLSSLatestVersion -GlobalPath "C:\Path\To\nvidiaDlssGlom" -Locatio
 Get-Help Get-DLSSVersions
 Get-Help Get-DLSSLatestVersion
 Get-Help Start-DLSSUpgrade
+Get-Help Compare-DLSSAllSources
+Get-Help Sync-DLSSVersions
+Get-Help Get-StreamlineVersions
 ```
+
+### Compare All Sources (Recommended)
+
+Compare versions across ALL sources to find the newest:
+
+```powershell
+# CLI - compares NGX Release, Staging, Streamline SDK, and AnWave
+powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1 -Compare
+
+# Module - with auto-detected Streamline SDK
+Import-Module DLSSVersion
+Compare-DLSSAllSources -ShowDetails
+
+# Module - with specific paths
+Compare-DLSSAllSources -StreamlinePath "C:\Users\jolti.PHANERON\Downloads\streamline-sdk-v2.11.1" -GlobalPath "C:\Users\jolti.PHANERON\Downloads\nvidiaDlssGlom" -ShowDetails
+```
+
+The compare command:
+1. Scans NGX Release (ProgramData)
+2. Scans NGX Staging (ProgramData)
+3. Scans Streamline SDK (auto-detects in Downloads or uses provided path)
+4. Scans AnWave/Global (if path provided)
+5. Determines newest version for each component
+6. Shows recommendations for updates
+
+**Example output:**
+
+```text
+=== Version Comparison ===
+Source          DLSS       FrameGen   DLSSD      DeepDVC    Streamline
+--------------- ---------   --------   -----      -------   ----------
+NGX_Release    310.6.0.0   310.6.0.0  310.6.0.0  310.6.0.0  N/A
+NGX_Staging   310.7.0.0  310.7.0.0  310.7.0.0  310.6.0.0  N/A
+StreamlineSDK  310.6.0.0  310.6.0.0  310.6.0.0  310.6.0.0  2.11.1.0
+AnWave_Global 310.6.0.0  310.6.0.0  310.6.0.0  310.6.0.0  2.11.1.0
+
+=== Newest Versions ===
+DLSS: 310.7.0.0 (from NGX_Staging)
+FrameGen: 310.7.0.0 (from NGX_Staging)
+DLSSD: 310.7.0.0 (from NGX_Staging)
+DeepDVC: 310.6.0.0 (from NGX_Staging)
+StreamlineSDK: 2.11.1.0 (from StreamlineSDK)
+```
+
+### Sync to Target Location
+
+Automatically copy newest versions to target (NGX Release, AnWave, etc):
+
+```powershell
+# CLI - auto-sync based on recommendations
+powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1 -Sync
+
+# Module - sync specific source to target
+Import-Module DLSSVersion
+Sync-DLSSVersions -Source StreamlineSDK -Target NGX_Release
+Sync-DLSSVersions -Source StreamlineSDK -Target AnWave -GlobalPath "C:\Path\To\nvidiaDlssGlom"
+```
+
+The sync command:
+1. Analyzes all sources
+2. Finds which has the newest version for each component
+3. Shows recommended actions
+4. Copies DLLs from source to target with backup
+
+### Get Streamline SDK Versions
+
+Scan a local Streamline SDK folder:
+
+```powershell
+# Auto-detect in Downloads folder
+Get-StreamlineVersions
+
+# With specific path
+Get-StreamlineVersions -Path "C:\Users\jolti.PHANERON\Downloads\streamline-sdk-v2.11.1"
+```
+
+Returns: DLSS, FrameGen, DLSSD, DeepDVC, StreamlineSDK versions and DLL paths
 
 ## Common Issues
 
@@ -226,6 +312,7 @@ dlss-version-toolkit/
 | Release | NGX ProgramData | nvngx_package_config.txt | Active DLSS override |
 | Staging | NGX ProgramData | nvngx_package_config.txt | NVIDIA driver staging |
 | Global | AnWave/dlssglom folder | DLL file metadata | Global DLL injection override |
+| StreamlineSDK | Local SDK folder (bin\x64) | DLL file metadata | Downloaded Streamline SDK |
 dlss-version-toolkit/
 ├── check-dlss-versions.ps1    # CLI entry point (standalone script)
 ├── src/
