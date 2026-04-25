@@ -5,7 +5,7 @@
     Author            = 'DLSS Version Toolkit Contributors'
     Description       = 'Check and upgrade NVIDIA DLSS override versions on Windows'
     PowerShellVersion = '5.1'
-    FunctionsToExport = @('Get-DLSSVersions', 'Get-DLSSLatestVersion', 'Start-DLSSUpgrade')
+    FunctionsToExport = @('Get-DLSSVersions', 'Get-DLSSLatestVersion', 'Start-DLSSUpgrade', 'Get-StreamlineVersions', 'Sync-DLSSVersions', 'Compare-DLSSAllSources')
     VariablesToExport = @()
     CmdletsToExport   = @()
     AliasesToExport   = @()

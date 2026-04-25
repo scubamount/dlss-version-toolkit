@@ -39,6 +39,79 @@ $script:StreamlineDllToComponentName = @{
 # Private Functions (Not Exported)
 # ============================================================================
 
+function Test-VersionNewer {
+    <#
+    .SYNOPSIS
+    Safely compares two version strings to determine if the first is newer.
+    .PARAMETER Version1
+    First version string to compare.
+    .PARAMETER Version2
+    Second version string to compare against.
+    .OUTPUTS
+    Boolean: $true if Version1 > Version2, $false otherwise.
+    #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Version1,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Version2
+    )
+
+    # Handle null/empty/Unknown as lowest possible version
+    $v1Clean = if ([string]::IsNullOrEmpty($Version1) -or $Version1 -eq "Unknown") { "0.0.0.0" } else { $Version1 }
+    $v2Clean = if ([string]::IsNullOrEmpty($Version2) -or $Version2 -eq "Unknown") { "0.0.0.0" } else { $Version2 }
+
+    # Normalize non-standard version formats
+    # Handle versions like "3.1.0.0.0" (trim to 4 parts) or "3.1.0a" (remove letters)
+    $v1Clean = $v1Clean -replace '[a-zA-Z]', ''
+    $v2Clean = $v2Clean -replace '[a-zA-Z]', ''
+
+    # Split and take only first 4 parts to handle "3.1.0.0.0" -> "3.1.0.0"
+    $v1Parts = ($v1Clean -split '\.')[0..3]
+    $v2Parts = ($v2Clean -split '\.')[0..3]
+
+    # Pad with zeros if needed
+    while ($v1Parts.Count -lt 4) { $v1Parts += "0" }
+    while ($v2Parts.Count -lt 4) { $v2Parts += "0" }
+
+    # Try to cast to version, fallback to comparison if fails
+    try {
+        $v1Num = [version]$($v1Parts -join '.')
+        $v2Num = [version]$($v2Parts -join '.')
+        return $v1Num -gt $v2Num
+    }
+    catch {
+        # Fallback: numeric comparison of each segment
+        for ($i = 0; $i -lt 4; $i++) {
+            $p1 = 0
+            $p2 = 0
+            [int]::TryParse($v1Parts[$i], [ref]$p1) | Out-Null
+            [int]::TryParse($v2Parts[$i], [ref]$p2) | Out-Null
+
+            if ($p1 -gt $p2) { return $true }
+            if ($p1 -lt $p2) { return $false }
+        }
+        return $false
+    }
+}
+
+function Test-LongPathSupport {
+    <#
+    .SYNOPSIS
+    Checks if Windows long path support (260+ char) is enabled via registry.
+    .OUTPUTS
+    Boolean: $true if enabled, $false otherwise.
+    #>
+    try {
+        $regValue = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -ErrorAction Stop
+        return ($regValue.LongPathsEnabled -eq 1)
+    }
+    catch {
+        return $false
+    }
+}
+
 function Get-NgxVersionConfig {
     <#
     .SYNOPSIS
@@ -48,8 +121,10 @@ function Get-NgxVersionConfig {
     .OUTPUTS
     PSCustomObject with DLSS, FrameGen, DLSSD, and DeepDVC version strings.
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
         [string]$FolderPath
     )
 
@@ -57,13 +132,35 @@ function Get-NgxVersionConfig {
     $frameGenVersion = "Unknown"
     $dlssdVersion = "Unknown"
     $deepdvcVersion = "Unknown"
+    $warningMessage = $null
 
-    if (-not (Test-Path $FolderPath)) {
+    # Check for reparse points to avoid following symlinks/junctions
+    if (Test-Path $FolderPath) {
+        try {
+            $item = Get-Item -Path $FolderPath -ErrorAction Stop
+            if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                Write-Warning "Folder path '$FolderPath' is a reparse point (symlink/junction). Not following."
+                return [PSCustomObject]@{
+                    DLSS     = $dlssVersion
+                    FrameGen = $frameGenVersion
+                    DLSSD    = $dlssdVersion
+                    DeepDVC  = $deepdvcVersion
+                    Message  = "Skipped reparse point"
+                }
+            }
+        }
+        catch {
+            Write-Warning "Failed to check reparse point for '$FolderPath': $($_.Exception.Message)"
+        }
+    }
+    else {
+        Write-Warning "Folder path '$FolderPath' does not exist."
         return [PSCustomObject]@{
-            DLSS    = $dlssVersion
+            DLSS     = $dlssVersion
             FrameGen = $frameGenVersion
-            DLSSD   = $dlssdVersion
-            DeepDVC = $deepdvcVersion
+            DLSSD    = $dlssdVersion
+            DeepDVC  = $deepdvcVersion
+            Message  = "Folder not found"
         }
     }
 
@@ -71,28 +168,171 @@ function Get-NgxVersionConfig {
         $configFile = Get-ChildItem -Path $FolderPath -Recurse -Filter $script:ConfigFileName -ErrorAction SilentlyContinue |
             Select-Object -First 1
 
-        if ($configFile -ne $null) {
-            $content = Get-Content -Path $configFile.FullName -Raw -Encoding UTF8 -ErrorAction Stop
-
-            if ($content -match "dlss,\s+([\d.]+)") {
-                $dlssVersion = $Matches[1]
+        if ($null -eq $configFile) {
+            Write-Warning "Config file '$script:ConfigFileName' not found in '$FolderPath'."
+            return [PSCustomObject]@{
+                DLSS     = $dlssVersion
+                FrameGen = $frameGenVersion
+                DLSSD    = $dlssdVersion
+                DeepDVC  = $deepdvcVersion
+                Message  = "Config file not found"
             }
+        }
 
-            if ($content -match "dlssg,\s+([\d.]+)") {
-                $frameGenVersion = $Matches[1]
+        # Check if config file is a reparse point
+        try {
+            $fileItem = Get-Item -Path $configFile.FullName -ErrorAction Stop
+            if ($fileItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                Write-Warning "Config file '$($configFile.FullName)' is a reparse point. Not following."
+                return [PSCustomObject]@{
+                    DLSS     = $dlssVersion
+                    FrameGen = $frameGenVersion
+                    DLSSD    = $dlssdVersion
+                    DeepDVC  = $deepdvcVersion
+                    Message  = "Skipped reparse point"
+                }
             }
-
-            if ($content -match "dlssd,\s+([\d.]+)") {
-                $dlssdVersion = $Matches[1]
-            }
-
-            if ($content -match "deepdvc,\s+([\d.]+)") {
-                $deepdvcVersion = $Matches[1]
-            }
+        }
+        catch {
+            Write-Warning "Failed to check reparse point for config file: $($_.Exception.Message)"
         }
     }
     catch {
-        Write-Warning "Failed to read config in '$FolderPath': $($_.Exception.Message)"
+        Write-Warning "Failed to enumerate config file in '$FolderPath': $($_.Exception.Message)"
+        return [PSCustomObject]@{
+            DLSS     = $dlssVersion
+            FrameGen = $frameGenVersion
+            DLSSD    = $dlssdVersion
+            DeepDVC  = $deepdvcVersion
+            Message  = "Error enumerating files"
+        }
+    }
+
+    # Check file byte size before reading (10MB = 1048576 bytes)
+    try {
+        $fileInfo = Get-Item -Path $configFile.FullName -ErrorAction Stop
+        if ($fileInfo.Length -gt 1048576) {
+            Write-Warning "Config file is large ($($fileInfo.Length) bytes), parsing may be slow"
+        }
+    }
+    catch {
+        Write-Warning "Could not check config file size: $($_.Exception.Message)"
+    }
+
+    # Read config file with encoding detection
+    # In PS 5.1+, Get-Content -Encoding UTF8 auto-detects BOM
+    try {
+        $content = Get-Content -Path $configFile.FullName -Encoding UTF8 -ErrorAction Stop
+        $encodingUsed = "UTF8"
+    }
+    catch {
+        try {
+            # Fallback: default system encoding
+            $content = Get-Content -Path $configFile.FullName -ErrorAction Stop
+            $encodingUsed = "Default"
+        }
+        catch {
+            Write-Warning "Failed to read config file with any encoding: $($_.Exception.Message)"
+            return [PSCustomObject]@{
+                DLSS     = $dlssVersion
+                FrameGen = $frameGenVersion
+                DLSSD    = $dlssdVersion
+                DeepDVC  = $deepdvcVersion
+                Message  = "Failed to read config"
+            }
+        }
+    }
+
+    # Handle empty file
+    if ($content.Count -eq 0) {
+        Write-Warning "Config file is empty"
+        return [PSCustomObject]@{
+            DLSS     = $dlssVersion
+            FrameGen = $frameGenVersion
+            DLSSD    = $dlssdVersion
+            DeepDVC  = $deepdvcVersion
+            Message  = "Config file empty"
+        }
+    }
+
+    # Join content into single string for reliable -match/$Matches behavior
+    # PowerShell -match on arrays returns true/false per element but does NOT populate $Matches
+    $contentStr = $content -join "`n"
+
+    # Handle corrupt config files (binary data, null bytes)
+    if ($contentStr -match "(?s)\x00") {
+        Write-Warning "Config file contains binary data (null bytes), likely corrupt: '$FolderPath'"
+        return [PSCustomObject]@{
+            DLSS     = $dlssVersion
+            FrameGen = $frameGenVersion
+            DLSSD    = $dlssdVersion
+            DeepDVC  = $deepdvcVersion
+            Message  = "Corrupt config (binary data)"
+        }
+    }
+
+    # Parse DLSS version and validate format
+    if ($contentStr -match "dlss,\s+([\d.]+)") {
+        $parsedVersion = $Matches[1]
+        if ($parsedVersion -match "^(?=[\d.]+$)(?!\.)[\d.]*\d[\d.]*$") {
+            $dlssVersion = $parsedVersion
+        }
+        else {
+            $warningMessage = if ($warningMessage) { "$warningMessage; DLSS version format invalid" } else { "DLSS version format invalid" }
+            Write-Warning "Failed to parse DLSS version: format validation failed '$parsedVersion'"
+        }
+    }
+    else {
+        $warningMessage = if ($warningMessage) { "$warningMessage; DLSS not found" } else { "DLSS not found" }
+        Write-Warning "Failed to parse DLSS version in '$FolderPath': pattern not matched"
+    }
+
+    # Parse FrameGen version and validate format
+    if ($contentStr -match "dlssg,\s+([\d.]+)") {
+        $parsedVersion = $Matches[1]
+        if ($parsedVersion -match "^(?=[\d.]+$)(?!\.)[\d.]*\d[\d.]*$") {
+            $frameGenVersion = $parsedVersion
+        }
+        else {
+            $warningMessage = if ($warningMessage) { "$warningMessage; FrameGen version format invalid" } else { "FrameGen version format invalid" }
+            Write-Warning "Failed to parse FrameGen version: format validation failed '$parsedVersion'"
+        }
+    }
+    else {
+        $warningMessage = if ($warningMessage) { "$warningMessage; FrameGen not found" } else { "FrameGen not found" }
+        Write-Warning "Failed to parse FrameGen version in '$FolderPath': pattern not matched"
+    }
+
+    # Parse DLSSD version and validate format
+    if ($contentStr -match "dlssd,\s+([\d.]+)") {
+        $parsedVersion = $Matches[1]
+        if ($parsedVersion -match "^(?=[\d.]+$)(?!\.)[\d.]*\d[\d.]*$") {
+            $dlssdVersion = $parsedVersion
+        }
+        else {
+            $warningMessage = if ($warningMessage) { "$warningMessage; DLSSD version format invalid" } else { "DLSSD version format invalid" }
+            Write-Warning "Failed to parse DLSSD version: format validation failed '$parsedVersion'"
+        }
+    }
+    else {
+        $warningMessage = if ($warningMessage) { "$warningMessage; DLSSD not found" } else { "DLSSD not found" }
+        Write-Warning "Failed to parse DLSSD version in '$FolderPath': pattern not matched"
+    }
+
+    # Parse DeepDVC version and validate format
+    if ($contentStr -match "deepdvc,\s+([\d.]+)") {
+        $parsedVersion = $Matches[1]
+        if ($parsedVersion -match "^(?=[\d.]+$)(?!\.)[\d.]*\d[\d.]*$") {
+            $deepdvcVersion = $parsedVersion
+        }
+        else {
+            $warningMessage = if ($warningMessage) { "$warningMessage; DeepDVC version format invalid" } else { "DeepDVC version format invalid" }
+            Write-Warning "Failed to parse DeepDVC version: format validation failed '$parsedVersion'"
+        }
+    }
+    else {
+        $warningMessage = if ($warningMessage) { "$warningMessage; DeepDVC not found" } else { "DeepDVC not found" }
+        Write-Warning "Failed to parse DeepDVC version in '$FolderPath': pattern not matched"
     }
 
     return [PSCustomObject]@{
@@ -100,6 +340,7 @@ function Get-NgxVersionConfig {
         FrameGen = $frameGenVersion
         DLSSD    = $dlssdVersion
         DeepDVC  = $deepdvcVersion
+        Message  = if ($warningMessage) { $warningMessage } else { "Success" }
     }
 }
 
@@ -118,6 +359,7 @@ PSCustomObject with DLSS, FrameGen, DLSSD, DeepDVC, and StreamlineSDK version st
 #>
 param(
     [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
     [string]$GlobalPath
 )
 
@@ -127,58 +369,131 @@ $dlssdVersion = "Unknown"
 $deepdvcVersion = "Unknown"
 $streamlineVersion = "Unknown"
 
-if (-not (Test-Path $GlobalPath)) {
-    return [PSCustomObject]@{
-        DLSS        = $dlssVersion
-        FrameGen    = $frameGenVersion
-        DLSSD       = $dlssdVersion
-        DeepDVC     = $deepdvcVersion
-        StreamlineSDK = $streamlineVersion
+    # Add long path support for paths approaching 260-char limit
+    $effectivePath = $GlobalPath
+    if ($GlobalPath.Length -ge 250) {
+        if (Test-LongPathSupport) {
+            $effectivePath = "\\?\" + $GlobalPath
+        } else {
+            Write-Warning "Long path support not enabled (LongPathsEnabled registry key not set to 1). Path may fail if >= 260 chars."
+        }
     }
-}
 
+    # Check if effective path is a reparse point (symbolic link, junction, etc.)
 try {
-    # Read NGX DLL versions from file metadata
-    $dlssDll = Join-Path $GlobalPath "nvngx_dlss.dll"
-    if (Test-Path $dlssDll) {
-        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dlssDll)
-        $dlssVersion = $vi.FileVersion -replace ',', '.'
-    }
-
-    $dlssgDll = Join-Path $GlobalPath "nvngx_dlssg.dll"
-    if (Test-Path $dlssgDll) {
-        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dlssgDll)
-        $frameGenVersion = $vi.FileVersion -replace ',', '.'
-    }
-
-    $dlssdDll = Join-Path $GlobalPath "nvngx_dlssd.dll"
-    if (Test-Path $dlssdDll) {
-        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dlssdDll)
-        $dlssdVersion = $vi.FileVersion -replace ',', '.'
-    }
-
-    $deepdvcDll = Join-Path $GlobalPath "nvngx_deepdvc.dll"
-    if (Test-Path $deepdvcDll) {
-        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($deepdvcDll)
-        $deepdvcVersion = $vi.FileVersion -replace ',', '.'
-    }
-
-    # Read Streamline version from sl.common.dll (canonical SL version indicator)
-    $slCommonDll = Join-Path $GlobalPath "sl.common.dll"
-    if (Test-Path $slCommonDll) {
-        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($slCommonDll)
-        $streamlineVersion = $vi.FileVersion -replace ',', '.'
+    $globalItem = Get-Item -Path $GlobalPath -ErrorAction Stop
+    if ($globalItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        Write-Warning "Global path '$GlobalPath' is a reparse point. Not following."
+        return [PSCustomObject]@{
+            DLSS           = $dlssVersion
+            FrameGen       = $frameGenVersion
+            DLSSD          = $dlssdVersion
+            DeepDVC        = $deepdvcVersion
+            StreamlineSDK  = $streamlineVersion
+            Message        = "Skipped reparse point"
+        }
     }
 }
 catch {
-    Write-Warning "Failed to read Global DLL versions from '$GlobalPath': $($_.Exception.Message)"
+    Write-Warning "Failed to check reparse point for GlobalPath: $($_.Exception.Message)"
 }
 
+# Helper function to validate version string format
+function Test-ValidVersionString {
+    param([string]$Version)
+    # Version should match pattern like "310.7.0.0" or "2.11.1.0"
+    if ([string]::IsNullOrEmpty($Version)) { return $false }
+    return $Version -match '^\d+\.\d+(\.\d+){1,3}$'
+}
+
+# Helper function to safely read DLL version with per-DLL error handling
+function Read-DllVersion {
+    param(
+        [string]$DllPath,
+        [string]$DllName
+    )
+
+    $version = "Unknown"
+
+    if (-not (Test-Path $DllPath)) {
+        Write-Verbose "DLL not found: $DllName"
+        return $version
+    }
+
+    # Check if file is a reparse point
+    try {
+        $fileItem = Get-Item -Path $DllPath -ErrorAction Stop
+        if ($fileItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            Write-Warning "DLL '$DllName' is a reparse point. Skipping."
+            return $version
+        }
+    }
+    catch {
+        Write-Warning "Failed to check attributes for '$DllName': $($_.Exception.Message)"
+        return $version
+    }
+
+    try {
+        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($DllPath)
+
+        # Handle empty or null FileVersion
+        if ([string]::IsNullOrEmpty($vi.FileVersion)) {
+            Write-Warning "DLL '$DllName' has no FileVersion info (empty or null)."
+            return $version
+        }
+
+        # Convert comma to period and validate format
+        $version = $vi.FileVersion -replace ',', '.'
+
+        if (-not (Test-ValidVersionString -Version $version)) {
+            Write-Warning "DLL '$DllName' has invalid version format: '$version'. Expected pattern like 'X.Y.Z.W'"
+            return $version
+        }
+
+        Write-Verbose "Read version '$version' from '$DllName'"
+        return $version
+    }
+    catch [System.UnauthorizedAccessException] {
+        Write-Warning "Access denied reading '$DllName': $($_.Exception.Message)"
+    }
+    catch [System.IO.FileNotFoundException] {
+        Write-Warning "DLL file not found: '$DllName'"
+    }
+    catch {
+        # Check for invalid PE file (not a valid Windows DLL)
+        if ($_.Exception.Message -match "BadImageFormat|Not a valid Win32|invalid image") {
+            Write-Warning "DLL '$DllName' is not a valid PE file: $($_.Exception.Message)"
+        }
+        else {
+            Write-Warning "Failed to read version from '$DllName': $($_.Exception.Message)"
+        }
+    }
+
+    return $version
+}
+
+# Read NGX DLL versions - each DLL has its own try/catch
+$dlssDll = Join-Path $GlobalPath "nvngx_dlss.dll"
+$dlssVersion = Read-DllVersion -DllPath $dlssDll -DllName "nvngx_dlss.dll"
+
+$dlssgDll = Join-Path $GlobalPath "nvngx_dlssg.dll"
+$frameGenVersion = Read-DllVersion -DllPath $dlssgDll -DllName "nvngx_dlssg.dll"
+
+$dlssdDll = Join-Path $GlobalPath "nvngx_dlssd.dll"
+$dlssdVersion = Read-DllVersion -DllPath $dlssdDll -DllName "nvngx_dlssd.dll"
+
+$deepdvcDll = Join-Path $GlobalPath "nvngx_deepdvc.dll"
+$deepdvcVersion = Read-DllVersion -DllPath $deepdvcDll -DllName "nvngx_deepdvc.dll"
+
+# Read Streamline version from sl.common.dll (canonical SL version indicator)
+$slCommonDll = Join-Path $GlobalPath "sl.common.dll"
+$streamlineVersion = Read-DllVersion -DllPath $slCommonDll -DllName "sl.common.dll"
+
 return [PSCustomObject]@{
-    DLSS        = $dlssVersion
-    FrameGen    = $frameGenVersion
-    DLSSD       = $dlssdVersion
-    DeepDVC     = $deepdvcVersion
+    DLSS           = $dlssVersion
+    FrameGen      = $frameGenVersion
+    DLSSD         = $dlssdVersion
+    DeepDVC       = $deepdvcVersion
     StreamlineSDK = $streamlineVersion
 }
 }
@@ -286,22 +601,69 @@ function New-DLSSBackup {
         [string]$VersionsParentPath
     )
 
+    # Validate source exists and is a directory
+    if (-not (Test-Path $ReleaseFolderPath)) {
+        Write-Error "ERROR: Release folder does not exist: $ReleaseFolderPath"
+        return $null
+    }
+
+    $sourceItem = Get-Item -Path $ReleaseFolderPath -ErrorAction SilentlyContinue
+    if ($sourceItem -and -not $sourceItem.PSIsContainer) {
+        Write-Error "ERROR: Release folder path is not a directory: $ReleaseFolderPath"
+        return $null
+    }
+
+    # Check if destination already exists (avoid overwrite without explicit consent)
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $backupName = "$script:BackupPrefix$timestamp"
     $backupPath = Join-Path $VersionsParentPath $backupName
 
-    try {
-        Copy-Item -Path $ReleaseFolderPath -Destination $backupPath -Recurse -Force -ErrorAction Stop
+    if (Test-Path $backupPath) {
+        Write-Error "ERROR: Backup path already exists: $backupPath"
+        return $null
+    }
 
-        if (-not (Test-Path $backupPath)) {
-            Write-Host "ERROR: Backup verification failed - backup path does not exist after copy." -ForegroundColor Red
+    # Add long path support for paths approaching 260-char limit
+    $effectiveSourcePath = $ReleaseFolderPath
+    $effectiveBackupPath = $backupPath
+    if ($ReleaseFolderPath.Length -ge 250) {
+        if (Test-LongPathSupport) {
+            $effectiveSourcePath = "\\?\" + $ReleaseFolderPath
+            $effectiveBackupPath = "\\?\" + $backupPath
+        } else {
+            Write-Warning "Long path support not enabled. Backup/restore may fail for long paths."
+        }
+    }
+
+    # Count source files for verification
+    $sourceFileCount = (Get-ChildItem -Path $effectiveSourcePath -Recurse -File -ErrorAction SilentlyContinue).Count
+
+    try {
+        Copy-Item -Path $effectiveSourcePath -Destination $effectiveBackupPath -Recurse -Force -ErrorAction Stop
+
+            # Verify backup was created successfully
+            if (-not (Test-Path $effectiveBackupPath)) {
+                Write-Error "ERROR: Backup verification failed - backup path does not exist after copy."
+                return $null
+            }
+
+            # Compare file counts to ensure backup is complete
+            $backupFileCount = (Get-ChildItem -Path $effectiveBackupPath -Recurse -File -ErrorAction SilentlyContinue).Count
+            if ($backupFileCount -ne $sourceFileCount) {
+                Write-Error "ERROR: Backup verification failed - file count mismatch (source: $sourceFileCount, backup: $backupFileCount)"
+            # Clean up incomplete backup
+            Remove-Item -Path $effectiveBackupPath -Recurse -Force -ErrorAction SilentlyContinue
             return $null
         }
 
         return $backupPath
     }
     catch {
-        Write-Host "ERROR: Backup failed - $($_.Exception.Message)" -ForegroundColor Red
+        Write-Error "ERROR: Backup failed - $($_.Exception.Message)"
+        # Clean up partial backup if it exists
+        if (Test-Path $effectiveBackupPath) {
+            Remove-Item -Path $effectiveBackupPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
         return $null
     }
 }
@@ -325,18 +687,59 @@ function Restore-DLSSBackup {
         [string]$ReleaseFolderPath
     )
 
+    # Validate BackupPath exists and is a directory
+    if (-not (Test-Path $BackupPath)) {
+        Write-Error "ERROR: Backup folder does not exist: $BackupPath"
+        return $false
+    }
+
+    $backupItem = Get-Item -Path $BackupPath -ErrorAction SilentlyContinue
+    if ($backupItem -and -not $backupItem.PSIsContainer) {
+        Write-Error "ERROR: Backup path is not a directory: $BackupPath"
+        return $false
+    }
+
+    # Validate ReleaseFolderPath exists
+    if (-not (Test-Path $ReleaseFolderPath)) {
+        Write-Error "ERROR: Release folder does not exist: $ReleaseFolderPath"
+        return $false
+    }
+
+    # Add long path support for paths approaching 260-char limit
+    $effectiveBackupPath = $BackupPath
+    $effectiveReleasePath = $ReleaseFolderPath
+    if ($BackupPath.Length -ge 250) {
+        if (Test-LongPathSupport) {
+            $effectiveBackupPath = "\\?\" + $BackupPath
+        } else {
+            Write-Warning "Long path support not enabled. Restore may fail for long paths."
+        }
+    }
+    if ($ReleaseFolderPath.Length -ge 250) {
+        if (Test-LongPathSupport) {
+            $effectiveReleasePath = "\\?\" + $ReleaseFolderPath
+        } else {
+            Write-Warning "Long path support not enabled. Restore may fail for long paths."
+        }
+    }
+
     try {
         $ErrorActionPreference = "Stop"
 
         # Remove current (potentially corrupted) release folder contents
-        Get-ChildItem -Path $ReleaseFolderPath -Recurse -ErrorAction SilentlyContinue |
-            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $effectiveReleasePath -Recurse -ErrorAction Stop |
+            Remove-Item -Recurse -Force -ErrorAction Stop
 
         # Restore from backup
-        $backupItems = Get-ChildItem -Path $BackupPath -Recurse -ErrorAction Stop
+        $backupItems = Get-ChildItem -Path $effectiveBackupPath -Recurse -ErrorAction Stop
+        if ($backupItems.Count -eq 0) {
+            Write-Error "ERROR: Backup folder is empty: $BackupPath"
+            return $false
+        }
+
         foreach ($item in $backupItems) {
-            $relativePath = $item.FullName.Substring($BackupPath.Length)
-            $destPath = Join-Path $ReleaseFolderPath $relativePath
+            $relativePath = $item.FullName.Substring($effectiveBackupPath.Length)
+            $destPath = Join-Path $effectiveReleasePath $relativePath
             $destDir = Split-Path $destPath -Parent
 
             if (-not (Test-Path $destDir)) {
@@ -348,9 +751,17 @@ function Restore-DLSSBackup {
             }
         }
 
+        # Verify restore success - check that files were actually restored
+        $restoredFileCount = (Get-ChildItem -Path $effectiveReleasePath -Recurse -File -ErrorAction SilentlyContinue).Count
+        if ($restoredFileCount -eq 0) {
+            Write-Error "ERROR: Restore verification failed - no files found in destination after restore"
+            return $false
+        }
+
         return $true
     }
     catch {
+        Write-Error "ERROR: Restore failed - $($_.Exception.Message)"
         return $false
     }
     finally {
@@ -471,8 +882,10 @@ function Get-DLSSLatestVersion {
     scanning is skipped.
     .PARAMETER Location
     Optional filter: "Release", "Staging", or "Global". Default is all locations.
+    .PARAMETER Component
+    Optional: Which component to compare. Valid values: "DLSS" (default), "FrameGen", "DLSSD", "DeepDVC".
     .OUTPUTS
-    Single DLSSVersion object, or $null if no versions found.
+    Single DLSSVersion object, or $null if no valid versions found.
     #>
     [CmdletBinding()]
     param(
@@ -484,7 +897,11 @@ function Get-DLSSLatestVersion {
 
         [Parameter(Mandatory = $false)]
         [ValidateSet("", "Release", "Staging", "Global")]
-        [string]$Location = ""
+        [string]$Location = "",
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet("DLSS", "FrameGen", "DLSSD", "DeepDVC")]
+        [string]$Component = "DLSS"
     )
 
     $allVersions = Get-DLSSVersions -Path $Path -GlobalPath $GlobalPath
@@ -508,27 +925,38 @@ function Get-DLSSLatestVersion {
         return $null
     }
 
-    # Convert versions for comparison
-    $versionList = @()
+    # Find the latest version using Test-VersionNewer for safe comparison
+    $latestVersion = $null
+    $latestData = $null
+
     foreach ($v in $allVersions) {
-        try {
-            $versionNum = [version]$v.DLSS
-        }
-        catch {
-            $versionNum = [version]"0.0.0.0"
+        # Get the version string for the specified component
+        $versionString = $v.$Component
+
+        # Skip if version is invalid (null, empty, or Unknown)
+        if ([string]::IsNullOrEmpty($versionString) -or $versionString -eq "Unknown") {
+            continue
         }
 
-        $versionList += [PSCustomObject]@{
-            VersionObj  = $versionNum
-            VersionData = $v
+        if ($null -eq $latestVersion) {
+            $latestVersion = $versionString
+            $latestData = $v
+        }
+        else {
+            # Use Test-VersionNewer to safely compare
+            if (Test-VersionNewer -Version1 $versionString -Version2 $latestVersion) {
+                $latestVersion = $versionString
+                $latestData = $v
+            }
         }
     }
 
-    # Sort and return latest
-    $sorted = $versionList | Sort-Object VersionObj -Descending
-    $latest = $sorted | Select-Object -First 1
+    # Return null if no valid versions were found
+    if ($null -eq $latestData) {
+        return $null
+    }
 
-    return $latest.VersionData
+    return $latestData
 }
 
 function Start-DLSSUpgrade {
@@ -578,23 +1006,9 @@ function Start-DLSSUpgrade {
         return $operation
     }
 
-    # Compare versions
-    try {
-        $currentVer = [version]$releaseVersion.DLSS
-    }
-    catch {
-        $currentVer = [version]"0.0.0.0"
-    }
-
-    try {
-        $newVer = [version]$stagingVersion.DLSS
-    }
-    catch {
-        $newVer = [version]"0.0.0.0"
-    }
-
-    if ($newVer -le $currentVer) {
-        Write-Host "Release is already up to date (DLSS $currentVer)" -ForegroundColor Green
+    # Compare versions using Test-VersionNewer (safe comparison)
+    if (-not (Test-VersionNewer -Version1 $stagingVersion.DLSS -Version2 $releaseVersion.DLSS)) {
+        Write-Host "Release is already up to date (DLSS $($releaseVersion.DLSS))" -ForegroundColor Green
         $operation.Status = "Completed"
         return $operation
     }
@@ -605,11 +1019,22 @@ function Start-DLSSUpgrade {
         Write-Host "Upgrading from DLSS $($releaseVersion.DLSS) to $($stagingVersion.DLSS)..." -ForegroundColor Cyan
 
         # Locate the Release version folder on disk
-        $releaseVersionsPath = Join-Path $Path $script:ReleaseSubPath
+        $releaseVersionsPath = Join-Path $Path $script:ReleaseSubPath"
         if (-not (Test-Path $releaseVersionsPath)) {
-            Write-Host "ERROR: Release path not found: $releaseVersionsPath" -ForegroundColor Red
+            Write-Error "ERROR: Release path not found: $releaseVersionsPath"
             $operation.Status = "Failed"
             $operation.ErrorMessage = "Release path not found"
+            return $operation
+        }
+
+        $releaseFolder = Get-ChildItem -Path $releaseVersionsPath -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $releaseVersion.BuildID } |
+            Select-Object -First 1
+
+        if ($releaseFolder -eq $null) {
+            Write-Error "ERROR: Cannot locate release version folder matching BuildID $($releaseVersion.BuildID) on disk."
+            $operation.Status = "Failed"
+            $operation.ErrorMessage = "Cannot locate release version folder"
             return $operation
         }
 
@@ -624,26 +1049,27 @@ function Start-DLSSUpgrade {
         }
 
         if ($releaseFolder -eq $null) {
-            Write-Host "ERROR: Cannot locate release version folder on disk." -ForegroundColor Red
+            Write-Warning "Cannot locate release version folder on disk."
             $operation.Status = "Failed"
             $operation.ErrorMessage = "Cannot locate release version folder"
             return $operation
         }
 
         # Locate the Staging version folder on disk
-        $stagingVersionsPath = Join-Path $Path $script:StagingSubPath
+        $stagingVersionsPath = Join-Path $Path $script:StagingSubPath"
         $stagingFolder = Get-ChildItem -Path $stagingVersionsPath -Directory -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -eq $stagingVersion.BuildID } |
             Select-Object -First 1
 
         if ($stagingFolder -eq $null) {
-            # Fallback: use the first staging folder
-            $stagingFolder = Get-ChildItem -Path $stagingVersionsPath -Directory -ErrorAction SilentlyContinue |
-                Select-Object -First 1
+            Write-Error "ERROR: Cannot locate staging version folder matching BuildID $($stagingVersion.BuildID) on disk."
+            $operation.Status = "Failed"
+            $operation.ErrorMessage = "Cannot locate staging version folder"
+            return $operation
         }
 
         if ($stagingFolder -eq $null) {
-            Write-Host "ERROR: Cannot locate staging version folder on disk." -ForegroundColor Red
+            Write-Warning "Cannot locate staging version folder on disk."
             $operation.Status = "Failed"
             $operation.ErrorMessage = "Cannot locate staging version folder"
             return $operation
@@ -654,7 +1080,7 @@ function Start-DLSSUpgrade {
         $backupPath = New-DLSSBackup -ReleaseFolderPath $releaseFolder.FullName -VersionsParentPath $releaseVersionsPath
 
         if ($backupPath -eq $null) {
-            Write-Host "ERROR: Failed to create backup. Upgrade aborted." -ForegroundColor Red
+            Write-Error "ERROR: Failed to create backup. Upgrade aborted."
             Write-Host "Ensure you are running as Administrator if access is denied." -ForegroundColor Yellow
             $operation.Status = "Failed"
             $operation.ErrorMessage = "Backup failed"
@@ -706,7 +1132,7 @@ function Start-DLSSUpgrade {
                 }
             }
             else {
-                Write-Host "  No staging config found; release config unchanged" -ForegroundColor Yellow
+                Write-Warning "Could not find nvngx_package_config.txt in release folder."
             }
         }
         catch {
@@ -777,16 +1203,14 @@ function Get-StreamlineVersions {
     }
 
     if ($Path -eq "") {
-        # Check common default locations
-        $searchPaths = @(
-            "$env:USERPROFILE\Downloads\streamline-sdk-v2.11.1",
-            "$env:USERPROFILE\Downloads\streamline-sdk",
-            "C:\Users\jolti.PHANERON\Downloads\streamline-sdk-v2.11.1"
-        )
-        foreach ($sp in $searchPaths) {
-            if (Test-Path (Join-Path $sp "bin\x64\nvngx_dlss.dll")) {
-                $Path = $sp
-                break
+        # Auto-detect: scan Downloads for any streamline-sdk folder
+        $searchBase = if ([string]::IsNullOrEmpty($env:USERPROFILE)) { $null } else { Join-Path $env:USERPROFILE "Downloads" }
+        if ($searchBase -and (Test-Path $searchBase)) {
+            $found = Get-ChildItem -Path $searchBase -Directory -ErrorAction SilentlyContinue | 
+                Where-Object { $_.Name -match 'streamline-sdk' -and (Test-Path (Join-Path $_.FullName "bin\x64\nvngx_dlss.dll")) } | 
+                Select-Object -First 1
+            if ($found) {
+                $Path = $found.FullName
             }
         }
     }
@@ -819,11 +1243,19 @@ function Get-StreamlineVersions {
     foreach ($dll in $dlls.Keys) {
         $fullPath = Join-Path $binPath $dll
         if (Test-Path $fullPath) {
-            $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($fullPath)
-            $version = $vi.FileVersion -replace ',', '.'
-            $prop = $dlls[$dll]
-            $result.$prop = $version
-            $result.DllPaths[$dll] = $fullPath
+            try {
+                $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($fullPath)
+                if (-not [string]::IsNullOrEmpty($vi.FileVersion)) {
+                    $version = $vi.FileVersion -replace ',', '.'
+                    $prop = $dlls[$dll]
+                    $result.$prop = $version
+                    $result.DllPaths[$dll] = $fullPath
+                } else {
+                    Write-Warning "DLL '$dll' has no FileVersion info"
+                }
+            } catch {
+                Write-Warning "Failed to read version from '$dll': $($_.Exception.Message)"
+            }
         }
     }
 
@@ -933,12 +1365,9 @@ function Compare-DLSSAllSources {
         $s = $sources[$src]
         foreach ($comp in @("DLSS", "FrameGen", "DLSSD", "DeepDVC", "StreamlineSDK")) {
             if ($s.$comp -ne "Unknown" -and $s.$comp -ne "N/A") {
-                try {
-                    $ver = [version]$s.$comp
-                    if ($ver -gt $newest[$comp].Version) {
-                        $newest[$comp] = @{ Version = $ver; Source = $src }
-                    }
-                } catch {}
+                if (Test-VersionNewer -Version1 $s.$comp -Version2 $newest[$comp].Version) {
+                    $newest[$comp] = @{ Version = $s.$comp; Source = $src }
+                }
             }
         }
     }
@@ -951,16 +1380,14 @@ function Compare-DLSSAllSources {
         $sl = $sources["StreamlineSDK"]
         $ngx = $sources["NGX_Release"]
         if ($sl.DLSS -ne "Unknown" -and $ngx.DLSS -ne "Unknown") {
-            try {
-                if ([version]$sl.DLSS -gt [version]$ngx.DLSS) {
-                    $recommendations += [PSCustomObject]@{
-                        Action = "Update_NGX_from_Streamline"
-                        Description = "Streamline SDK has newer DLSS ($($sl.DLSS) > $($ngx.DLSS))"
-                        From = "StreamlineSDK"
-                        To = "NGX Release"
-                    }
+            if (Test-VersionNewer -Version1 $sl.DLSS -Version2 $ngx.DLSS) {
+                $recommendations += [PSCustomObject]@{
+                    Action = "Update_NGX_from_Streamline"
+                    Description = "Streamline SDK has newer DLSS ($($sl.DLSS)) > ($($ngx.DLSS))"
+                    From = "StreamlineSDK"
+                    To = "NGX Release"
                 }
-            } catch {}
+            }
         }
     }
 
@@ -1044,47 +1471,73 @@ function Sync-DLSSVersions {
     Write-Host "=== Recommended Actions ===" -ForegroundColor Yellow
     $analysis.Recommendations | Format-Table -AutoSize
 
-    if (-not $Force) {
-        $confirm = Read-Host "Proceed with sync? (y/n)"
-        if ($confirm -ne "y") {
-            Write-Host "Cancelled." -ForegroundColor Yellow
-            return
-        }
-    }
+    $results = @()
 
-    # Execute sync based on recommendation
     foreach ($rec in $analysis.Recommendations) {
-        $src = $analysis.Sources[$rec.From]
-        $dstPath = ""
+        # Skip if user specified source/target and this doesn't match
+        if ($Source -ne "" -and $rec.From -ne $Source) { continue }
+        if ($Target -ne "" -and $rec.To -ne $Target) { continue }
 
+        # Determine source DLL paths
+        $src = $analysis.Sources[$rec.From]
+        if (-not $src) { continue }
+
+        # Determine target path
+        $dstPath = ""
         if ($rec.To -eq "NGX_Release") {
             $dstPath = Join-Path $script:DefaultNgxBasePath $script:ReleaseSubPath
-            $folders = Get-ChildItem -Path $dstPath -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
-            if ($folders) {
-                $dstPath = $folders[0].FullName
-            }
-        } elseif ($rec.To -eq "AnWave") {
+        } elseif ($rec.To -eq "AnWave" -or $rec.To -eq "Global") {
             $dstPath = $GlobalPath
         }
 
-        if ($dstPath -and (Test-Path $dstPath)) {
-            Write-Host "Syncing from $($rec.From) to $($rec.To)..." -ForegroundColor Cyan
-            
-            # Copy DLLs
+        if ($dstPath -eq "" -or -not (Test-Path $dstPath)) {
+            Write-Warning "Target path not found or not specified: $($rec.To)"
+            continue
+        }
+
+        # Use ShouldProcess for -WhatIf/-Confirm support
+        if ($PSCmdlet.ShouldProcess("Sync from $($rec.From) to $($rec.To)", "Sync DLSS versions")) {
+            if (-not $Force) {
+                Write-Host "Sync requested from $($rec.From) to $($rec.To). Use -Force to skip confirmation." -ForegroundColor Yellow
+                continue
+            }
+
+            # Copy DLLs with idempotency check
             if ($src.DllPaths) {
                 foreach ($dll in $src.DllPaths.Keys) {
                     $srcFile = $src.DllPaths[$dll]
                     $dstFile = Join-Path $dstPath $dll
+
+                    # Idempotency: check if target already has same or newer version
                     if (Test-Path $dstFile) {
-                        Copy-Item -Path $srcFile -Destination $dstFile -Force
-                        Write-Host "  Copied: $dll" -ForegroundColor Green
+                        try {
+                            $srcVi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($srcFile)
+                            $dstVi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dstFile)
+                            if ($srcVi.FileVersion -and $dstVi.FileVersion) {
+                                if (-not (Test-VersionNewer -Version1 $srcVi.FileVersion -Version2 $dstVi.FileVersion)) {
+                                    Write-Warning "Skipping $dll - target already has same or newer version ($($dstVi.FileVersion))"
+                                    continue
+                                }
+                            }
+                        } catch {
+                            # If version check fails, proceed with copy
+                        }
                     }
+
+                    Copy-Item -Path $srcFile -Destination $dstFile -Force
+                    Write-Host "  Copied: $dll" -ForegroundColor Green
                 }
             }
         }
+
+        $results += [PSCustomObject]@{
+            From = $rec.From
+            To = $rec.To
+            Status = "Completed"
+        }
     }
 
-    Write-Host "Sync complete!" -ForegroundColor Green
+    return $results
 }
 
 # ============================================================================
