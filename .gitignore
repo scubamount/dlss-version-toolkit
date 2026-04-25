@@ -22,5 +22,8 @@ dist/
 .env*
 *.log
 
+# Backup files
+*.bak
+
 # OS
 .DS_Store
