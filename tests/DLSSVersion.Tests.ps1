@@ -161,6 +161,66 @@ Describe "Get-DLSSVersions" {
     }
 }
 
+Describe "Get-NgxVersionConfig (DeepDVC optional)" {
+    BeforeAll {
+        Import-Module $script:ModulePath -Force -ErrorAction Stop
+        $script:testNgx = Join-Path $env:TEMP "DLSSVersionTests_DeepDVC"
+        if (Test-Path $script:testNgx) { Remove-Item $script:testNgx -Recurse -Force }
+        $releasePath = Join-Path $script:testNgx "models\dlss_override\versions"
+        New-Item -ItemType Directory -Path $releasePath -Force | Out-Null
+
+        # Config WITH DeepDVC (normal)
+        $v1 = Join-Path $releasePath "20317443"
+        New-Item -ItemType Directory -Path $v1 -Force | Out-Null
+        "dlss, 310.5.3.0`r`ndlssg, 310.5.3.0`r`ndlssd, 310.5.3.0`r`ndeepdvc, 310.5.2.0" | Set-Content -Path (Join-Path $v1 "nvngx_package_config.txt") -Encoding UTF8
+
+        # Config WITHOUT DeepDVC (like real build 20317442)
+        $v2 = Join-Path $releasePath "20317442"
+        New-Item -ItemType Directory -Path $v2 -Force | Out-Null
+        "dlss, 310.6.0.0`r`ndlssg, 310.6.0.0`r`ndlssd, 310.6.0.0" | Set-Content -Path (Join-Path $v2 "nvngx_package_config.txt") -Encoding UTF8
+    }
+    AfterAll {
+        if (Test-Path $script:testNgx) { Remove-Item $script:testNgx -Recurse -Force }
+        Remove-Module DLSSVersion -ErrorAction SilentlyContinue
+    }
+
+    Context "Config with DeepDVC present" {
+        It "Returns correct DeepDVC version" {
+            $results = @(Get-DLSSVersions -Path $script:testNgx)
+            $withDvc = $results | Where-Object { $_.BuildID -eq "20317443" } | Select-Object -First 1
+            $withDvc.DeepDVC | Should Be "310.5.2.0"
+        }
+    }
+
+    Context "Config without DeepDVC (optional component)" {
+        It "Returns Unknown for DeepDVC without warning" {
+            # Capture warning stream separately to assert no DeepDVC warning
+            $warnings = @()
+            $oldWarnPref = $WarningPreference
+            $WarningPreference = "Continue"
+            try {
+                $results = Get-DLSSVersions -Path $script:testNgx 3>&1 | Where-Object { $_ -is [System.Management.Automation.WarningRecord] }
+                $warnings = @($results | Where-Object { $_.Message -match "DeepDVC" })
+            }
+            finally {
+                $WarningPreference = $oldWarnPref
+            }
+            $warnings.Count | Should Be 0
+            # Also verify the version object itself
+            $versions = @(Get-DLSSVersions -Path $script:testNgx)
+            $withoutDvc = $versions | Where-Object { $_.BuildID -eq "20317442" } | Select-Object -First 1
+            $withoutDvc.DeepDVC | Should Be "Unknown"
+        }
+        It "Still returns correct DLSS/DLSSD/FrameGen versions" {
+            $results = @(Get-DLSSVersions -Path $script:testNgx)
+            $withoutDvc = $results | Where-Object { $_.BuildID -eq "20317442" } | Select-Object -First 1
+            $withoutDvc.DLSS | Should Be "310.6.0.0"
+            $withoutDvc.FrameGen | Should Be "310.6.0.0"
+            $withoutDvc.DLSSD | Should Be "310.6.0.0"
+        }
+    }
+}
+
 Describe "Compare-DLSSAllSources" {
     BeforeAll {
         Import-Module $script:ModulePath -Force -ErrorAction Stop
