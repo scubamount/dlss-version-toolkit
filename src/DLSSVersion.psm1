@@ -319,21 +319,20 @@ function Get-NgxVersionConfig {
         Write-Warning "Failed to parse DLSSD version in '$FolderPath': pattern not matched"
     }
 
-    # Parse DeepDVC version and validate format
-    if ($contentStr -match "deepdvc,\s+([\d.]+)") {
-        $parsedVersion = $Matches[1]
-        if ($parsedVersion -match "^(?=[\d.]+$)(?!\.)[\d.]*\d[\d.]*$") {
-            $deepdvcVersion = $parsedVersion
-        }
-        else {
-            $warningMessage = if ($warningMessage) { "$warningMessage; DeepDVC version format invalid" } else { "DeepDVC version format invalid" }
-            Write-Warning "Failed to parse DeepDVC version: format validation failed '$parsedVersion'"
-        }
+# Parse DeepDVC version and validate format
+# DeepDVC is optional in NGX configs - some builds don't include it.
+# Silently default to "Unknown" when absent; only warn on format errors.
+if ($contentStr -match "deepdvc,\s+([\d.]+)") {
+    $parsedVersion = $Matches[1]
+    if ($parsedVersion -match "^(?=[\d.]+$)(?!\.)[\d.]*\d[\d.]*$") {
+        $deepdvcVersion = $parsedVersion
     }
     else {
-        $warningMessage = if ($warningMessage) { "$warningMessage; DeepDVC not found" } else { "DeepDVC not found" }
-        Write-Warning "Failed to parse DeepDVC version in '$FolderPath': pattern not matched"
+        $warningMessage = if ($warningMessage) { "$warningMessage; DeepDVC version format invalid" } else { "DeepDVC version format invalid" }
+        Write-Warning "Failed to parse DeepDVC version: format validation failed '$parsedVersion'"
     }
+}
+# else: DeepDVC not present in config - this is normal, no warning needed
 
     return [PSCustomObject]@{
         DLSS     = $dlssVersion
