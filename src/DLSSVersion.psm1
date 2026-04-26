@@ -1331,7 +1331,10 @@ function Compare-DLSSAllSources {
             DllPaths = $sl.DllPaths
         }
     } else {
-        Write-Host "WARNING: Streamline SDK not found at specified path!" -ForegroundColor Yellow
+        # Streamline SDK is optional (requires separate download) — not a warning
+        if ($StreamlinePath -ne "") {
+            Write-Host " Streamline SDK not found at specified path." -ForegroundColor DarkGray
+        }
     }
 
     # AnWave/Global

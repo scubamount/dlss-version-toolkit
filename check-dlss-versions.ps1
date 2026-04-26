@@ -88,26 +88,26 @@ if ($All) {
     # Step 1: Check dependencies
     Write-Host "[1/4] Checking dependencies..." -ForegroundColor Gray
     
-    $issues = @()
-    
-    if ($StreamlinePath -eq "") {
-        $issues += "Streamline SDK not found in Downloads folder"
-    }
-    if ($GlobalPath -eq "") {
-        $issues += "AnWave (dlssglom) not found in Downloads folder"
-    }
-    
-    if ($issues.Count -gt 0) {
-        Write-Host "WARNING: Some components not found:" -ForegroundColor Yellow
-        foreach ($issue in $issues) {
-            Write-Host "  - $issue" -ForegroundColor Yellow
+        $issues = @()
+
+        if ($StreamlinePath -eq "") {
+            $issues += "Streamline SDK not found (download from https://developer.nvidia.com/streamline-sdk and extract to Downloads)"
         }
-    } else {
-        Write-Host "  Streamline SDK: $StreamlinePath" -ForegroundColor Green
-        Write-Host "  AnWave: $GlobalPath" -ForegroundColor Green
-    }
-    
-    # Step 2: Compare all sources
+        if ($GlobalPath -eq "") {
+            $issues += "AnWave/dlssglom not found (download from https://github.com/cybertron010/dlssglom and extract to Downloads)"
+        }
+
+        if ($issues.Count -gt 0) {
+            Write-Host "Optional sources not detected (these require separate download):" -ForegroundColor DarkGray
+            foreach ($issue in $issues) {
+                Write-Host " - $issue" -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Host " Streamline SDK: $StreamlinePath" -ForegroundColor Green
+            Write-Host " AnWave: $GlobalPath" -ForegroundColor Green
+        }
+
+        # Step 2: Compare all sources
     Write-Host ""
     Write-Host "[2/4] Comparing all sources..." -ForegroundColor Gray
     Compare-DLSSAllSources -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath -ShowDetails

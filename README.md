@@ -4,7 +4,14 @@ A PowerShell module for checking, comparing, and upgrading NVIDIA DLSS versions 
 
 ## What It Does
 
-NVIDIA DLSS components exist in multiple locations on your system — NGX Release (active override), NGX Staging (driver-staged), AnWave/dlssglom (global injection), and Streamline SDK (downloaded SDK). This tool scans all of them, shows you which version is where, compares them, and lets you upgrade or sync to the newest.
+NVIDIA DLSS components exist in multiple locations on your system. Two are created automatically by the NVIDIA App and drivers, and two are **optional** — they only exist if you download them separately:
+
+- **NGX Release** — Active DLSS override (auto-created by NVIDIA App)
+- **NGX Staging** — Driver-staged DLSS versions (auto-created by NVIDIA drivers)
+- **AnWave / dlssglom** — Global DLL injection override (must be downloaded separately — [GitHub](https://github.com/cybertron010/dlssglom))
+- **Streamline SDK** — NVIDIA SDK with latest DLLs (must be downloaded separately from [NVIDIA Developer](https://developer.nvidia.com/streamline-sdk))
+
+This tool scans whichever sources are present, shows you which version is where, compares them, and lets you upgrade or sync to the newest.
 
 **Supported components:** DLSS, Frame Generation (dlssg), DLSSD, DeepDVC, Streamline SDK
 
@@ -18,7 +25,7 @@ powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1 -All
 powershell -ExecutionPolicy Bypass -File check-dlss-versions.ps1
 ```
 
-The `-All` flag auto-detects Streamline SDK and AnWave in your Downloads folder, scans all four sources, shows a comparison table, and applies any available updates.
+The `-All` flag auto-detects Streamline SDK and AnWave in your Downloads folder (if you've downloaded them), scans all available sources, shows a comparison table, and applies any available updates.
 
 ## Installation
 
@@ -183,12 +190,12 @@ Get-StreamlineVersions -Path "C:\SDKs\streamline-sdk-v2.11.1"
 
 ## Version Sources
 
-| Source | Location on Disk | How Versions Are Read |
-|--------|-----------------|----------------------|
-| **NGX Release** | `C:\ProgramData\NVIDIA\NGX\models\dlss_override\versions\` | `nvngx_package_config.txt` |
-| **NGX Staging** | `C:\ProgramData\NVIDIA\NGX\Staging\models\dlss_override\versions\` | `nvngx_package_config.txt` |
-| **AnWave / dlssglom** | User-specified folder | DLL file metadata |
-| **Streamline SDK** | `Downloads\streamline-sdk*\bin\x64\` | DLL file metadata |
+| Source | Location on Disk | How Versions Are Read | Auto-installed? |
+|--------|-----------------|----------------------|-----------------|
+| **NGX Release** | `C:\ProgramData\NVIDIA\NGX\models\dlss_override\versions\` | `nvngx_package_config.txt` | Yes (NVIDIA App) |
+| **NGX Staging** | `C:\ProgramData\NVIDIA\NGX\Staging\models\dlss_override\versions\` | `nvngx_package_config.txt` | Yes (NVIDIA drivers) |
+| **AnWave / dlssglom** | User-specified folder (e.g. `Downloads\nvidiaDlssGlom`) | DLL file metadata | No — [download separately](https://github.com/cybertron010/dlssglom) |
+| **Streamline SDK** | `Downloads\streamline-sdk*\bin\x64\` | DLL file metadata | No — [download from NVIDIA Developer](https://developer.nvidia.com/streamline-sdk) |
 
 > **Note:** NGX configs always include DLSS, FrameGen, and DLSSD. DeepDVC is optional — some builds don't include it, and the toolkit silently reports `Unknown` for those.
 
@@ -240,7 +247,15 @@ This is normal — some NVIDIA driver builds don't include DeepDVC in the NGX co
 
 ### StreamlineSDK Shows "Unknown"
 
-NGX Release and Staging don't contain Streamline SDK DLLs. Use `-All` or `-Compare` to include the Streamline SDK source.
+NGX Release and Staging don't contain Streamline SDK DLLs — that component only appears if you've downloaded the Streamline SDK separately and pointed the tool to it (via `-StreamlinePath` or `-All` with the SDK in your Downloads folder).
+
+### "AnWave/dlssglom not found"
+
+AnWave/dlssglom is not installed by the NVIDIA driver — you must download it separately from [GitHub](https://github.com/cybertron010/dlssglom). Place the extracted folder in your Downloads directory (for auto-detection) or specify the path with `-GlobalPath`.
+
+### "Streamline SDK not found"
+
+The Streamline SDK is not installed by the NVIDIA driver — you must download it separately from [NVIDIA Developer](https://developer.nvidia.com/streamline-sdk). Place the extracted folder in your Downloads directory (for auto-detection) or specify the path with `-StreamlinePath`.
 
 ### Module Not Loading
 
