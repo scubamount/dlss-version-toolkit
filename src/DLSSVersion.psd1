@@ -13,8 +13,8 @@
     PrivateData = @{
         PSData = @{
             Tags = @('DLSS', 'NVIDIA', 'NGX', 'Version', 'Upgrade')
-            ProjectUri = 'https://github.com/thedotmack/dlss-version-toolkit'
-            LicenseUri = 'https://github.com/thedotmack/dlss-version-toolkit/blob/main/LICENSE'
+            ProjectUri = 'https://github.com/scubamount/dlss-version-toolkit'
+            LicenseUri = 'https://github.com/scubamount/dlss-version-toolkit/blob/main/LICENSE'
             ReleaseNotes = 'Initial release'
         }
     }

@@ -32,7 +32,7 @@ The `-All` flag auto-detects Streamline SDK and AnWave in your Downloads folder 
 ### Option 1: Run Directly (No Install)
 
 ```powershell
-git clone https://github.com/your-repo/dlss-version-toolkit.git
+git clone https://github.com/scubamount/dlss-version-toolkit.git
 cd dlss-version-toolkit
 
 # Quick check (NGX Release + Staging only)

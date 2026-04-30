@@ -193,8 +193,8 @@ if ($result.Status -eq "Completed") {
     PrivateData       = @{
         PSData = @{
             Tags         = @('DLSS', 'NVIDIA', 'Gaming', 'Version')
-            ProjectUri   = 'https://github.com/username/dlss-version-toolkit'
-            LicenseUri   = 'https://github.com/username/dlss-version-toolkit/blob/main/LICENSE'
+            ProjectUri   = 'https://github.com/scubamount/dlss-version-toolkit'
+            LicenseUri   = 'https://github.com/scubamount/dlss-version-toolkit/blob/main/LICENSE'
             ReleaseNotes = 'Initial release'
         }
     }
@@ -498,8 +498,8 @@ if ($result.Status -eq "Completed") {
     PrivateData = @{
         PSData = @{
             Tags = @('DLSS', 'NVIDIA', 'Gaming', 'Version')
-            ProjectUri = 'https://github.com/username/dlss-version-toolkit'
-            LicenseUri = 'https://github.com/username/dlss-version-toolkit/blob/main/LICENSE'
+            ProjectUri = 'https://github.com/scubamount/dlss-version-toolkit'
+            LicenseUri = 'https://github.com/scubamount/dlss-version-toolkit/blob/main/LICENSE'
             ReleaseNotes = 'Initial release'
         }
     }

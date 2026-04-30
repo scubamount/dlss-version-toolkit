@@ -14,7 +14,7 @@ Tags:
 Installers:
 - InstallerType: zip
   Architecture: x64
-  InstallerUrl: https://github.com/thedotmack/dlss-version-toolkit/releases/download/v0.1.0/dlss-version-toolkit-0.1.0.zip
+  InstallerUrl: https://github.com/scubamount/dlss-version-toolkit/releases/download/v0.1.0/dlss-version-toolkit-0.1.0.zip
   InstallerSha256: ""
 ManifestType: singleton
 ManifestVersion: 1.1.0

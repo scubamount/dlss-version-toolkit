@@ -156,7 +156,7 @@ Use the `-ExecutionPolicy Bypass` flag as shown in the examples. This is a Windo
 
 ```powershell
 # Clone repository
-git clone https://github.com/username/dlss-version-toolkit.git
+git clone https://github.com/scubamount/dlss-version-toolkit.git
 cd dlss-version-toolkit
 
 # Verify module loads
@@ -394,7 +394,7 @@ Install a game with DLSS support or enable DLSS in NVIDIA App.
 
 ```powershell
 # Clone repository
-git clone https://github.com/username/dlss-version-toolkit.git
+git clone https://github.com/scubamount/dlss-version-toolkit.git
 cd dlss-version-toolkit
 
 # Verify module loads
