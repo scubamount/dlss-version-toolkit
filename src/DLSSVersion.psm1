@@ -208,69 +208,61 @@ function Get-NgxVersionConfig {
         }
     }
 
-    # Check file byte size before reading (10MB = 1048576 bytes)
+    # Read config file as single string (-Raw handles encoding, size, and join in one pass)
     try {
-        $fileInfo = Get-Item -Path $configFile.FullName -ErrorAction Stop
-        if ($fileInfo.Length -gt 1048576) {
-            Write-Warning "Config file is large ($($fileInfo.Length) bytes), parsing may be slow"
+        $contentStr = Get-Content -Path $configFile.FullName -Encoding UTF8 -Raw -ErrorAction Stop
+        if ([string]::IsNullOrEmpty($contentStr)) {
+            Write-Warning "Config file is empty"
+            return [PSCustomObject]@{
+                DLSS = $dlssVersion
+                FrameGen = $frameGenVersion
+                DLSSD = $dlssdVersion
+                DeepDVC = $deepdvcVersion
+                Message = "Config file empty"
+            }
         }
-    }
-    catch {
-        Write-Warning "Could not check config file size: $($_.Exception.Message)"
-    }
-
-    # Read config file with encoding detection
-    # In PS 5.1+, Get-Content -Encoding UTF8 auto-detects BOM
-    try {
-        $content = Get-Content -Path $configFile.FullName -Encoding UTF8 -ErrorAction Stop
-        $encodingUsed = "UTF8"
+        if ($contentStr.Length -gt 1048576) {
+            Write-Warning "Config file is large ($($contentStr.Length) chars), parsing may be slow"
+        }
     }
     catch {
         try {
             # Fallback: default system encoding
-            $content = Get-Content -Path $configFile.FullName -ErrorAction Stop
-            $encodingUsed = "Default"
+            $contentStr = Get-Content -Path $configFile.FullName -Raw -ErrorAction Stop
+            if ([string]::IsNullOrEmpty($contentStr)) {
+                Write-Warning "Config file is empty"
+                return [PSCustomObject]@{
+                    DLSS = $dlssVersion
+                    FrameGen = $frameGenVersion
+                    DLSSD = $dlssdVersion
+                    DeepDVC = $deepdvcVersion
+                    Message = "Config file empty"
+                }
+            }
         }
         catch {
-            Write-Warning "Failed to read config file with any encoding: $($_.Exception.Message)"
+            Write-Warning "Failed to read config file: $($_.Exception.Message)"
             return [PSCustomObject]@{
-                DLSS     = $dlssVersion
+                DLSS = $dlssVersion
                 FrameGen = $frameGenVersion
-                DLSSD    = $dlssdVersion
-                DeepDVC  = $deepdvcVersion
-                Message  = "Failed to read config"
+                DLSSD = $dlssdVersion
+                DeepDVC = $deepdvcVersion
+                Message = "Failed to read config"
             }
         }
     }
 
-    # Handle empty file
-    if ($content.Count -eq 0) {
-        Write-Warning "Config file is empty"
-        return [PSCustomObject]@{
-            DLSS     = $dlssVersion
-            FrameGen = $frameGenVersion
-            DLSSD    = $dlssdVersion
-            DeepDVC  = $deepdvcVersion
-            Message  = "Config file empty"
-        }
-    }
-
-    # Join content into single string for reliable -match/$Matches behavior
-    # PowerShell -match on arrays returns true/false per element but does NOT populate $Matches
-    $contentStr = $content -join "`n"
-
     # Handle corrupt config files (binary data, null bytes)
-    if ($contentStr -match "(?s)\x00") {
+    if ($contentStr -match '\x00') {
         Write-Warning "Config file contains binary data (null bytes), likely corrupt: '$FolderPath'"
         return [PSCustomObject]@{
-            DLSS     = $dlssVersion
+            DLSS = $dlssVersion
             FrameGen = $frameGenVersion
-            DLSSD    = $dlssdVersion
-            DeepDVC  = $deepdvcVersion
-            Message  = "Corrupt config (binary data)"
+            DLSSD = $dlssdVersion
+            DeepDVC = $deepdvcVersion
+            Message = "Corrupt config (binary data)"
         }
     }
-
     # Parse DLSS version and validate format
     if ($contentStr -match "dlss,\s+([\d.]+)") {
         $parsedVersion = $Matches[1]
@@ -800,7 +792,7 @@ function Get-DLSSVersions {
         [string]$GlobalPath = ""
     )
 
-    $results = @()
+    $results = [System.Collections.ArrayList]::new()
 
     $releasePath = Join-Path $Path $script:ReleaseSubPath
     $stagingPath = Join-Path $Path $script:StagingSubPath
@@ -812,9 +804,9 @@ function Get-DLSSVersions {
             foreach ($folder in $versionFolders) {
                 try {
                     $config = Get-NgxVersionConfig -FolderPath $folder.FullName
-                    $results += New-DLSSVersionObject -Location "Release" -BuildID $folder.Name `
-                        -DLSS $config.DLSS -FrameGen $config.FrameGen `
-                        -DLSSD $config.DLSSD -DeepDVC $config.DeepDVC
+                $results.Add((New-DLSSVersionObject -Location "Release" -BuildID $folder.Name `
+                    -DLSS $config.DLSS -FrameGen $config.FrameGen `
+                    -DLSSD $config.DLSSD -DeepDVC $config.DeepDVC)) | Out-Null
                 }
                 catch {
                     Write-Warning "Access denied or error reading Release version folder '$($folder.Name)': $($_.Exception.Message)"
@@ -833,9 +825,9 @@ function Get-DLSSVersions {
             foreach ($folder in $versionFolders) {
                 try {
                     $config = Get-NgxVersionConfig -FolderPath $folder.FullName
-                    $results += New-DLSSVersionObject -Location "Staging" -BuildID $folder.Name `
-                        -DLSS $config.DLSS -FrameGen $config.FrameGen `
-                        -DLSSD $config.DLSSD -DeepDVC $config.DeepDVC
+                $results.Add((New-DLSSVersionObject -Location "Staging" -BuildID $folder.Name `
+                    -DLSS $config.DLSS -FrameGen $config.FrameGen `
+                    -DLSSD $config.DLSSD -DeepDVC $config.DeepDVC)) | Out-Null
                 }
                 catch {
                     Write-Warning "Access denied or error reading Staging version folder '$($folder.Name)': $($_.Exception.Message)"
@@ -853,17 +845,17 @@ function Get-DLSSVersions {
             $globalConfig = Get-GlobalDllVersions -GlobalPath $GlobalPath
             # Use the DLSS version as BuildID for Global (no folder-based BuildID)
             $buildId = if ($globalConfig.DLSS -ne "Unknown") { $globalConfig.DLSS } else { "unknown" }
-            $results += New-DLSSVersionObject -Location "Global" -BuildID $buildId `
+            $results.Add((New-DLSSVersionObject -Location "Global" -BuildID $buildId `
                 -DLSS $globalConfig.DLSS -FrameGen $globalConfig.FrameGen `
                 -DLSSD $globalConfig.DLSSD -DeepDVC $globalConfig.DeepDVC `
-                -StreamlineSDK $globalConfig.StreamlineSDK
+                -StreamlineSDK $globalConfig.StreamlineSDK)) | Out-Null
         }
         catch {
             Write-Warning "Cannot scan Global path '$GlobalPath': $($_.Exception.Message)"
         }
     }
 
-    return $results
+    return @($results.ToArray())
 }
 
 function Get-DLSSLatestVersion {
@@ -899,7 +891,7 @@ function Get-DLSSLatestVersion {
         [string]$Location = "",
 
         [Parameter(Mandatory = $false)]
-        [ValidateSet("DLSS", "FrameGen", "DLSSD", "DeepDVC")]
+    [ValidateSet("DLSS", "FrameGen", "DLSSD", "DeepDVC", "StreamlineSDK")]
         [string]$Component = "DLSS"
     )
 
@@ -1018,7 +1010,7 @@ function Start-DLSSUpgrade {
         Write-Host "Upgrading from DLSS $($releaseVersion.DLSS) to $($stagingVersion.DLSS)..." -ForegroundColor Cyan
 
         # Locate the Release version folder on disk
-        $releaseVersionsPath = Join-Path $Path $script:ReleaseSubPath"
+        $releaseVersionsPath = Join-Path $Path $script:ReleaseSubPath
         if (-not (Test-Path $releaseVersionsPath)) {
             Write-Error "ERROR: Release path not found: $releaseVersionsPath"
             $operation.Status = "Failed"
@@ -1037,42 +1029,6 @@ function Start-DLSSUpgrade {
             return $operation
         }
 
-        $releaseFolder = Get-ChildItem -Path $releaseVersionsPath -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -eq $releaseVersion.BuildID } |
-            Select-Object -First 1
-
-        if ($releaseFolder -eq $null) {
-            # Fallback: use the first release folder
-            $releaseFolder = Get-ChildItem -Path $releaseVersionsPath -Directory -ErrorAction SilentlyContinue |
-                Select-Object -First 1
-        }
-
-        if ($releaseFolder -eq $null) {
-            Write-Warning "Cannot locate release version folder on disk."
-            $operation.Status = "Failed"
-            $operation.ErrorMessage = "Cannot locate release version folder"
-            return $operation
-        }
-
-        # Locate the Staging version folder on disk
-        $stagingVersionsPath = Join-Path $Path $script:StagingSubPath"
-        $stagingFolder = Get-ChildItem -Path $stagingVersionsPath -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -eq $stagingVersion.BuildID } |
-            Select-Object -First 1
-
-        if ($stagingFolder -eq $null) {
-            Write-Error "ERROR: Cannot locate staging version folder matching BuildID $($stagingVersion.BuildID) on disk."
-            $operation.Status = "Failed"
-            $operation.ErrorMessage = "Cannot locate staging version folder"
-            return $operation
-        }
-
-        if ($stagingFolder -eq $null) {
-            Write-Warning "Cannot locate staging version folder on disk."
-            $operation.Status = "Failed"
-            $operation.ErrorMessage = "Cannot locate staging version folder"
-            return $operation
-        }
 
         # --- Step 1: Create backup ---
         Write-Host "Creating backup..." -ForegroundColor Gray
@@ -1527,7 +1483,27 @@ function Sync-DLSSVersions {
                     }
 
                     Copy-Item -Path $srcFile -Destination $dstFile -Force
-                    Write-Host "  Copied: $dll" -ForegroundColor Green
+                    Write-Host " Copied: $dll" -ForegroundColor Green
+                }
+            }
+            elseif ($rec.From -eq "Staging" -and $rec.To -eq "NGX_Release") {
+                # Staging→NGX: copy DLLs and config from staging version folder to release version folder
+                $stagingVersionsPath = Join-Path $script:DefaultNgxBasePath $script:StagingSubPath
+                $releaseVersionsPath = Join-Path $script:DefaultNgxBasePath $script:ReleaseSubPath
+                $stagingFolder = Get-ChildItem -Path $stagingVersionsPath -Directory -ErrorAction SilentlyContinue |
+                    Sort-Object Name -Descending | Select-Object -First 1
+                $releaseFolder = Get-ChildItem -Path $releaseVersionsPath -Directory -ErrorAction SilentlyContinue |
+                    Sort-Object Name -Descending | Select-Object -First 1
+                if ($stagingFolder -and $releaseFolder) {
+                    $stagingDlls = Get-ChildItem -Path $stagingFolder.FullName -Recurse -File -ErrorAction SilentlyContinue |
+                        Where-Object { $script:DllNames -contains $_.Name -or $_.Name -eq $script:ConfigFileName }
+                    foreach ($file in $stagingDlls) {
+                        $targetFile = Join-Path $releaseFolder.FullName $file.Name
+                        if (Test-Path $targetFile) {
+                            Copy-Item -Path $file.FullName -Destination $targetFile -Force
+                            Write-Host "  Copied: $($file.Name)" -ForegroundColor Green
+                        }
+                    }
                 }
             }
         }
@@ -1538,7 +1514,6 @@ function Sync-DLSSVersions {
             Status = "Completed"
         }
     }
-
     return $results
 }
 

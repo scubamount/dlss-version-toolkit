@@ -6,15 +6,15 @@ License: MIT
 ShortDescription: Check and upgrade NVIDIA DLSS override versions on Windows
 Description: A Windows PowerShell tool for checking and upgrading NVIDIA DLSS versions installed via the NVIDIA App DLSS override feature.
 Tags:
-  - DLSS
-  - NVIDIA
-  - NGX
-  - Version
-  - Upgrade
+- DLSS
+- NVIDIA
+- NGX
+- Version
+- Upgrade
 Installers:
-  - InstallerType: zip
-    Architecture: x64
-    InstallerUrl: https://github.com/username/dlss-version-toolkit/releases/download/v0.1.0/dlss-version-toolkit-0.1.0.zip
-    InstallerSha256: ""
+- InstallerType: zip
+  Architecture: x64
+  InstallerUrl: https://github.com/thedotmack/dlss-version-toolkit/releases/download/v0.1.0/dlss-version-toolkit-0.1.0.zip
+  InstallerSha256: ""
 ManifestType: singleton
 ManifestVersion: 1.1.0

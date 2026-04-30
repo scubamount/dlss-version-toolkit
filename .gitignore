@@ -25,5 +25,10 @@ dist/
 # Backup files
 *.bak
 
+# Development artifacts
+PATHFINDER-2026-04-29/
+autoresearch/
+.sisyphus/
+
 # OS
 .DS_Store

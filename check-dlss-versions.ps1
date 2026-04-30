@@ -12,33 +12,20 @@ param(
     [string]$StreamlinePath = ""
 )
 
-# Suppress PSReadLine warnings for cleaner output
-$PSReadLineOptions = @{
-    PredictionSource = $null
-    PredictionViewStyle = $null
-    ColorSettings = @{
-        "MenuColor" = $null
-        "SelectionColor" = $null
-        "ListPredictionColor" = $null
-    }
-}
-
-# Import module from same directory tree (src folder or locally installed)
+# Import module from same directory tree (src folder) or globally installed
 $modulePath = Join-Path $PSScriptRoot "src\DLSSVersion.psm1"
-$moduleDirs = @(
-    $modulePath,
-    "$PSScriptRoot\src",
-    "$env:USERPROFILE\Documents\PowerShell\Modules\DLSSVersion",
-    "$env:USERPROFILE\Documents\WindowsPowerShell\Modules\DLSSVersion"
-)
-
 $loaded = $false
-foreach ($dir in $moduleDirs) {
-    $dllPath = Join-Path $dir "DLSSVersion.psm1"
-    if (Test-Path $dllPath) {
-        Import-Module $dllPath -Force
+
+if (Test-Path $modulePath) {
+    Import-Module $modulePath -Force
+    $loaded = $true
+} else {
+    # Try globally installed module
+    try {
+        Import-Module DLSSVersion -ErrorAction Stop
         $loaded = $true
-        break
+    } catch {
+        $loaded = $false
     }
 }
 
@@ -50,33 +37,27 @@ if (-not $loaded) {
     exit 1
 }
 
-# Auto-detect Streamline SDK path if not provided
+# Auto-detect Streamline SDK path if not provided (wildcard search in Downloads)
 if ($StreamlinePath -eq "") {
-    $searchPaths = @(
-        "$env:USERPROFILE\Downloads\streamline-sdk-v2.11.1",
-        "C:\Users\jolti.PHANERON\Downloads\streamline-sdk-v2.11.1",
-        "$env:USERPROFILE\Downloads\streamline-sdk"
-    )
-    foreach ($sp in $searchPaths) {
-        if (Test-Path (Join-Path $sp "bin\x64\nvngx_dlss.dll")) {
-            $StreamlinePath = $sp
-            break
-        }
+    $downloadsPath = [System.IO.Path]::Combine($env:USERPROFILE, "Downloads")
+    if (Test-Path $downloadsPath) {
+        $found = Get-ChildItem -Path $downloadsPath -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'streamline-sdk' -and (Test-Path (Join-Path $_.FullName "bin\x64\nvngx_dlss.dll")) } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+        if ($found) { $StreamlinePath = $found.FullName }
     }
 }
 
-# Auto-detect AnWave/Global if not provided (common location)
+# Auto-detect AnWave/Global if not provided (wildcard search in Downloads)
 if ($GlobalPath -eq "") {
-    $globalSearch = @(
-        "$env:USERPROFILE\Downloads\nvidiaDlssGlom",
-        "$env:USERPROFILE\Downloads\dlssglom",
-        "C:\Users\jolti.PHANERON\Downloads\nvidiaDlssGlom"
-    )
-    foreach ($gp in $globalSearch) {
-        if (Test-Path (Join-Path $gp "nvidiaDlssGlom.exe")) {
-            $GlobalPath = $gp
-            break
-        }
+    $downloadsPath = [System.IO.Path]::Combine($env:USERPROFILE, "Downloads")
+    if (Test-Path $downloadsPath) {
+        $found = Get-ChildItem -Path $downloadsPath -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'dlssglom|nvidiaDlssGlom|AnWave' -and (Test-Path (Join-Path $_.FullName "nvidiaDlssGlom.exe")) } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+        if ($found) { $GlobalPath = $found.FullName }
     }
 }
 
@@ -84,54 +65,52 @@ if ($GlobalPath -eq "") {
 if ($All) {
     Write-Host "=== DLSS Version Toolkit: Full Update ===" -ForegroundColor Cyan
     Write-Host ""
-    
+
     # Step 1: Check dependencies
     Write-Host "[1/4] Checking dependencies..." -ForegroundColor Gray
-    
-        $issues = @()
 
-        if ($StreamlinePath -eq "") {
-            $issues += "Streamline SDK not found (download from https://developer.nvidia.com/streamline-sdk and extract to Downloads)"
-        }
-        if ($GlobalPath -eq "") {
-            $issues += "AnWave/dlssglom not found (download from https://github.com/cybertron010/dlssglom and extract to Downloads)"
-        }
+    $issues = @()
 
-        if ($issues.Count -gt 0) {
-            Write-Host "Optional sources not detected (these require separate download):" -ForegroundColor DarkGray
-            foreach ($issue in $issues) {
-                Write-Host " - $issue" -ForegroundColor DarkGray
-            }
-        } else {
-            Write-Host " Streamline SDK: $StreamlinePath" -ForegroundColor Green
-            Write-Host " AnWave: $GlobalPath" -ForegroundColor Green
-        }
+    if ($StreamlinePath -eq "") {
+        $issues += "Streamline SDK not found (download from https://developer.nvidia.com/streamline-sdk and extract to Downloads)"
+    }
+    if ($GlobalPath -eq "") {
+        $issues += "AnWave/dlssglom not found (download from https://github.com/cybertron010/dlssglom and extract to Downloads)"
+    }
 
-        # Step 2: Compare all sources
+    if ($issues.Count -gt 0) {
+        Write-Host "Optional sources not detected (these require separate download):" -ForegroundColor DarkGray
+        foreach ($issue in $issues) {
+            Write-Host " - $issue" -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Host " Streamline SDK: $StreamlinePath" -ForegroundColor Green
+        Write-Host " AnWave: $GlobalPath" -ForegroundColor Green
+    }
+
+    # Step 2: Compare all sources (single call, cached for reuse)
     Write-Host ""
     Write-Host "[2/4] Comparing all sources..." -ForegroundColor Gray
-    Compare-DLSSAllSources -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath -ShowDetails
-    
+    $analysis = Compare-DLSSAllSources -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath -ShowDetails
+
     # Step 3: Find what needs updating
     Write-Host ""
     Write-Host "[3/4] Determining updates needed..." -ForegroundColor Gray
-    
-    $analysis = Compare-DLSSAllSources -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath
-    
+
     # Step 4: Apply updates
     Write-Host ""
     Write-Host "[4/4] Applying updates..." -ForegroundColor Gray
-    
+
     if ($analysis.Recommendations.Count -eq 0) {
-        Write-Host "  All sources already at newest version!" -ForegroundColor Green
+        Write-Host " All sources already at newest version!" -ForegroundColor Green
     } else {
         foreach ($rec in $analysis.Recommendations) {
-            Write-Host "  -> $($rec.Description)" -ForegroundColor Yellow
+            Write-Host " -> $($rec.Description)" -ForegroundColor Yellow
         }
-        
+
         Sync-DLSSVersions -StreamlinePath $StreamlinePath -GlobalPath $GlobalPath -Force
     }
-    
+
     Write-Host ""
     Write-Host "=== Complete ===" -ForegroundColor Cyan
     exit 0

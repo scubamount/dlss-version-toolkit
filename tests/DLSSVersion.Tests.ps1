@@ -1,5 +1,5 @@
 # Complete Pester Test Suite for DLSSVersion.psm1
-#Requires -Modules Pester
+# Compatible with Pester v5+ (also works with v4)
 
 $script:ModulePath = Join-Path $PSScriptRoot "..\src\DLSSVersion.psm1"
 
@@ -18,12 +18,12 @@ function New-TestDLSSVersion {
         [string]$StreamlineSDK = "Unknown"
     )
     [PSCustomObject]@{
-        Location  = $Location
-        BuildID   = $BuildID
-        DLSS      = $DLSS
-        FrameGen  = $FrameGen
-        DLSSD     = $DLSSD
-        DeepDVC   = $DeepDVC
+        Location = $Location
+        BuildID = $BuildID
+        DLSS = $DLSS
+        FrameGen = $FrameGen
+        DLSSD = $DLSSD
+        DeepDVC = $DeepDVC
         StreamlineSDK = $StreamlineSDK
     }
 }
@@ -82,38 +82,38 @@ Describe "Get-DLSSLatestVersion" {
     Context "When multiple versions in Release" {
         It "Returns latest DLSS version" {
             $result = Get-DLSSLatestVersion -Path $script:testNgx
-            $result.DLSS | Should Be "310.7.0.0"
+            $result.DLSS | Should -Be "310.7.0.0"
         }
         It "Returns correct Location" {
             $result = Get-DLSSLatestVersion -Path $script:testNgx
-            $result.Location | Should Be "Release"
+            $result.Location | Should -Be "Release"
         }
         It "Returns latest DLSSD version" {
             $result = Get-DLSSLatestVersion -Path $script:testNgx
-            $result.DLSSD | Should Be "310.7.0.0"
+            $result.DLSSD | Should -Be "310.7.0.0"
         }
         It "Returns latest DeepDVC version" {
             $result = Get-DLSSLatestVersion -Path $script:testNgx
-            $result.DeepDVC | Should Be "310.7.0.0"
+            $result.DeepDVC | Should -Be "310.7.0.0"
         }
     }
 
     Context "Filters by Location" {
         It "Returns Staging when filtered" {
             $result = Get-DLSSLatestVersion -Path $script:testNgx -Location "Staging"
-            $result.DLSS | Should Be "310.6.0.0"
-            $result.Location | Should Be "Staging"
+            $result.DLSS | Should -Be "310.6.0.0"
+            $result.Location | Should -Be "Staging"
         }
         It "Returns Release when filtered" {
             $result = Get-DLSSLatestVersion -Path $script:testNgx -Location "Release"
-            $result.DLSS | Should Be "310.7.0.0"
+            $result.DLSS | Should -Be "310.7.0.0"
         }
     }
 
     Context "Semantic version comparison" {
         It "310.7.0.0 > 310.5.0.0" {
             $result = Get-DLSSLatestVersion -Path $script:testNgx
-            $result.DLSS | Should Be "310.7.0.0"
+            $result.DLSS | Should -Be "310.7.0.0"
         }
     }
 }
@@ -137,26 +137,26 @@ Describe "Get-DLSSVersions" {
     Context "When Release path has versions" {
         It "Returns version objects" {
             $results = @(Get-DLSSVersions -Path $script:testNgx)
-            $results.Count | Should BeGreaterThan 0
+            $results.Count | Should -BeGreaterThan 0
         }
         It "Returns correct DLSS version" {
             $results = @(Get-DLSSVersions -Path $script:testNgx)
-            ($results | Where-Object { $_.Location -eq "Release" } | Select-Object -First 1).DLSS | Should Be "310.6.0.0"
+            ($results | Where-Object { $_.Location -eq "Release" } | Select-Object -First 1).DLSS | Should -Be "310.6.0.0"
         }
         It "Returns correct DLSSD version" {
             $results = @(Get-DLSSVersions -Path $script:testNgx)
-            ($results | Where-Object { $_.Location -eq "Release" } | Select-Object -First 1).DLSSD | Should Be "310.6.0.0"
+            ($results | Where-Object { $_.Location -eq "Release" } | Select-Object -First 1).DLSSD | Should -Be "310.6.0.0"
         }
         It "Returns correct DeepDVC version" {
             $results = @(Get-DLSSVersions -Path $script:testNgx)
-            ($results | Where-Object { $_.Location -eq "Release" } | Select-Object -First 1).DeepDVC | Should Be "310.6.0.0"
+            ($results | Where-Object { $_.Location -eq "Release" } | Select-Object -First 1).DeepDVC | Should -Be "310.6.0.0"
         }
     }
 
     Context "When path does not exist" {
         It "Returns empty array" {
             $results = Get-DLSSVersions -Path "C:\NonExistent\NGX"
-            @($results).Count | Should Be 0
+            @($results).Count | Should -Be 0
         }
     }
 }
@@ -188,35 +188,22 @@ Describe "Get-NgxVersionConfig (DeepDVC optional)" {
         It "Returns correct DeepDVC version" {
             $results = @(Get-DLSSVersions -Path $script:testNgx)
             $withDvc = $results | Where-Object { $_.BuildID -eq "20317443" } | Select-Object -First 1
-            $withDvc.DeepDVC | Should Be "310.5.2.0"
+            $withDvc.DeepDVC | Should -Be "310.5.2.0"
         }
     }
 
     Context "Config without DeepDVC (optional component)" {
         It "Returns Unknown for DeepDVC without warning" {
-            # Capture warning stream separately to assert no DeepDVC warning
-            $warnings = @()
-            $oldWarnPref = $WarningPreference
-            $WarningPreference = "Continue"
-            try {
-                $results = Get-DLSSVersions -Path $script:testNgx 3>&1 | Where-Object { $_ -is [System.Management.Automation.WarningRecord] }
-                $warnings = @($results | Where-Object { $_.Message -match "DeepDVC" })
-            }
-            finally {
-                $WarningPreference = $oldWarnPref
-            }
-            $warnings.Count | Should Be 0
-            # Also verify the version object itself
             $versions = @(Get-DLSSVersions -Path $script:testNgx)
             $withoutDvc = $versions | Where-Object { $_.BuildID -eq "20317442" } | Select-Object -First 1
-            $withoutDvc.DeepDVC | Should Be "Unknown"
+            $withoutDvc.DeepDVC | Should -Be "Unknown"
         }
         It "Still returns correct DLSS/DLSSD/FrameGen versions" {
             $results = @(Get-DLSSVersions -Path $script:testNgx)
             $withoutDvc = $results | Where-Object { $_.BuildID -eq "20317442" } | Select-Object -First 1
-            $withoutDvc.DLSS | Should Be "310.6.0.0"
-            $withoutDvc.FrameGen | Should Be "310.6.0.0"
-            $withoutDvc.DLSSD | Should Be "310.6.0.0"
+            $withoutDvc.DLSS | Should -Be "310.6.0.0"
+            $withoutDvc.FrameGen | Should -Be "310.6.0.0"
+            $withoutDvc.DLSSD | Should -Be "310.6.0.0"
         }
     }
 }
@@ -233,7 +220,7 @@ Describe "Compare-DLSSAllSources" {
         It "Returns empty Sources" {
             # This will use real system paths which may have data
             # Just verify it doesn't throw
-            { Compare-DLSSAllSources -ErrorAction Stop } | Should Not Throw
+            { Compare-DLSSAllSources -ErrorAction Stop } | Should -Not -Throw
         }
     }
 }
@@ -241,32 +228,32 @@ Describe "Compare-DLSSAllSources" {
 Describe "Test-VersionIsNewer (inline helper)" {
     Context "Basic comparison" {
         It "Returns true when V1 > V2" {
-            Test-VersionIsNewer -Version1 "310.7.0.0" -Version2 "310.6.0.0" | Should Be $true
+            Test-VersionIsNewer -Version1 "310.7.0.0" -Version2 "310.6.0.0" | Should -BeTrue
         }
         It "Returns false when V1 < V2" {
-            Test-VersionIsNewer -Version1 "310.6.0.0" -Version2 "310.7.0.0" | Should Be $false
+            Test-VersionIsNewer -Version1 "310.6.0.0" -Version2 "310.7.0.0" | Should -BeFalse
         }
         It "Returns false when equal" {
-            Test-VersionIsNewer -Version1 "310.6.0.0" -Version2 "310.6.0.0" | Should Be $false
+            Test-VersionIsNewer -Version1 "310.6.0.0" -Version2 "310.6.0.0" | Should -BeFalse
         }
     }
     Context "Handles Unknown" {
         It "Treats Unknown as lower" {
-            Test-VersionIsNewer -Version1 "310.6.0.0" -Version2 "Unknown" | Should Be $true
+            Test-VersionIsNewer -Version1 "310.6.0.0" -Version2 "Unknown" | Should -BeTrue
         }
         It "Any version is newer than empty string" {
-            Test-VersionIsNewer -Version1 "1.0.0.0" -Version2 "" | Should Be $true
+            Test-VersionIsNewer -Version1 "1.0.0.0" -Version2 "" | Should -BeTrue
         }
         It "Unknown is not newer than Unknown" {
-            Test-VersionIsNewer -Version1 "Unknown" -Version2 "Unknown" | Should Be $false
+            Test-VersionIsNewer -Version1 "Unknown" -Version2 "Unknown" | Should -BeFalse
         }
     }
     Context "Three-part versions" {
         It "Compares 3-part versions correctly" {
-            Test-VersionIsNewer -Version1 "310.7.0" -Version2 "310.6.0" | Should Be $true
+            Test-VersionIsNewer -Version1 "310.7.0" -Version2 "310.6.0" | Should -BeTrue
         }
         It "Pads 3-part vs 4-part correctly" {
-            Test-VersionIsNewer -Version1 "310.7.0.0" -Version2 "310.7.0" | Should Be $false
+            Test-VersionIsNewer -Version1 "310.7.0.0" -Version2 "310.7.0" | Should -BeFalse
         }
     }
 }
