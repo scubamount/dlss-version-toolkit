@@ -62,8 +62,17 @@ public partial class App : Application
         MainWindow = mainWindow;
         mainWindow.Show();
 
-        // Only start background scheduler if user has opted in
+        // Apply StartMinimized setting if configured
         var settings = await _settingsService.LoadAsync();
+        if (settings.StartMinimized && settings.MinimizeToTray)
+        {
+            mainWindow.Hide();
+            mainWindow.ShowInTaskbar = false;
+            if (_trayIcon != null)
+                _trayIcon.Visibility = Visibility.Visible;
+        }
+
+        // Only start background scheduler if user has opted in
         if (settings.AutoScanEnabled)
         {
             SetupScanScheduler(settings.ScanIntervalHours);

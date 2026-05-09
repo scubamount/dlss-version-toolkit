@@ -174,20 +174,26 @@ public class BackupServiceTests
     {
         var service = new Core.Services.BackupService();
 
-        var sourceDir = Path.Combine(Path.GetTempPath(), $"dlss-src-{Guid.NewGuid()}");
-        var parentDir = Path.GetDirectoryName(sourceDir)!;
+        // BackupService validates that parent path is under ProgramData\NVIDIA or AppData\NVIDIA
+        var nvidiaParent = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "NVIDIA", "NGX", "models", "dlss_override", "versions");
+        var sourceDir = Path.Combine(nvidiaParent, $"dlss-test-{Guid.NewGuid()}");
         Directory.CreateDirectory(sourceDir);
         File.WriteAllText(Path.Combine(sourceDir, "test.dll"), "test");
 
-        var backupPath = service.CreateBackup(sourceDir, parentDir);
+        var backupPath = service.CreateBackup(sourceDir, nvidiaParent);
 
         Assert.NotNull(backupPath);
         Assert.True(Directory.Exists(backupPath));
         Assert.Contains(".dlss-backup-", Path.GetFileName(backupPath));
 
         Directory.Delete(sourceDir, true);
-        if (Directory.Exists(backupPath))
-            Directory.Delete(backupPath, true);
+        if (Directory.Exists(backupPath)) Directory.Delete(backupPath, true);
+        // Clean up test NVIDIA directory tree if empty
+        try { Directory.Delete(nvidiaParent, false); } catch { }
+        try { Directory.Delete(Path.GetDirectoryName(nvidiaParent)!, false); } catch { }
+        try { Directory.Delete(Path.GetDirectoryName(Path.GetDirectoryName(nvidiaParent)!)!, false); } catch { }
     }
 
     [Fact]
@@ -204,11 +210,21 @@ public class SettingsServiceTests
     [Fact]
     public async Task LoadAsync_DefaultSettings_ReturnsDefaultPaths()
     {
+        // Ensure no leftover settings file from other tests
+        var settingsDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "DLSSVersionToolkit");
+        var settingsFile = Path.Combine(settingsDir, "settings.json");
+        if (File.Exists(settingsFile))
+        {
+            try { File.Delete(settingsFile); } catch { }
+        }
+
         var service = new Core.Services.SettingsService();
         var settings = await service.LoadAsync();
 
-        Assert.Equal(@"C:\ProgramData\NVIDIA\NGX", settings.NgxBasePath);
-        Assert.True(settings.AutoScanEnabled);
+        Assert.Equal("", settings.NgxBasePath); // Empty by default — auto-detected at runtime
+        Assert.False(settings.AutoScanEnabled);
         Assert.Equal(4, settings.ScanIntervalHours);
     }
 

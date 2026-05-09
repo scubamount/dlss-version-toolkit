@@ -42,7 +42,7 @@ This tool also downloads the official **DLSS SDK** (`ngx_dlss_demo_windows.zip`)
 
 ## Requirements
 
-- Windows 10 version 1908+ or Windows 11
+- Windows 10 version 1903+ or Windows 11
 - .NET 9 Runtime ([download .NET 9](https://dotnet.microsoft.com/download/dotnet/9.0))
 - NVIDIA GPU with DLSS support
 - NVIDIA App with DLSS override enabled
@@ -103,7 +103,6 @@ Each step shows a dialog with the version applied, files copied, and what to do 
 
 Expand the **Advanced** section for individual operations:
 
-- **Upgrade Release** — promote NGX Staging to NGX Release (with backup)
 - **Sync from Streamline SDK** — copy DLLs from a Streamline SDK installation to NGX Release
 - **Sync from AnWave** — copy DLLs from AnWave to NGX Release
 - **Sync from DLSS SDK** — apply the cached DLSS SDK to NGX Release
