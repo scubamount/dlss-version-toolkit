@@ -118,19 +118,36 @@ public class AnWaveAutoService : IAnWaveAutoService
 
         progress?.Report(40);
 
-        // Extract .rar using SharpCompress
+        // Extract .rar using SharpCompress — extract to temp dir first to avoid file locks
         try
         {
             // Clean up previous exe if any
             foreach (var oldExe in Directory.GetFiles(InstallDir, "nvidiaDlssGlom*.exe"))
-                File.Delete(oldExe);
-
-            using var archive = ArchiveFactory.Open(glomRarPath);
-            foreach (var entry in archive.Entries.Where(e => !e.IsDirectory))
             {
-                entry.WriteToDirectory(InstallDir, new ExtractionOptions { Overwrite = true });
+                try { File.Delete(oldExe); } catch { }
             }
-            File.Delete(glomRarPath);
+
+            var tmpExtract = Path.Combine(Path.GetTempPath(), $"DLSSVT_glom_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tmpExtract);
+
+            using (var archive = ArchiveFactory.Open(glomRarPath))
+            {
+                foreach (var entry in archive.Entries.Where(e => !e.IsDirectory))
+                {
+                    entry.WriteToDirectory(tmpExtract, new ExtractionOptions { Overwrite = true });
+                }
+            }
+
+            // Move extracted files to install dir
+            foreach (var file in Directory.GetFiles(tmpExtract))
+            {
+                var dest = Path.Combine(InstallDir, Path.GetFileName(file));
+                File.Copy(file, dest, true);
+            }
+
+            // Clean up temp
+            try { Directory.Delete(tmpExtract, true); } catch { }
+            try { File.Delete(glomRarPath); } catch { }
         }
         catch (Exception ex)
         {
@@ -157,83 +174,27 @@ public class AnWaveAutoService : IAnWaveAutoService
 
         progress?.Report(80);
 
-        // Extract DLLs from zip into the AnWave folder
+        // Extract DLLs using built-in ZipFile to a unique temp dir (avoids all file lock issues)
         try
         {
-            // Clean up old DLLs
-            foreach (var oldDll in Directory.GetFiles(InstallDir, "nvngx_*.dll"))
-                File.Delete(oldDll);
-            foreach (var oldTxt in Directory.GetFiles(InstallDir, "nvngx_package_config.txt"))
-                File.Delete(oldTxt);
+            var tmpExtract = Path.Combine(Path.GetTempPath(), $"DLSSVT_dlls_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tmpExtract);
+            System.IO.Compression.ZipFile.ExtractToDirectory(ngxZipPath, tmpExtract, true);
 
-            // Find the DLSS/bin/Win64/ folder in the zip
-            string? dllSourceDir = null;
-            using (var archive = ArchiveFactory.Open(ngxZipPath))
+            // Copy nvngx DLLs + config to install dir
+            foreach (var dll in Directory.GetFiles(tmpExtract, "nvngx_*.dll"))
             {
-                foreach (var entry in archive.Entries)
-                {
-                    if (entry.IsDirectory) continue;
-                    var name = entry.Key ?? "";
-                    if (name.EndsWith("nvngx_dlss.dll", StringComparison.OrdinalIgnoreCase) ||
-                        name.EndsWith("nvngx_dlssg.dll", StringComparison.OrdinalIgnoreCase) ||
-                        name.EndsWith("nvngx_dlssd.dll", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var dir = Path.GetDirectoryName(entry.Key);
-                        if (dir != null && (dir.Contains("DLSS", StringComparison.OrdinalIgnoreCase) ||
-                            dir.Contains("bin", StringComparison.OrdinalIgnoreCase)))
-                        {
-                            dllSourceDir = dir;
-                            break;
-                        }
-                    }
-                }
+                try { File.Copy(dll, Path.Combine(InstallDir, Path.GetFileName(dll)), true); } catch { }
+            }
+            var cfg = Directory.GetFiles(tmpExtract, "nvngx_package_config.txt").FirstOrDefault();
+            if (cfg != null)
+            {
+                try { File.Copy(cfg, Path.Combine(InstallDir, "nvngx_package_config.txt"), true); } catch { }
             }
 
-            if (dllSourceDir == null)
-            {
-                // Fallback: extract everything and find
-                System.IO.Compression.ZipFile.ExtractToDirectory(ngxZipPath, InstallDir + "_tmp", true);
-                var dlls = Directory.GetFiles(InstallDir + "_tmp", "nvngx_*.dll", SearchOption.AllDirectories);
-                if (dlls.Length > 0)
-                {
-                    dllSourceDir = Path.GetDirectoryName(dlls[0]);
-                    if (dllSourceDir != null)
-                    {
-                        // Copy found DLLs + config to install dir
-                        foreach (var dll in Directory.GetFiles(dllSourceDir, "nvngx_*.dll"))
-                            File.Copy(dll, Path.Combine(InstallDir, Path.GetFileName(dll)), true);
-                        var config = Directory.GetFiles(dllSourceDir, "nvngx_package_config.txt").FirstOrDefault();
-                        if (config != null)
-                            File.Copy(config, Path.Combine(InstallDir, "nvngx_package_config.txt"), true);
-                    }
-                    Directory.Delete(InstallDir + "_tmp", true);
-                }
-                else
-                {
-                    if (Directory.Exists(InstallDir + "_tmp"))
-                        Directory.Delete(InstallDir + "_tmp", true);
-                    return new AnWaveSetupResult { Success = false, ErrorMessage = "Could not find nvngx DLLs in downloaded package." };
-                }
-            }
-            else
-            {
-                // Extract only the DLLs + config from the zip
-                using (var archive = ArchiveFactory.Open(ngxZipPath))
-                {
-                    foreach (var entry in archive.Entries)
-                    {
-                        if (entry.IsDirectory) continue;
-                        var name = Path.GetFileName(entry.Key ?? "");
-                        if (name.EndsWith(".dll") || name == "nvngx_package_config.txt")
-                        {
-                            var dest = Path.Combine(InstallDir, name);
-                            entry.WriteToFile(dest, new ExtractionOptions { Overwrite = true });
-                        }
-                    }
-                }
-            }
-
-            File.Delete(ngxZipPath);
+            // Clean up
+            try { Directory.Delete(tmpExtract, true); } catch { }
+            try { File.Delete(ngxZipPath); } catch { }
         }
         catch (Exception ex)
         {

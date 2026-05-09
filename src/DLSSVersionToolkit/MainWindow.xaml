@@ -6,13 +6,12 @@
         xmlns:local="clr-namespace:DLSSVersionToolkit"
         xmlns:vm="clr-namespace:DLSSVersionToolkit.ViewModels"
         mc:Ignorable="d"
-        Title="DLSS Version Toolkit" Height="600" Width="900"
-        MinHeight="500" MinWidth="700"
+        Title="DLSS Version Toolkit" Height="680" Width="960"
+        MinHeight="580" MinWidth="880"
         Background="{StaticResource DarkBackgroundBrush}"
         WindowStartupLocation="CenterScreen">
 
     <Window.Resources>
-        <!-- Newest version highlight style -->
         <Style x:Key="NewestCellStyle" TargetType="DataGridCell">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -38,110 +37,165 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
-
-        <Style x:Key="NewestFGCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource NewestCellStyle}">
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsNewestFG}" Value="True">
-                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
-                    <Setter Property="FontWeight" Value="SemiBold"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="NewestDLSSDCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource NewestCellStyle}">
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsNewestDLSSD}" Value="True">
-                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
-                    <Setter Property="FontWeight" Value="SemiBold"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="NewestDeepDVCCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource NewestCellStyle}">
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsNewestDeepDVC}" Value="True">
-                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
-                    <Setter Property="FontWeight" Value="SemiBold"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- Source cell style with icon -->
-        <Style x:Key="SourceCellStyle" TargetType="DataGridCell">
-            <Setter Property="Foreground" Value="{StaticResource NvidiaGreenBrush}"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="4,2"/>
-        </Style>
     </Window.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="50"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="40"/>
             <RowDefinition Height="30"/>
         </Grid.RowDefinitions>
 
         <!-- Toolbar -->
-        <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="DLSS Version Toolkit" FontSize="16" FontWeight="Bold"
+        <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="10,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Logo -->
+                <TextBlock Grid.Column="0" Text="DLSS Toolkit" FontSize="14" FontWeight="Bold"
                            Foreground="{StaticResource NvidiaGreenBrush}"
-                           VerticalAlignment="Center" Margin="0,0,20,0"/>
+                           VerticalAlignment="Center" Margin="0,0,16,0"/>
 
-                <Button Content="Scan Now" Style="{StaticResource DarkButtonStyle}"
-                        Command="{Binding ScanCommand}"
+                <!-- Scan -->
+                <Button Grid.Column="1" Content="Scan" Style="{StaticResource DarkButtonStyle}"
+                        Command="{Binding ScanCommand}" Padding="16,6" Margin="0,0,6,0"
                         IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBoolConverter}}"/>
 
-                <Button Content="Upgrade Release" Style="{StaticResource DarkButtonStyle}"
-                        Command="{Binding UpgradeCommand}"
-                        IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBoolConverter}}"/>
+                <!-- Update All — main action button -->
+                <Button Grid.Column="2" Command="{Binding OneClickUpdateAllCommand}" Padding="20,6" Margin="0,0,6,0">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource DarkButtonStyle}">
+                            <Setter Property="Background" Value="#2D7D2D"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
+                                    <Setter Property="Background" Value="#4CAF50"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsUpdatingAll}" Value="True">
+                                    <Setter Property="Background" Value="#2D7D2D"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                    <Button.Content>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Update All" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Text=" | " Foreground="#AAAAAA" VerticalAlignment="Center" Margin="6,0"/>
+                            <TextBlock VerticalAlignment="Center" FontFamily="Consolas" FontSize="11">
+                                <TextBlock.Text>
+                                    <MultiBinding StringFormat="{}{0} → {1}">
+                                        <Binding Path="CurrentDlssVersion" FallbackValue="—"/>
+                                        <Binding Path="AvailableDlssVersion" FallbackValue="—"/>
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#CCCCCC"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
+                                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Button.Content>
+                </Button>
 
-                <!-- Sync Dropdown -->
-                <Menu Background="Transparent" VerticalAlignment="Center">
-                    <MenuItem Header="Sync From..." Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}" Padding="16,8" Margin="4,0">
-                        <MenuItem Header="Streamline SDK" Command="{Binding SyncFromStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                        <MenuItem Header="AnWave" Command="{Binding SyncFromAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                        <Separator/>
-                        <MenuItem Header="DLSS SDK → NGX" Command="{Binding SyncFromDlssSdkCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding HasCachedSdk}"/>
+                <!-- Advanced dropdown -->
+                <Menu Grid.Column="3" Background="Transparent" VerticalAlignment="Center" HorizontalAlignment="Left">
+                    <MenuItem Header="Advanced ▾" Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextSecondaryBrush}" Padding="12,6" FontSize="11">
+                        <MenuItem Header="Sync From Streamline SDK" Command="{Binding SyncFromStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <MenuItem Header="Sync From AnWave" Command="{Binding SyncFromAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <MenuItem Header="Download DLSS SDK" Command="{Binding DownloadLatestCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
                         <Separator/>
                         <MenuItem Header="Apply to AnWave (detected)" Command="{Binding ApplyToAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsAnWaveDetected}"/>
-                        <MenuItem Header="Auto-Apply DLSS to AnWave" Command="{Binding AutoApplyToAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsAnWaveInstalled}"/>
+                        <MenuItem Header="Auto-Apply DLSS" Command="{Binding AutoApplyToAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsAnWaveInstalled}"/>
+                        <Separator/>
+                        <MenuItem Header="Setup AnWave" Command="{Binding SetupAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsSettingUpAnWave, Converter={StaticResource InverseBoolConverter}}"/>
                     </MenuItem>
                 </Menu>
 
-                <Button Content="Export" Style="{StaticResource DarkButtonStyle}" Command="{Binding ExportCommand}"/>
+                <!-- Settings -->
+                <Button Grid.Column="5" Content="Settings" Style="{StaticResource DarkButtonStyle}"
+                        Command="{Binding OpenSettingsCommand}" Padding="12,6" Margin="6,0,0,0"/>
 
-                <Button Content="Setup AnWave" Style="{StaticResource DarkButtonStyle}"
-                        Command="{Binding SetupAnWaveCommand}"
-                        IsEnabled="{Binding IsSettingUpAnWave, Converter={StaticResource InverseBoolConverter}}"/>
-
-                <Button Content="Auto-Apply DLSS" Style="{StaticResource DarkButtonStyle}"
-                        Command="{Binding AutoApplyToAnWaveCommand}"
-                        IsEnabled="{Binding IsAnWaveInstalled}"/>
-
-                <Button Content="Download DLSS" Style="{StaticResource DarkButtonStyle}"
-                        Command="{Binding DownloadLatestCommand}"
-                        IsEnabled="{Binding IsDownloading, Converter={StaticResource InverseBoolConverter}}"/>
-
-                <Button Content="Settings" Style="{StaticResource DarkButtonStyle}" Command="{Binding OpenSettingsCommand}"/>
-            </StackPanel>
+                <!-- Export -->
+                <Button Grid.Column="6" Content="Export" Style="{StaticResource DarkButtonStyle}"
+                        Command="{Binding ExportCommand}" Padding="12,6"/>
+            </Grid>
         </Border>
 
-        <!-- Main Content -->
-        <Grid Grid.Row="1" Margin="16">
+        <!-- Version Banner -->
+        <Border Grid.Row="1" Background="#1A3A1A" BorderBrush="#2D5A2D" BorderThickness="0,0,0,1" Padding="16,10" Margin="0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Current NGX: " Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding CurrentDlssVersion, FallbackValue='—'}" Foreground="{StaticResource NvidiaGreenBrush}"
+                                   FontFamily="Consolas" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock Text="   |   Available: " Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        <TextBlock Text="{Binding AvailableDlssVersion, FallbackValue='—'}" Foreground="#4CAF50"
+                                   FontFamily="Consolas" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock Text="   |   " Foreground="#555555" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        <TextBlock Text="{Binding VersionStatusMessage, FallbackValue=''}" Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- AnWave status -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="#888888"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsAnWaveInstalled}" Value="True">
+                                        <Setter Property="Foreground" Value="#4CAF50"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                        <Run Text="AnWave: "/>
+                        <Run Text="{Binding AnWaveDllVersion, Mode=OneWay, TargetNullValue='not set', FallbackValue='not set'}"/>
+                    </TextBlock>
+                    <TextBlock Text="|" Foreground="#555555" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"
+                               Visibility="{Binding IsAnWaveInstalled, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <Button Content="Setup" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
+                            Command="{Binding SetupAnWaveCommand}" Margin="0,0,0,0"
+                            Visibility="{Binding IsAnWaveInstalled, Converter={StaticResource InverseBoolToVisibilityConverter}}"/>
+                    <Button Content="Auto-Apply" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
+                            Command="{Binding AutoApplyToAnWaveCommand}"
+                            Visibility="{Binding IsAnWaveInstalled, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Main Content — Version Table -->
+        <Grid Grid.Row="2" Margin="16,12">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- Section Header -->
-            <TextBlock Grid.Row="0" Text="=== Installed DLSS Versions ==="
+            <TextBlock Grid.Row="0" Text="Installed Versions"
                        Foreground="{StaticResource TextPrimaryBrush}"
-                       FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                       FontSize="12" FontWeight="SemiBold" Margin="0,0,0,6"/>
 
-            <!-- Version Table -->
             <DataGrid Grid.Row="1" ItemsSource="{Binding Versions}"
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
@@ -159,8 +213,8 @@
                       AlternatingRowBackground="{StaticResource SurfaceBrush}"
                       HorizontalGridLinesBrush="{StaticResource BorderBrush}"
                       VerticalGridLinesBrush="{StaticResource BorderBrush}"
-                      RowHeight="32"
-                      ColumnHeaderHeight="36">
+                      RowHeight="30"
+                      ColumnHeaderHeight="34">
                 <DataGrid.ColumnHeaderStyle>
                     <Style TargetType="DataGridColumnHeader">
                         <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
@@ -178,8 +232,7 @@
                         <Setter Property="Template">
                             <Setter.Value>
                                 <ControlTemplate TargetType="DataGridCell">
-                                    <Border Background="{TemplateBinding Background}"
-                                            Padding="{TemplateBinding Padding}">
+                                    <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
                                         <ContentPresenter VerticalAlignment="Center"/>
                                     </Border>
                                 </ControlTemplate>
@@ -194,7 +247,7 @@
                 </DataGrid.CellStyle>
 
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Source" Binding="{Binding DisplaySource}" Width="120">
+                    <DataGridTextColumn Header="Source" Binding="{Binding DisplaySource}" Width="130">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="{StaticResource NvidiaGreenBrush}"/>
@@ -204,7 +257,7 @@
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
-                    <DataGridTextColumn Header="Build ID" Binding="{Binding BuildID}" Width="100">
+                    <DataGridTextColumn Header="Build ID" Binding="{Binding BuildID}" Width="110">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
@@ -214,7 +267,7 @@
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
-                    <DataGridTextColumn Header="DLSS" Binding="{Binding DLSS}" Width="100">
+                    <DataGridTextColumn Header="DLSS" Binding="{Binding DLSS}" Width="110">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
@@ -224,7 +277,7 @@
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
-                    <DataGridTextColumn Header="Frame Gen" Binding="{Binding FrameGen}" Width="100">
+                    <DataGridTextColumn Header="Frame Gen" Binding="{Binding FrameGen}" Width="110">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
@@ -234,7 +287,7 @@
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
-                    <DataGridTextColumn Header="DLSSD" Binding="{Binding DLSSD}" Width="100">
+                    <DataGridTextColumn Header="DLSSD" Binding="{Binding DLSSD}" Width="110">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
@@ -244,7 +297,7 @@
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
-                    <DataGridTextColumn Header="DeepDVC" Binding="{Binding DeepDVC}" Width="100">
+                    <DataGridTextColumn Header="DeepDVC" Binding="{Binding DeepDVC}" Width="110">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
@@ -268,38 +321,19 @@
             </DataGrid>
         </Grid>
 
-        <!-- Recommendation Bar -->
-        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="16,8">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Recommendation: " Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
-                <TextBlock Text="{Binding Recommendations[0].Description, FallbackValue='Scan to see recommendations'}"
-                           Foreground="{StaticResource WarningBrush}" FontSize="12" VerticalAlignment="Center"/>
-            </StackPanel>
-        </Border>
-
         <!-- Status Bar -->
-        <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="16,0">
+        <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="12,0">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}">
-                    <Run Text="Last scan: "/>
-                    <Run Text="{Binding LastScanTime, Mode=OneWay}"/>
-                </TextBlock>
-
-                <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Margin="20,0">
-                    <Run Text="Next scan in: "/>
-                    <Run Text="{Binding NextScanCountdown, Mode=OneWay}"/>
-                </TextBlock>
-
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <Ellipse Width="8" Height="8" Margin="0,0,6,0">
+                <!-- Status indicator -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse Width="7" Height="7" Margin="0,0,6,0">
                         <Ellipse.Style>
                             <Style TargetType="Ellipse">
                                 <Setter Property="Fill" Value="{StaticResource SuccessBrush}"/>
@@ -310,55 +344,34 @@
                                     <DataTrigger Binding="{Binding ScanStatus}" Value="Error">
                                         <Setter Property="Fill" Value="{StaticResource ErrorBrush}"/>
                                     </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsUpdatingAll}" Value="True">
+                                        <Setter Property="Fill" Value="{StaticResource NvidiaGreenBrush}"/>
+                                    </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </Ellipse.Style>
                     </Ellipse>
-                    <TextBlock Text="{Binding ScanStatus}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10"/>
+                    <TextBlock Text="{Binding ScanStatus}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" VerticalAlignment="Center"/>
+                    <TextBlock Text=" | Last: " Foreground="#555555" FontSize="10" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    <TextBlock Text="{Binding LastScanTime, Mode=OneWay}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <TextBlock Grid.Column="3" Text="{Binding StatusMessage}" Foreground="{StaticResource WarningBrush}"
-                           FontSize="10" VerticalAlignment="Center" MaxWidth="300" TextTrimming="CharacterEllipsis"/>
-
-                <!-- Download/Sync progress -->
-                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0"
-                            Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <TextBlock Foreground="{StaticResource NvidiaGreenBrush}" FontSize="10">
-                        <Run Text="{Binding DownloadStatus, Mode=OneWay}"/>
-                    </TextBlock>
-                    <ProgressBar Value="{Binding DownloadProgress}" Maximum="100" Width="80" Height="8"
-                                 Foreground="{StaticResource NvidiaGreenBrush}" Background="{StaticResource SurfaceBrush}" Margin="6,0,0,0"/>
+                <!-- Progress during update -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Visibility="{Binding IsUpdatingAll, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <ProgressBar IsIndeterminate="True" Width="100" Height="6"
+                                 Foreground="{StaticResource NvidiaGreenBrush}" Background="{StaticResource DarkBackgroundBrush}"/>
+                    <TextBlock Text="{Binding DownloadStatus}" Foreground="{StaticResource NvidiaGreenBrush}" FontSize="10" Margin="8,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- AnWave / SDK indicator -->
-                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
-                    <!-- AnWave installation status -->
-                    <TextBlock FontSize="10" VerticalAlignment="Center" Margin="0,0,12,0">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsAnWaveInstalled}" Value="True">
-                                        <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                        <Run Text="AnWave: "/>
-                        <Run Text="{Binding AnWaveInstalledPath, Mode=OneWay, TargetNullValue='not set', FallbackValue='not set'}"/>
-                    </TextBlock>
-                    <TextBlock FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,12,0" Text="|">
-                        <Run Text="{Binding AnWaveGlomVersion, Mode=OneWay, TargetNullValue=''}"/>
-                        <Run Text=" v"/><Run Text="{Binding AnWaveDllVersion, Mode=OneWay, TargetNullValue=''}"/>
-                    </TextBlock>
-                    <!-- Cached SDK version -->
-                    <TextBlock Text="|" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"
-                               Visibility="{Binding HasCachedSdk, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    <TextBlock FontSize="10" VerticalAlignment="Center"
-                               Visibility="{Binding HasCachedSdk, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <Run Text="SDK v"/><Run Text="{Binding CachedSdkVersion, Mode=OneWay}" Foreground="{StaticResource NvidiaGreenBrush}"/>
-                    </TextBlock>
-                </StackPanel>
+                <!-- Warning / error message -->
+                <TextBlock Grid.Column="2" Text="{Binding StatusMessage}" Foreground="{StaticResource WarningBrush}"
+                           FontSize="10" VerticalAlignment="Center" MaxWidth="280" TextTrimming="CharacterEllipsis"/>
+
+                <!-- Version status message -->
+                <TextBlock Grid.Column="3" Text="{Binding VersionStatusMessage}" Foreground="{StaticResource NvidiaGreenBrush}"
+                           FontSize="10" VerticalAlignment="Center" Margin="12,0,0,0"
+                           Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"/>
             </Grid>
         </Border>
     </Grid>

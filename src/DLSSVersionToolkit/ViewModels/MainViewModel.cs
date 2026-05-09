@@ -77,6 +77,21 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSettingUpAnWave;
 
+    [ObservableProperty]
+    private bool _isUpdatingAll;
+
+    [ObservableProperty]
+    private string _currentDlssVersion = "—";
+
+    [ObservableProperty]
+    private string _availableDlssVersion = "—";
+
+    [ObservableProperty]
+    private string _versionStatusMessage = "";
+
+    [ObservableProperty]
+    private bool _updateAvailable;
+
     public MainViewModel(
         IScanService scanService,
         IUpgradeService upgradeService,
@@ -93,6 +108,89 @@ public partial class MainViewModel : ObservableObject
         _backupService = backupService;
         _dlssDownloadService = dlssDownloadService;
         _anWaveAutoService = anWaveAutoService;
+    }
+
+    [RelayCommand]
+    private async Task OneClickUpdateAllAsync()
+    {
+        if (IsScanning || IsSettingUpAnWave || IsUpdatingAll) return;
+
+        IsUpdatingAll = true;
+        ScanStatus = "Updating...";
+        StatusMessage = "";
+        DownloadStatus = "";
+
+        try
+        {
+            // Step 1: Download latest DLSS SDK from NVIDIA if not cached
+            var releases = await _dlssDownloadService.GetAvailableReleasesAsync();
+            var latest = releases.FirstOrDefault();
+            var needsDownload = latest != null &&
+                _dlssDownloadService.GetCachedDownloadPath() == null;
+
+            if (needsDownload)
+            {
+                DownloadStatus = "Downloading DLSS SDK v" + latest.Version + "...";
+                var progress = new Progress<int>(pct => DownloadStatus = $"Downloading DLSS SDK... {pct}%");
+                var path = await _dlssDownloadService.DownloadLatestAsync(progress);
+                if (path == null)
+                {
+                    MessageBox.Show("Failed to download the latest DLSS SDK.", "DLSS Version Toolkit",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                CachedSdkVersion = _dlssDownloadService.GetCachedSdkVersion() ?? "";
+                HasCachedSdk = true;
+            }
+
+            DownloadStatus = "Applying to NGX Release...";
+
+            // Step 2: Sync cached SDK to NGX Release
+            var settings = await _settingsService.LoadAsync();
+            var ngxxOp = await _dlssDownloadService.SyncFromCachedSdkAsync(null);
+            if (ngxxOp == null || ngxxOp.Status == OperationStatus.Failed)
+            {
+                MessageBox.Show($"Failed to sync to NGX: {ngxxOp?.ErrorMessage ?? "Unknown error"}",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            DownloadStatus = "Applying to AnWave...";
+
+            // Step 3: Apply to AnWave if installed
+            if (IsAnWaveInstalled && !string.IsNullOrEmpty(AnWaveInstalledPath))
+            {
+                var anWaveOp = await _anWaveAutoService.AutoApplyAsync(AnWaveInstalledPath, settings.NgxBasePath, null);
+                if (!anWaveOp.Success)
+                {
+                    MessageBox.Show($"NGX sync done ({ngxxOp.FilesCopied.Count} files).\nAnWave update failed: {anWaveOp.ErrorMessage}",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                else
+                {
+                    MessageBox.Show($"All updated!\nNGX: {ngxxOp.FilesCopied.Count} files\nAnWave: {anWaveOp.FilesCopied.Count} files\n\nDLSS Override is now globally active.",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            else
+            {
+                MessageBox.Show($"NGX Release updated.\n{ngxxOp.FilesCopied.Count} files copied.\n\nAnWave not installed — run 'Setup AnWave' to complete the workflow.",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+
+            await ScanAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Update failed: {ex.Message}", "DLSS Version Toolkit",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsUpdatingAll = false;
+            ScanStatus = "Ready";
+            DownloadStatus = "";
+        }
     }
 
     [RelayCommand]
@@ -115,7 +213,35 @@ public partial class MainViewModel : ObservableObject
                 Versions.Add(entry);
             }
 
-            // Update AnWave detection from scan results
+            // Update version info after scan
+            var ngxRelease = result.Sources.FirstOrDefault(s => s.Source == "NGX_Release");
+            if (ngxRelease != null && ngxRelease.DLSS != "Unknown")
+            {
+                CurrentDlssVersion = ngxRelease.DLSS;
+            }
+            else
+            {
+                CurrentDlssVersion = "Not installed";
+            }
+
+            // Check available version from cached download
+            var cachedVersion = _dlssDownloadService.GetCachedSdkVersion();
+            if (!string.IsNullOrEmpty(cachedVersion))
+            {
+                AvailableDlssVersion = cachedVersion;
+                UpdateAvailable = !string.IsNullOrEmpty(cachedVersion) &&
+                    (ngxRelease == null || string.Compare(cachedVersion, ngxRelease.DLSS, StringComparison.OrdinalIgnoreCase) > 0);
+                VersionStatusMessage = UpdateAvailable
+                    ? $"v{cachedVersion} available (current: {CurrentDlssVersion})"
+                    : "Already up to date";
+            }
+            else
+            {
+                AvailableDlssVersion = "—";
+                UpdateAvailable = false;
+                VersionStatusMessage = "";
+            }
+            // Check AnWave detection
             var anWaveEntry = result.Sources.FirstOrDefault(s => s.Source == "AnWave");
             if (anWaveEntry != null && !string.IsNullOrEmpty(anWaveEntry.Path))
             {
@@ -124,7 +250,6 @@ public partial class MainViewModel : ObservableObject
             }
             else
             {
-                // Try auto-detection as fallback
                 var detectedPath = DetectAnWavePath();
                 if (!string.IsNullOrEmpty(detectedPath))
                 {
