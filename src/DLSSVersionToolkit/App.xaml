@@ -11,6 +11,7 @@
             <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
             <converters:VersionToColorConverter x:Key="VersionToColorConverter"/>
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+            <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter"/>
             <!-- Color Resources -->
             <Color x:Key="NvidiaGreenColor">#76B900</Color>
             <Color x:Key="DarkBackgroundColor">#1E1E1E</Color>
