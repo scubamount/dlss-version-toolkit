@@ -7,6 +7,7 @@ public interface IUpgradeService
     UpgradeOperation UpgradeFromStaging(string ngxBasePath);
     UpgradeOperation SyncToNGX(string sourcePath, string sourceType, string ngxBasePath);
     UpgradeOperation SyncFromDlssSDK(string zipPath, string ngxBasePath);
+    UpgradeOperation ApplyToAnWave(string anWavePath, string ngxBasePath);
 }
 
 public class UpgradeService : IUpgradeService
@@ -212,6 +213,119 @@ public class UpgradeService : IUpgradeService
         if (found != null) return Path.GetDirectoryName(found);
 
         return null;
+    }
+
+    public UpgradeOperation ApplyToAnWave(string anWavePath, string ngxBasePath)
+    {
+        // Auto-detect NGX base path if not configured
+        if (string.IsNullOrEmpty(ngxBasePath))
+        {
+            ngxBasePath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "NVIDIA", "NGX");
+        }
+
+        if (string.IsNullOrEmpty(anWavePath))
+        {
+            return new UpgradeOperation
+            {
+                Status = OperationStatus.Failed,
+                ErrorMessage = "AnWave path is not configured."
+            };
+        }
+
+        if (!IsPathAllowed(ngxBasePath))
+        {
+            return new UpgradeOperation
+            {
+                Status = OperationStatus.Failed,
+                ErrorMessage = "NGX path not in allowed list."
+            };
+        }
+
+        if (!Directory.Exists(anWavePath))
+        {
+            return new UpgradeOperation
+            {
+                Status = OperationStatus.Failed,
+                ErrorMessage = $"AnWave folder not found: {anWavePath}"
+            };
+        }
+
+        var operation = new UpgradeOperation
+        {
+            SourceType = "NGX_Release",
+            TargetType = "AnWave",
+            SourcePath = ngxBasePath
+        };
+
+        // Find NGX Release version folder
+        var releases = _ngxScanner.Scan(ngxBasePath).Where(e => e.Source == "NGX_Release").ToList();
+        if (releases.Count == 0)
+        {
+            operation.Status = OperationStatus.Failed;
+            operation.ErrorMessage = "No NGX Release version found";
+            return operation;
+        }
+
+        var latestRelease = releases.OrderByDescending(e => ParseVersion(e.DLSS)).First();
+        operation.TargetPath = anWavePath;
+
+        // Find DLLs in NGX Release folder
+        var ngxlDlss = FindDll(latestRelease.Path, "nvngx_dlss.dll");
+        if (ngxlDlss == null)
+        {
+            operation.Status = OperationStatus.Failed;
+            operation.ErrorMessage = "Could not find nvngx_dlss.dll in NGX Release";
+            return operation;
+        }
+
+        // Build list of DLLs and config to copy to AnWave
+        var ngxFolder = Path.GetDirectoryName(ngxlDlss)!;
+        var ngxConfig = FindConfig(ngxFolder);
+
+        operation.Status = OperationStatus.InProgress;
+
+        try
+        {
+            // Copy DLSS DLLs to AnWave folder (root level)
+            var dllsToCopy = new[] {
+                ("nvngx_dlss.dll", Path.Combine(anWavePath, "nvngx_dlss.dll")),
+                ("nvngx_dlssg.dll", Path.Combine(anWavePath, "nvngx_dlssg.dll")),
+                ("nvngx_dlssd.dll", Path.Combine(anWavePath, "nvngx_dlssd.dll")),
+            };
+
+            foreach (var (dllName, destPath) in dllsToCopy)
+            {
+                var srcDll = FindDll(ngxFolder, dllName);
+                if (srcDll != null && File.Exists(srcDll))
+                {
+                    if (!VerifyDllSignature(srcDll))
+                        throw new InvalidOperationException($"DLL {dllName} failed signature verification");
+
+                    File.Copy(srcDll, destPath, true);
+                    operation.FilesCopied.Add(dllName);
+                }
+            }
+
+            // Copy config if found
+            if (ngxConfig != null)
+            {
+                var destConfig = Path.Combine(anWavePath, "nvngx_package_config.txt");
+                File.Copy(ngxConfig, destConfig, true);
+                operation.FilesCopied.Add("nvngx_package_config.txt");
+            }
+
+            operation.Status = OperationStatus.Completed;
+            operation.CompletedAt = DateTime.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            operation.Status = OperationStatus.Failed;
+            operation.ErrorMessage = ex.Message;
+        }
+
+        return operation;
     }
 
     private UpgradeOperation PerformUpgrade(UpgradeOperation operation, string ngxBasePath, DLSSVersionEntry staging)

@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -53,6 +55,12 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasCachedSdk;
 
+    [ObservableProperty]
+    private string _anWaveDetectedPath = "";
+
+    [ObservableProperty]
+    private bool _isAnWaveDetected;
+
     public MainViewModel(
         IScanService scanService,
         IUpgradeService upgradeService,
@@ -87,6 +95,29 @@ public partial class MainViewModel : ObservableObject
             foreach (var entry in result.Sources)
             {
                 Versions.Add(entry);
+            }
+
+            // Update AnWave detection from scan results
+            var anWaveEntry = result.Sources.FirstOrDefault(s => s.Source == "AnWave");
+            if (anWaveEntry != null && !string.IsNullOrEmpty(anWaveEntry.Path))
+            {
+                AnWaveDetectedPath = anWaveEntry.Path;
+                IsAnWaveDetected = true;
+            }
+            else
+            {
+                // Try auto-detection as fallback
+                var detectedPath = DetectAnWavePath();
+                if (!string.IsNullOrEmpty(detectedPath))
+                {
+                    AnWaveDetectedPath = detectedPath;
+                    IsAnWaveDetected = true;
+                }
+                else
+                {
+                    AnWaveDetectedPath = "";
+                    IsAnWaveDetected = false;
+                }
             }
 
             Recommendations.Clear();
@@ -449,5 +480,181 @@ public partial class MainViewModel : ObservableObject
     private void ExitApp()
     {
         Application.Current.Shutdown();
+    }
+
+    [RelayCommand]
+    private async Task ApplyToAnWaveAsync()
+    {
+        if (IsScanning) return;
+
+        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
+            System.Security.Principal.WindowsIdentity.GetCurrent()
+        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        if (!isAdmin)
+        {
+            MessageBox.Show("Administrator access is required.\n\nPlease run the app as Administrator.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var anWavePath = AnWaveDetectedPath;
+        if (string.IsNullOrEmpty(anWavePath))
+        {
+            MessageBox.Show("AnWave not detected. Please ensure AnWave is installed and scanned.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show($"Apply current NGX Release DLSS to AnWave?\nSource: {anWavePath}\n\nThis will copy the latest NGX Release DLLs to AnWave.",
+            "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+
+        IsScanning = true;
+        ScanStatus = "Applying...";
+        StatusMessage = "";
+
+        try
+        {
+            var settings = await _settingsService.LoadAsync();
+            var operation = _upgradeService.ApplyToAnWave(anWavePath, settings.NgxBasePath);
+
+            switch (operation.Status)
+            {
+                case OperationStatus.Completed:
+                    MessageBox.Show($"DLSS applied to AnWave.\nFiles copied: {operation.FilesCopied.Count}",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+                    await ScanAsync();
+                    break;
+                case OperationStatus.Failed:
+                    MessageBox.Show($"Failed: {operation.ErrorMessage}",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+                    break;
+                default:
+                    MessageBox.Show($"Status: {operation.Status}\n{operation.ErrorMessage}",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error: {ex.Message}",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsScanning = false;
+            ScanStatus = "Ready";
+        }
+    }
+
+    [RelayCommand]
+    private async Task SyncDlssSdkToBothAsync()
+    {
+        if (!HasCachedSdk)
+        {
+            MessageBox.Show("No cached DLSS SDK. Please download first.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (IsScanning) return;
+
+        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
+            System.Security.Principal.WindowsIdentity.GetCurrent()
+        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        if (!isAdmin)
+        {
+            MessageBox.Show("Administrator access is required.\n\nPlease run the app as Administrator.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show($"Sync DLSS SDK {CachedSdkVersion} to NGX Release and then apply to AnWave?\n\nThis is a two-step process:\n1. Sync to NGX (with backup)\n2. Apply to AnWave",
+            "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+
+        IsScanning = true;
+        ScanStatus = "Syncing...";
+        StatusMessage = "Step 1/2: Syncing to NGX...";
+        DownloadStatus = "";
+
+        try
+        {
+            var settings = await _settingsService.LoadAsync();
+
+            // Step 1: Sync SDK to NGX
+            var progress = new Progress<int>(pct => DownloadStatus = $"Syncing... {pct}%");
+            var ngxxOperation = await _dlssDownloadService.SyncFromCachedSdkAsync(progress);
+
+            if (ngxxOperation == null || ngxxOperation.Status == OperationStatus.Failed)
+            {
+                MessageBox.Show($"Step 1 failed: {ngxxOperation?.ErrorMessage ?? "Unknown error"}",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            // Step 2: Apply to AnWave if detected
+            if (IsAnWaveDetected && !string.IsNullOrEmpty(AnWaveDetectedPath))
+            {
+                StatusMessage = "Step 2/2: Applying to AnWave...";
+                var anWavePath = !string.IsNullOrEmpty(settings.AnWavePath) ? settings.AnWavePath : AnWaveDetectedPath;
+                var anWaveOp = _upgradeService.ApplyToAnWave(anWavePath, settings.NgxBasePath);
+
+                if (anWaveOp.Status == OperationStatus.Completed)
+                {
+                    MessageBox.Show($"Done!\nNGX: {ngxxOperation.FilesCopied.Count} files\nAnWave: {anWaveOp.FilesCopied.Count} files",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    MessageBox.Show($"Step 2 partial failure: {anWaveOp.ErrorMessage}",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            else
+            {
+                MessageBox.Show($"NGX sync complete.\nFiles copied: {ngxxOperation.FilesCopied.Count}",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+
+            await ScanAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error: {ex.Message}",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsScanning = false;
+            ScanStatus = "Ready";
+        }
+    }
+
+    private static string? DetectAnWavePath()
+    {
+        try
+        {
+            var downloads = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Downloads");
+
+            if (!Directory.Exists(downloads)) return null;
+
+            var candidates = Directory.GetDirectories(downloads)
+                .Where(d => Regex.IsMatch(
+                    Path.GetFileName(d), "dlssglom|nvidiaDlssGlom|AnWave",
+                    RegexOptions.IgnoreCase))
+                .ToList();
+
+            foreach (var candidate in candidates)
+            {
+                var exePath = Path.Combine(candidate, "nvidiaDlssGlom.exe");
+                if (File.Exists(exePath)) return candidate;
+            }
+        }
+        catch { }
+
+        return null;
     }
 }
