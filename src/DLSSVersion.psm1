@@ -1045,6 +1045,19 @@ function Start-DLSSUpgrade {
         $operation.BackupPath = $backupPath
         Write-Host "Backup created: $(Split-Path $backupPath -Leaf)" -ForegroundColor Gray
 
+        # Locate the Staging version folder on disk
+        $stagingVersionsPath = Join-Path $Path $script:StagingSubPath
+        $stagingFolder = Get-ChildItem -Path $stagingVersionsPath -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $stagingVersion.BuildID } |
+            Select-Object -First 1
+
+        if ($stagingFolder -eq $null) {
+            Write-Error "ERROR: Cannot locate staging version folder matching BuildID $($stagingVersion.BuildID) on disk."
+            $operation.Status = "Failed"
+            $operation.ErrorMessage = "Cannot locate staging version folder"
+            return $operation
+        }
+
         # --- Step 2: Copy DLLs and config from Staging to Release ---
         $copyFailed = $false
         $copyErrorMessage = ""
@@ -1082,13 +1095,13 @@ function Start-DLSSUpgrade {
                     Copy-Item -Path $stagingConfig.FullName -Destination $releaseConfig.FullName -Force -ErrorAction Stop
                     Write-Host "  Updated config from staging" -ForegroundColor Green
                 }
-                else {
-                    Write-Warning "Could not find nvngx_package_config.txt in release folder."
-                }
-            }
-            else {
-                Write-Warning "Could not find nvngx_package_config.txt in release folder."
-            }
+        else {
+            Write-Warning "Could not find nvngx_package_config.txt in release folder."
+        }
+    }
+    else {
+        Write-Warning "Could not find nvngx_package_config.txt in staging folder."
+    }
         }
         catch {
             $copyFailed = $true
