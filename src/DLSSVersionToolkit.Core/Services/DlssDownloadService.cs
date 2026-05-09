@@ -24,18 +24,21 @@ public interface IDlssDownloadService
 
 public class DlssDownloadService : IDlssDownloadService
 {
-    private static readonly HttpClient _http = new()
+    private static readonly HttpClient _http;
+    private static readonly string CacheDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "DLSSVersionToolkit", "Downloads");
+
+    static DlssDownloadService()
     {
-        Timeout = TimeSpan.FromSeconds(30)
-    };
+        var handler = new HttpClientHandler { AllowAutoRedirect = true };
+        _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(120) };
+    }
 
     private const string GitHubApiUrl = "https://api.github.com/repos/NVIDIA/DLSS/releases?per_page=10";
     private const string AssetName = "ngx_dlss_demo_windows.zip";
 
     private string? _cachedDownloadPath;
-    private static readonly string CacheDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "DLSSVersionToolkit", "Downloads");
 
     public async Task<List<DlssRelease>> GetAvailableReleasesAsync(CancellationToken ct = default)
     {
@@ -49,10 +52,14 @@ public class DlssDownloadService : IDlssDownloadService
 
             var response = await _http.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
+            {
+                var errBody = await response.Content.ReadAsStringAsync(ct);
+                Console.Error.WriteLine($"GitHub API error {response.StatusCode}: {errBody}");
                 return releases;
+            }
 
             using var stream = await response.Content.ReadAsStreamAsync(ct);
-            var json = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
 
             foreach (var item in json.RootElement.EnumerateArray())
             {
@@ -87,9 +94,13 @@ public class DlssDownloadService : IDlssDownloadService
                 });
             }
         }
-        catch
+        catch (TaskCanceledException)
         {
-            // Network errors — return empty list
+            Console.Error.WriteLine("Timeout fetching release list");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error fetching releases: {ex.Message}");
         }
 
         return releases;

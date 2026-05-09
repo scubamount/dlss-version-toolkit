@@ -37,6 +37,14 @@ public class UpgradeService : IUpgradeService
 
     public UpgradeOperation UpgradeFromStaging(string ngxBasePath)
     {
+        // Auto-detect default NGX path if not configured
+        if (string.IsNullOrEmpty(ngxBasePath))
+        {
+            ngxBasePath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "NVIDIA", "NGX");
+        }
+
         if (!IsPathAllowed(ngxBasePath))
         {
             return new UpgradeOperation
@@ -87,6 +95,14 @@ public class UpgradeService : IUpgradeService
 
     public UpgradeOperation SyncToNGX(string sourcePath, string sourceType, string ngxBasePath)
     {
+        // Auto-detect default NGX path if not configured
+        if (string.IsNullOrEmpty(ngxBasePath))
+        {
+            ngxBasePath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "NVIDIA", "NGX");
+        }
+
         if (!IsPathAllowed(ngxBasePath))
         {
             return new UpgradeOperation
