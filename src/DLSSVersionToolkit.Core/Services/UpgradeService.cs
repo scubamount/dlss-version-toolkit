@@ -13,9 +13,8 @@ public class UpgradeService : IUpgradeService
     private readonly INgxScanner _ngxScanner;
     private readonly IBackupService _backupService;
     private static readonly string ReleaseSubPath = @"models\dlss_override\versions";
-    private static readonly string StagingSubPath = @"Staging\models\dlss_override\versions";
+    
     private static readonly string[] NgxDllNames = { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll" };
-
     private static readonly string[] AllowedPrefixes;
 
     static UpgradeService()
@@ -286,9 +285,11 @@ public class UpgradeService : IUpgradeService
         {
             var fi = new FileInfo(dllPath);
             if (!fi.Exists || fi.Length < 1024) return false;
+#pragma warning disable CA2022
             using var fs = new FileStream(dllPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             var header = new byte[2];
-            fs.Read(header, 0, 2);
+            _ = fs.Read(header, 0, 2);
+#pragma warning restore CA2022
             return header[0] == 'M' && header[1] == 'Z';
         }
         catch { return false; }

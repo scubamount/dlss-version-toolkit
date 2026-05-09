@@ -49,7 +49,7 @@ public class VersionComparer : IVersionComparer
                 }
             }
 
-            if (newestEntry != null)
+            if (newestEntry != null && newest != null)
             {
                 result.NewestPerComponent[component] = newest;
                 switch (component)
