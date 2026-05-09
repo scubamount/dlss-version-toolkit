@@ -59,6 +59,7 @@ public interface IAnWaveAutoService
 public class AnWaveAutoService : IAnWaveAutoService
 {
     private static readonly HttpClient _http;
+    private static readonly string CacheDir;
     private static readonly string InstallDir;
     private static readonly string ConfigFilePath;
 
@@ -67,15 +68,13 @@ public class AnWaveAutoService : IAnWaveAutoService
     private string? _dllVersion;
 
     private const string GlomRepoApi = "https://api.github.com/repos/SimonMacer/AnWave/releases/tags/AnWave-DLSS";
-    private const string GlomAssetName = "nvidiaDlssGlom";
     private static readonly Regex GlomVersionRegex = new(@"nvidiaDlssGlom-v([0-9.]+)-", RegexOptions.Compiled);
 
     static AnWaveAutoService()
     {
-        InstallDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DLSSVersionToolkit", "AnWave");
-
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        CacheDir = Path.Combine(appData, "DLSSVersionToolkit", "AnWaveCache");
+        InstallDir = Path.Combine(appData, "DLSSVersionToolkit", "AnWave");
         ConfigFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             "NVIDIA", "NGX", "nvngx_config.txt");
@@ -104,20 +103,36 @@ public class AnWaveAutoService : IAnWaveAutoService
         var versionMatch = GlomVersionRegex.Match(glomUrl);
         _glomVersion = versionMatch.Success ? versionMatch.Groups[1].Value : "unknown";
 
-        // Create install directory
-        if (!Directory.Exists(InstallDir))
-            Directory.CreateDirectory(InstallDir);
+        // Create directories
+        if (!Directory.Exists(CacheDir)) Directory.CreateDirectory(CacheDir);
+        if (!Directory.Exists(InstallDir)) Directory.CreateDirectory(InstallDir);
 
-        var glomRarPath = Path.Combine(InstallDir, Path.GetFileName(glomUrl));
+        // Check if we already have this version cached
+        var glomFileName = Path.GetFileName(glomUrl);
+        var cachedGlomPath = Path.Combine(CacheDir, glomFileName);
 
-        // Download glom .rar
+        if (File.Exists(cachedGlomPath))
+        {
+            progress?.Report(30);
+            // Already cached — just extract from cache instead of re-downloading
+            return await ExtractGlomFromCacheAsync(cachedGlomPath, progress, ct);
+        }
+
+        // Download glom .rar to cache directory
         progress?.Report(20);
-        var downloaded = await DownloadFileAsync(glomUrl, glomRarPath, ct);
+        var downloaded = await DownloadFileAsync(glomUrl, cachedGlomPath, ct);
         if (!downloaded)
             return new AnWaveSetupResult { Success = false, ErrorMessage = "Failed to download nvidiaDlssGlom." };
 
-        progress?.Report(40);
+        // Housekeeping: trim old cached gloms, keep latest 2
+        TrimGlomCache(2);
 
+progress?.Report(30);
+        return await ExtractGlomFromCacheAsync(cachedGlomPath, progress, ct);
+    }
+
+    private async Task<AnWaveSetupResult> ExtractGlomFromCacheAsync(string glomPath, IProgress<int>? progress, CancellationToken ct)
+    {
         // Extract .rar using SharpCompress — extract to temp dir first to avoid file locks
         try
         {
@@ -130,7 +145,7 @@ public class AnWaveAutoService : IAnWaveAutoService
             var tmpExtract = Path.Combine(Path.GetTempPath(), $"DLSSVT_glom_{Guid.NewGuid():N}");
             Directory.CreateDirectory(tmpExtract);
 
-using var archive = ArchiveFactory.OpenArchive(glomRarPath);
+            using var archive = ArchiveFactory.OpenArchive(glomPath);
             foreach (var entry in archive.Entries.Where(e => !e.IsDirectory))
             {
                 entry.WriteToDirectory(tmpExtract, new ExtractionOptions { Overwrite = true });
@@ -145,7 +160,6 @@ using var archive = ArchiveFactory.OpenArchive(glomRarPath);
 
             // Clean up temp
             try { Directory.Delete(tmpExtract, true); } catch { }
-            try { File.Delete(glomRarPath); } catch { }
         }
         catch (Exception ex)
         {
@@ -215,6 +229,22 @@ using var archive = ArchiveFactory.OpenArchive(glomRarPath);
             GlomVersion = _glomVersion,
             DllVersion = _dllVersion
         };
+    }
+
+    private void TrimGlomCache(int keepCount = 2)
+    {
+        if (!Directory.Exists(CacheDir)) return;
+
+        var files = Directory.GetFiles(CacheDir, "nvidiaDlssGlom*.rar")
+            .Select(f => new FileInfo(f))
+            .Where(fi => fi.Exists)
+            .OrderByDescending(fi => fi.CreationTimeUtc)
+            .ToList();
+
+        foreach (var file in files.Skip(keepCount))
+        {
+            try { File.Delete(file.FullName); } catch { }
+        }
     }
 
     public Task<AnWaveAutoApplyResult> AutoApplyAsync(string anWavePath, string ngxBasePath, IProgress<int>? progress = null, CancellationToken ct = default)

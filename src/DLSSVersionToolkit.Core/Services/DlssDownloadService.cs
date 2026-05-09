@@ -23,6 +23,10 @@ public interface IDlssDownloadService
     string? GetCachedDownloadPath();
     string? GetCachedSdkVersion();
     Task<UpgradeOperation?> SyncFromCachedSdkAsync(IProgress<int>? progress = null, CancellationToken ct = default);
+    /// <summary>Returns count of cached downloads and total size in bytes.</summary>
+    (int Count, long TotalBytes) GetCacheInfo();
+    /// <summary>Removes all cached downloads older than the latest N, keeping the most recent keepCount versions.</summary>
+    void TrimCache(int keepCount = 3);
 }
 
 public class DlssDownloadService : IDlssDownloadService
@@ -119,16 +123,16 @@ public class DlssDownloadService : IDlssDownloadService
         if (!Directory.Exists(CacheDir))
             Directory.CreateDirectory(CacheDir);
 
+        // Check if we already have this exact version cached
         var fileName = $"dlss-sdk-{latest.Version}.zip";
         var destPath = Path.Combine(CacheDir, fileName);
-
         if (File.Exists(destPath))
         {
             _cachedDownloadPath = destPath;
             return destPath;
         }
 
-try
+        try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, latest.DownloadUrl);
                 using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
@@ -170,6 +174,10 @@ try
 
                 _cachedDownloadPath = destPath;
                 System.Console.Error.WriteLine($"Download complete: {destPath} ({totalRead} bytes)");
+
+                // Housekeeping: trim old versions, keep only latest 3
+                TrimCache(3);
+
                 return destPath;
             }
             catch (UnauthorizedAccessException ex)
@@ -224,5 +232,34 @@ try
         var result = upgradeService.SyncFromDlssSDK(_cachedDownloadPath, ngxBasePath);
         progress?.Report(100);
         return Task.FromResult<UpgradeOperation?>(result);
+    }
+
+    public (int Count, long TotalBytes) GetCacheInfo()
+    {
+        if (!Directory.Exists(CacheDir)) return (0, 0);
+        var files = Directory.GetFiles(CacheDir, "dlss-sdk-*.zip").ToList();
+        long total = files.Sum(f => { try { return new FileInfo(f).Length; } catch { return 0L; } });
+        return (files.Count, total);
+    }
+
+    public void TrimCache(int keepCount = 3)
+    {
+        if (!Directory.Exists(CacheDir)) return;
+
+        var files = Directory.GetFiles(CacheDir, "dlss-sdk-*.zip")
+            .Select(f => new FileInfo(f))
+            .Where(fi => fi.Exists)
+            .OrderByDescending(fi => fi.CreationTimeUtc)
+            .ToList();
+
+foreach (var file in files.Skip(keepCount))
+        {
+            try
+            {
+                if (file.FullName != _cachedDownloadPath) // never delete active cache
+                    File.Delete(file.FullName);
+            }
+            catch { }
+        }
     }
 }
