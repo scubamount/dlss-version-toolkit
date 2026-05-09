@@ -130,12 +130,10 @@ public class AnWaveAutoService : IAnWaveAutoService
             var tmpExtract = Path.Combine(Path.GetTempPath(), $"DLSSVT_glom_{Guid.NewGuid():N}");
             Directory.CreateDirectory(tmpExtract);
 
-            using (var archive = ArchiveFactory.Open(glomRarPath))
+using var archive = ArchiveFactory.OpenArchive(glomRarPath);
+            foreach (var entry in archive.Entries.Where(e => !e.IsDirectory))
             {
-                foreach (var entry in archive.Entries.Where(e => !e.IsDirectory))
-                {
-                    entry.WriteToDirectory(tmpExtract, new ExtractionOptions { Overwrite = true });
-                }
+                entry.WriteToDirectory(tmpExtract, new ExtractionOptions { Overwrite = true });
             }
 
             // Move extracted files to install dir
