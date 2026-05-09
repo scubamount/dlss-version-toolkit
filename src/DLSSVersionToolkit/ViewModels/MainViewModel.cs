@@ -157,8 +157,12 @@ public partial class MainViewModel : ObservableObject
 
             DownloadStatus = "Applying to AnWave...";
 
-            // Step 3: Apply to AnWave if installed
-            if (IsAnWaveInstalled && !string.IsNullOrEmpty(AnWaveInstalledPath))
+            // Step 3: Apply to AnWave if installed (check all sources)
+            var anWaveTarget = !string.IsNullOrEmpty(AnWaveInstalledPath) ? AnWaveInstalledPath
+                : !string.IsNullOrEmpty(settings.AnWavePath) ? settings.AnWavePath
+                : !string.IsNullOrEmpty(AnWaveDetectedPath) ? AnWaveDetectedPath : null;
+
+            if (!string.IsNullOrEmpty(anWaveTarget) && Directory.Exists(anWaveTarget))
             {
                 var anWaveOp = await _anWaveAutoService.AutoApplyAsync(AnWaveInstalledPath, settings.NgxBasePath, null);
                 if (!anWaveOp.Success)
@@ -350,12 +354,101 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task SyncFromStreamlineAsync()
     {
-        await SyncAsync("StreamlineSDK");
+        if (IsScanning) return;
+
+        // If Streamline path is configured, sync from it
+        var settings = await _settingsService.LoadAsync();
+        if (!string.IsNullOrEmpty(settings.StreamlinePath))
+        {
+            if (!Directory.Exists(settings.StreamlinePath))
+            {
+                MessageBox.Show($"Streamline path is set but folder does not exist:\n{settings.StreamlinePath}\n\nPlease fix the path in Settings.",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            await SyncAsync("StreamlineSDK");
+            return;
+        }
+
+        // No Streamline path configured — fall back to cached DLSS SDK (downloaded by Update All)
+        if (!HasCachedSdk || string.IsNullOrEmpty(CachedSdkVersion))
+        {
+            var result = MessageBox.Show(
+                "No Streamline path configured and no cached DLSS SDK found.\n\n" +
+                "Download the latest NVIDIA DLSS SDK and sync to NGX?",
+                "DLSS Version Toolkit", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (result != MessageBoxResult.Yes) return;
+
+            IsScanning = true;
+            ScanStatus = "Downloading...";
+            DownloadStatus = "Downloading latest DLSS SDK...";
+            try
+            {
+                var progress = new Progress<int>(pct => DownloadStatus = $"Downloading... {pct}%");
+                var path = await _dlssDownloadService.DownloadLatestAsync(progress);
+                if (path == null)
+                {
+                    MessageBox.Show("Failed to download the DLSS SDK.", "DLSS Version Toolkit",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                CachedSdkVersion = _dlssDownloadService.GetCachedSdkVersion() ?? "";
+                HasCachedSdk = true;
+                DownloadStatus = "Syncing to NGX...";
+                var op = await _dlssDownloadService.SyncFromCachedSdkAsync(null);
+                if (op != null && op.Status == OperationStatus.Completed)
+                {
+                    MessageBox.Show($"Downloaded and synced to NGX Release.\n{CachedSdkVersion} applied ({op.FilesCopied.Count} files).",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+                    await ScanAsync();
+                }
+                else
+                {
+                    MessageBox.Show($"Download succeeded but sync failed: {op?.ErrorMessage ?? "Unknown error"}",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            finally
+            {
+                IsScanning = false;
+                ScanStatus = "Ready";
+                DownloadStatus = "";
+            }
+            return;
+        }
+
+        // Use cached SDK
+        await SyncFromDlssSdkAsync();
     }
 
     [RelayCommand]
     private async Task SyncFromAnWaveAsync()
     {
+        if (IsScanning) return;
+
+        // Try: settings path → AnWaveAutoService installed path → detected path
+        var settings = await _settingsService.LoadAsync();
+        var targetPath = !string.IsNullOrEmpty(settings.AnWavePath) ? settings.AnWavePath
+            : !string.IsNullOrEmpty(AnWaveInstalledPath) ? AnWaveInstalledPath
+            : AnWaveDetectedPath;
+
+        if (string.IsNullOrEmpty(targetPath))
+        {
+            MessageBox.Show("AnWave is not set up.\n\nClick 'Setup AnWave' in the Advanced menu to download and configure it automatically.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!Directory.Exists(targetPath))
+        {
+            MessageBox.Show($"AnWave path does not exist:\n{targetPath}\n\nClick 'Setup AnWave' to re-download it.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        // Temporarily set the settings path so SyncAsync uses it
+        settings.AnWavePath = targetPath;
+        await _settingsService.SaveAsync(settings);
         await SyncAsync("AnWave");
     }
 
@@ -376,9 +469,9 @@ public partial class MainViewModel : ObservableObject
             var settings = await _settingsService.LoadAsync();
             string? sourcePath = sourceType == "StreamlineSDK" ? settings.StreamlinePath : settings.AnWavePath;
 
-            if (string.IsNullOrEmpty(sourcePath))
+            if (string.IsNullOrEmpty(sourcePath) || !Directory.Exists(sourcePath))
             {
-                MessageBox.Show($"{sourceType} path is not configured. Please set it in Settings.",
+                MessageBox.Show($"{sourceType} path is not configured or folder does not exist.\nPlease set it in Settings or use 'Update All' to download the latest version.",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -423,6 +516,13 @@ public partial class MainViewModel : ObservableObject
     private async Task SyncFromDlssSdkAsync()
     {
         if (IsScanning) return;
+
+        if (!HasCachedSdk || string.IsNullOrEmpty(_dlssDownloadService.GetCachedDownloadPath()))
+        {
+            MessageBox.Show("No DLSS SDK cached.\n\nClick 'Download Latest' in the Advanced menu or use 'Update All' to download first.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
 
         var result = MessageBox.Show($"Sync DLSS SDK {CachedSdkVersion} to NGX Release?\nA backup will be created first.",
             "Confirm Sync", MessageBoxButton.YesNo, MessageBoxImage.Question);
@@ -600,10 +700,21 @@ public partial class MainViewModel : ObservableObject
     {
         if (IsScanning) return;
 
-        var anWavePath = AnWaveDetectedPath;
+        var settings = await _settingsService.LoadAsync();
+        var anWavePath = !string.IsNullOrEmpty(settings.AnWavePath) ? settings.AnWavePath
+                : !string.IsNullOrEmpty(AnWaveInstalledPath) ? AnWaveInstalledPath
+                : AnWaveDetectedPath;
+
         if (string.IsNullOrEmpty(anWavePath))
         {
-            MessageBox.Show("AnWave not detected. Please ensure AnWave is installed and scanned.",
+            MessageBox.Show("AnWave is not installed.\n\nClick 'Setup AnWave' to download and configure it.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!Directory.Exists(anWavePath))
+        {
+            MessageBox.Show($"AnWave path does not exist:\n{anWavePath}\n\nClick 'Setup AnWave' to re-download.",
                 "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -618,7 +729,6 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            var settings = await _settingsService.LoadAsync();
             var operation = _upgradeService.ApplyToAnWave(anWavePath, settings.NgxBasePath);
 
             switch (operation.Status)
@@ -687,7 +797,11 @@ public partial class MainViewModel : ObservableObject
             }
 
             // Step 2: Apply to AnWave if detected
-            if (IsAnWaveDetected && !string.IsNullOrEmpty(AnWaveDetectedPath))
+            var anWaveTarget = !string.IsNullOrEmpty(settings.AnWavePath) ? settings.AnWavePath
+                : !string.IsNullOrEmpty(AnWaveInstalledPath) ? AnWaveInstalledPath
+                : AnWaveDetectedPath;
+
+            if (!string.IsNullOrEmpty(anWaveTarget) && Directory.Exists(anWaveTarget))
             {
                 StatusMessage = "Step 2/2: Applying to AnWave...";
                 var anWavePath = !string.IsNullOrEmpty(settings.AnWavePath) ? settings.AnWavePath : AnWaveDetectedPath;
