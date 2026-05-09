@@ -17,6 +17,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ISettingsService _settingsService;
     private readonly IBackupService _backupService;
     private readonly IDlssDownloadService _dlssDownloadService;
+    private readonly IStreamlineDownloadService _streamlineDownloadService;
     private readonly IAnWaveAutoService _anWaveAutoService;
     private ScanResult? _lastScanResult;
 
@@ -81,6 +82,12 @@ public partial class MainViewModel : ObservableObject
     private bool _isUpdatingAll;
 
     [ObservableProperty]
+    private string _cachedStreamlineVersion = "";
+
+    [ObservableProperty]
+    private bool _hasCachedStreamline;
+
+    [ObservableProperty]
     private string _currentDlssVersion = "—";
 
     [ObservableProperty]
@@ -99,6 +106,7 @@ public partial class MainViewModel : ObservableObject
         ISettingsService settingsService,
         IBackupService backupService,
         IDlssDownloadService dlssDownloadService,
+        IStreamlineDownloadService streamlineDownloadService,
         IAnWaveAutoService anWaveAutoService)
     {
         _scanService = scanService;
@@ -107,6 +115,7 @@ public partial class MainViewModel : ObservableObject
         _settingsService = settingsService;
         _backupService = backupService;
         _dlssDownloadService = dlssDownloadService;
+        _streamlineDownloadService = streamlineDownloadService;
         _anWaveAutoService = anWaveAutoService;
     }
 
@@ -433,8 +442,8 @@ public partial class MainViewModel : ObservableObject
             {
                 MessageBox.Show(
                     "Streamline path is configured but the folder does not exist.\n\n" +
-                    $"Configured path:\n  {settings.StreamlinePath}\n\n" +
-                    "What to do: Open Settings and update the Streamline SDK path to a valid folder, or clear it to use the cached DLSS SDK instead.",
+                    $"Configured path:\n {settings.StreamlinePath}\n\n" +
+                    "What to do: Open Settings and update the Streamline SDK path to a valid folder, or clear it to auto-download from GitHub instead.",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -442,78 +451,71 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        // No Streamline path configured — fall back to cached DLSS SDK (downloaded by Update All)
-        if (!HasCachedSdk || string.IsNullOrEmpty(CachedSdkVersion))
+        // No Streamline path configured — try auto-downloading from GitHub
+        var result = MessageBox.Show(
+            "No Streamline SDK path is configured.\n\n" +
+            "Would you like to download the latest Streamline SDK from NVIDIA-RTX/Streamline on GitHub and sync it to NGX Release?\n\n" +
+            "This will:\n" +
+            " 1. Download the latest Streamline SDK from GitHub\n" +
+            " 2. Extract and copy the DLLs to your NGX Release folder\n" +
+            " 3. Create a backup of the current NGX Release files",
+            "DLSS Version Toolkit", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+
+        IsScanning = true;
+        ScanStatus = "Downloading...";
+        DownloadStatus = "Downloading latest Streamline SDK...";
+        try
         {
-            var result = MessageBox.Show(
-                "No Streamline path configured and no cached DLSS SDK found.\n\n" +
-                "Would you like to download the latest NVIDIA DLSS SDK and sync it to NGX Release?\n\n" +
-                "This will:\n" +
-                "  1. Download the latest DLSS SDK from NVIDIA/DLSS on GitHub\n" +
-                "  2. Extract and copy the DLLs to your NGX Release folder\n" +
-                "  3. Create a backup of the current NGX Release files",
-                "DLSS Version Toolkit", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (result != MessageBoxResult.Yes) return;
-
-            IsScanning = true;
-            ScanStatus = "Downloading...";
-            DownloadStatus = "Downloading latest DLSS SDK...";
-            try
+            var progress = new Progress<int>(pct => DownloadStatus = $"Downloading Streamline SDK... {pct}%");
+            var path = await _streamlineDownloadService.DownloadLatestAsync(progress);
+            if (path == null)
             {
-                var progress = new Progress<int>(pct => DownloadStatus = $"Downloading... {pct}%");
-                var path = await _dlssDownloadService.DownloadLatestAsync(progress);
-                if (path == null)
-                {
-                    MessageBox.Show(
-                        "Failed to download the DLSS SDK.\n\n" +
-                        "What to do: Check your internet connection and try again. If the problem persists, the GitHub API rate limit may have been reached — wait a few minutes.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                CachedSdkVersion = _dlssDownloadService.GetCachedSdkVersion() ?? "";
-                HasCachedSdk = true;
-                DownloadStatus = "Syncing to NGX...";
-                var op = await _dlssDownloadService.SyncFromCachedSdkAsync(null);
-                if (op != null && op.Status == OperationStatus.Completed)
-                {
-                    var files = string.Join("\n  • ", op.FilesCopied);
-                    MessageBox.Show(
-                        $"DLSS SDK v{CachedSdkVersion} downloaded and synced to NGX Release.\n\n" +
-                        $"Files copied ({op.FilesCopied.Count}):\n" +
-                        $"  {files}\n\n" +
-                        "What to do next: If you use AnWave, click 'Apply to AnWave' to keep it in sync.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
-                    await ScanAsync();
-                }
-                else if (op?.Status == OperationStatus.RolledBack)
-                {
-                    MessageBox.Show(
-                        $"DLSS SDK v{CachedSdkVersion} was downloaded but sync to NGX failed and was rolled back.\n\n" +
-                        $"Error: {op.ErrorMessage}\n\n" +
-                        $"Backup preserved at:\n  {op.BackupPath}\n\n" +
-                        "What to do: Your previous NGX files have been restored. Check the error and try again.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
-                else
-                {
-                    MessageBox.Show(
-                        $"DLSS SDK v{CachedSdkVersion} was downloaded but sync to NGX failed.\n\n" +
-                        $"Error: {op?.ErrorMessage ?? "Unknown error"}\n\n" +
-                        "What to do: The SDK is cached and ready. Try 'Sync from DLSS SDK' separately for more details.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
+                MessageBox.Show(
+                    "Failed to download the Streamline SDK.\n\n" +
+                    "What to do: Check your internet connection and try again. If the problem persists, the GitHub API rate limit may have been reached — wait a few minutes.",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
             }
-            finally
+            CachedStreamlineVersion = _streamlineDownloadService.GetCachedSdkVersion() ?? "";
+            HasCachedStreamline = true;
+            DownloadStatus = "Syncing to NGX...";
+            var op = await _streamlineDownloadService.SyncFromCachedSdkAsync(null);
+            if (op != null && op.Status == OperationStatus.Completed)
             {
-                IsScanning = false;
-                ScanStatus = "Ready";
-                DownloadStatus = "";
+                var files = string.Join("\n • ", op.FilesCopied);
+                MessageBox.Show(
+                    $"Streamline SDK v{CachedStreamlineVersion} downloaded and synced to NGX Release.\n\n" +
+                    $"Files copied ({op.FilesCopied.Count}):\n" +
+                    $" {files}\n\n" +
+                    "What to do next: If you use AnWave, click 'Apply to AnWave' to keep it in sync.",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+                await ScanAsync();
             }
-            return;
+            else if (op?.Status == OperationStatus.RolledBack)
+            {
+                MessageBox.Show(
+                    $"Streamline SDK v{CachedStreamlineVersion} was downloaded but sync to NGX failed and was rolled back.\n\n" +
+                    $"Error: {op.ErrorMessage}\n\n" +
+                    $"Backup preserved at:\n {op.BackupPath}\n\n" +
+                    "What to do: Your previous NGX files have been restored. Check the error and try again.",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            else
+            {
+                MessageBox.Show(
+                    $"Streamline SDK v{CachedStreamlineVersion} was downloaded but sync to NGX failed.\n\n" +
+                    $"Error: {op?.ErrorMessage ?? "Unknown error"}\n\n" +
+                    "What to do: The SDK is cached and ready. Try 'Sync From Streamline SDK' again after scanning.",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
-
-        // Use cached SDK
-        await SyncFromDlssSdkAsync();
+        finally
+        {
+            IsScanning = false;
+            ScanStatus = "Ready";
+            DownloadStatus = "";
+        }
     }
 
     [RelayCommand]
@@ -793,6 +795,68 @@ public partial class MainViewModel : ObservableObject
             MessageBox.Show(
                 $"Download error: {ex.Message}\n\n" +
                 "What to do: Check the error above. If it's a network issue, try again. If it's a disk issue, ensure you have free space in %APPDATA%\\DLSSVersionToolkit\\Downloads.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsDownloading = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task DownloadStreamlineAsync()
+    {
+        if (IsDownloading) return;
+
+        IsDownloading = true;
+        DownloadProgress = 0;
+        DownloadStatus = "Checking for latest Streamline SDK release...";
+        StatusMessage = "";
+
+        try
+        {
+            var progress = new Progress<int>(pct =>
+            {
+                DownloadProgress = pct;
+                DownloadStatus = $"Downloading Streamline SDK... {pct}%";
+            });
+
+            var path = await _streamlineDownloadService.DownloadLatestAsync(progress);
+
+            if (path != null)
+            {
+                DownloadStatus = "Download complete.";
+                var version = _streamlineDownloadService.GetCachedSdkVersion() ?? "unknown";
+                CachedStreamlineVersion = version;
+                HasCachedStreamline = !string.IsNullOrEmpty(CachedStreamlineVersion);
+
+                var cacheInfo = _streamlineDownloadService.GetCacheInfo();
+                var sizeMb = cacheInfo.TotalBytes / (1024.0 * 1024.0);
+
+                MessageBox.Show(
+                    $"Streamline SDK v{version} downloaded successfully.\n\n" +
+                    $"Saved to:\n {path}\n\n" +
+                    $"Cache: {cacheInfo.Count} file(s), {sizeMb:F1} MB total\n\n" +
+                    "What to do next: Click 'Sync From Streamline SDK' to apply it to NGX Release, or use 'Update All' to sync the DLSS SDK to both NGX and AnWave.",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                DownloadStatus = "";
+                StatusMessage = "Failed to download Streamline SDK.";
+                MessageBox.Show(
+                    "Failed to download the latest Streamline SDK.\n\n" +
+                    "What to do: Check your internet connection and try again. If the problem persists, the GitHub API rate limit may have been reached — wait a few minutes.",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            DownloadStatus = "";
+            StatusMessage = $"Download error: {ex.Message}";
+            MessageBox.Show(
+                $"Streamline SDK download error: {ex.Message}\n\n" +
+                "What to do: Check the error above. If it's a network issue, try again. If it's a disk issue, ensure you have free space in %APPDATA%\\DLSSVersionToolkit\\StreamlineDownloads.",
                 "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally

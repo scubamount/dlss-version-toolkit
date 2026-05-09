@@ -115,9 +115,10 @@
                 <!-- Advanced dropdown -->
                 <Menu Grid.Column="3" Background="Transparent" VerticalAlignment="Center" HorizontalAlignment="Left">
                     <MenuItem Header="Advanced ▾" Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextSecondaryBrush}" Padding="12,6" FontSize="11">
-                        <MenuItem Header="Sync From Streamline SDK" Command="{Binding SyncFromStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                        <MenuItem Header="Sync From AnWave" Command="{Binding SyncFromAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                        <MenuItem Header="Download DLSS SDK" Command="{Binding DownloadLatestCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <MenuItem Header="Sync From Streamline SDK" Command="{Binding SyncFromStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <MenuItem Header="Sync From AnWave" Command="{Binding SyncFromAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <MenuItem Header="Download DLSS SDK" Command="{Binding DownloadLatestCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <MenuItem Header="Download Streamline SDK" Command="{Binding DownloadStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
                         <Separator/>
                         <MenuItem Header="Apply to AnWave (detected)" Command="{Binding ApplyToAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsAnWaveDetected}"/>
                         <MenuItem Header="Auto-Apply DLSS" Command="{Binding AutoApplyToAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsAnWaveInstalled}"/>

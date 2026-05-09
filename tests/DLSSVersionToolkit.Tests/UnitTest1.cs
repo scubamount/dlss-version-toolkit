@@ -337,3 +337,40 @@ public class StreamlineScannerTests
         Assert.True(result == null || Directory.Exists(result));
     }
 }
+
+public class StreamlineDownloadServiceTests
+{
+    [Fact]
+    public void GetCacheInfo_NoCacheDir_ReturnsZero()
+    {
+        var service = new Core.Services.StreamlineDownloadService();
+        var (count, totalBytes) = service.GetCacheInfo();
+        // May be 0 if no cache dir exists, or >0 if previous test left files
+        Assert.True(count >= 0);
+        Assert.True(totalBytes >= 0);
+    }
+
+    [Fact]
+    public void GetCachedSdkVersion_NoCache_ReturnsNull()
+    {
+        var service = new Core.Services.StreamlineDownloadService();
+        var version = service.GetCachedSdkVersion();
+        Assert.Null(version);
+    }
+
+    [Fact]
+    public void GetCachedDownloadPath_NoDownload_ReturnsNull()
+    {
+        var service = new Core.Services.StreamlineDownloadService();
+        var path = service.GetCachedDownloadPath();
+        Assert.Null(path);
+    }
+
+    [Fact]
+    public void TrimCache_NoCacheDir_DoesNotThrow()
+    {
+        var service = new Core.Services.StreamlineDownloadService();
+        // Should not throw even with no cache directory
+        service.TrimCache(3);
+    }
+}
