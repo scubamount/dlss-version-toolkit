@@ -6,16 +6,16 @@
 
 ## Overview
 
-NVIDIA DLSS components live in multiple locations on your system. Two are managed by the NVIDIA App and drivers, and two are **optional** — they only exist if you install them separately:
+NVIDIA DLSS components live in multiple locations on your system. Two are managed by the NVIDIA App and drivers, one is installed automatically by this tool, and one is optional:
 
 | Source | Description | Auto-installed? |
 |--------|-------------|-----------------|
 | **NGX Release** | Active DLSS override used by games | Yes — by NVIDIA App |
 | **NGX Staging** | Driver-staged DLSS versions | Yes — by NVIDIA drivers |
-| **AnWave** | Global DLL injection override | No — auto-installed by this tool from [SimonMacer/AnWave](https://github.com/SimonMacer/AnWave) |
+| **AnWave** | Global DLL injection override | Yes — auto-installed by this tool from [SimonMacer/AnWave](https://github.com/SimonMacer/AnWave) |
 | **Streamline SDK** | NVIDIA's SDK with the latest DLLs | No — [download from NVIDIA Developer](https://developer.nvidia.com/streamline-sdk) |
 
-This tool scans all available sources, shows you which version is installed where, highlights the newest versions per component, and lets you upgrade or sync to the latest with a single click.
+This tool also downloads the official **DLSS SDK** (`ngx_dlss_demo_windows.zip`) from [NVIDIA/DLSS](https://github.com/NVIDIA/DLSS) on GitHub automatically — no manual download needed.
 
 **Supported components:** DLSS, Frame Generation (dlssg), DLSSD, DeepDVC, Streamline SDK
 
