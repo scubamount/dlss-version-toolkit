@@ -47,6 +47,12 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _downloadStatus = "";
 
+    [ObservableProperty]
+    private string _cachedSdkVersion = "";
+
+    [ObservableProperty]
+    private bool _hasCachedSdk;
+
     public MainViewModel(
         IScanService scanService,
         IUpgradeService upgradeService,
@@ -260,6 +266,76 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task SyncFromDlssSdkAsync()
+    {
+        if (IsScanning) return;
+
+        var result = MessageBox.Show($"Sync DLSS SDK {CachedSdkVersion} to NGX Release?\nA backup will be created first.",
+            "Confirm Sync", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+
+        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
+            System.Security.Principal.WindowsIdentity.GetCurrent()
+        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        if (!isAdmin)
+        {
+            MessageBox.Show("Administrator access is required.\n\nPlease run the app as Administrator.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        IsScanning = true;
+        ScanStatus = "Syncing...";
+        DownloadStatus = "";
+        StatusMessage = "";
+
+        try
+        {
+            var settings = await _settingsService.LoadAsync();
+            var progress = new Progress<int>(pct => DownloadStatus = $"Syncing... {pct}%");
+            var operation = await _dlssDownloadService.SyncFromCachedSdkAsync(progress);
+
+            if (operation == null)
+            {
+                MessageBox.Show("No cached SDK found. Please download first.",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            switch (operation.Status)
+            {
+                case OperationStatus.Completed:
+                    MessageBox.Show($"Sync completed.\nFiles copied: {operation.FilesCopied.Count}",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+                    await ScanAsync();
+                    break;
+                case OperationStatus.Failed:
+                    MessageBox.Show($"Sync failed: {operation.ErrorMessage}",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+                    break;
+                case OperationStatus.RolledBack:
+                    MessageBox.Show($"Sync failed and rolled back: {operation.ErrorMessage}",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+                    break;
+                default:
+                    MessageBox.Show($"Unexpected status: {operation.Status}",
+                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Sync error: {ex.Message}",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsScanning = false;
+            ScanStatus = "Ready";
+        }
+    }
+
+    [RelayCommand]
     private async Task DownloadLatestAsync()
     {
         if (IsDownloading) return;
@@ -283,6 +359,8 @@ public partial class MainViewModel : ObservableObject
             {
                 DownloadStatus = "Download complete.";
                 StatusMessage = $"DLSS SDK downloaded to:\n{path}";
+                CachedSdkVersion = _dlssDownloadService.GetCachedSdkVersion() ?? "";
+                HasCachedSdk = !string.IsNullOrEmpty(CachedSdkVersion);
                 MessageBox.Show($"DLSS SDK downloaded successfully.\n\nSaved to:\n{path}",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
             }

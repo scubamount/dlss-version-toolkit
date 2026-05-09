@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using DLSSVersionToolkit.Core.Models;
 
 public class DlssRelease
 {
@@ -20,6 +21,8 @@ public interface IDlssDownloadService
     Task<List<DlssRelease>> GetAvailableReleasesAsync(CancellationToken ct = default);
     Task<string?> DownloadLatestAsync(IProgress<int>? progress = null, CancellationToken ct = default);
     string? GetCachedDownloadPath();
+    string? GetCachedSdkVersion();
+    Task<UpgradeOperation?> SyncFromCachedSdkAsync(IProgress<int>? progress = null, CancellationToken ct = default);
 }
 
 public class DlssDownloadService : IDlssDownloadService
@@ -190,4 +193,36 @@ try
     }
 
     public string? GetCachedDownloadPath() => _cachedDownloadPath;
+
+    public string? GetCachedSdkVersion()
+    {
+        if (_cachedDownloadPath != null && File.Exists(_cachedDownloadPath))
+        {
+            var fileName = Path.GetFileName(_cachedDownloadPath); // e.g. "dlss-sdk-310.6.0.zip"
+            if (fileName.StartsWith("dlss-sdk-") && fileName.EndsWith(".zip"))
+            {
+                return fileName.Substring(9, fileName.Length - 13 - 4); // "310.6.0"
+            }
+        }
+        return null;
+    }
+
+    public Task<UpgradeOperation?> SyncFromCachedSdkAsync(IProgress<int>? progress = null, CancellationToken ct = default)
+    {
+        if (_cachedDownloadPath == null || !File.Exists(_cachedDownloadPath))
+        {
+            Console.Error.WriteLine("No cached SDK download found.");
+            return Task.FromResult<UpgradeOperation?>(null);
+        }
+
+        var ngxBasePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "NVIDIA", "NGX");
+
+        progress?.Report(0);
+        var upgradeService = new UpgradeService(new NgxScanner(new NgxConfigParser()), new BackupService());
+        var result = upgradeService.SyncFromDlssSDK(_cachedDownloadPath, ngxBasePath);
+        progress?.Report(100);
+        return Task.FromResult<UpgradeOperation?>(result);
+    }
 }

@@ -6,6 +6,7 @@ public interface IUpgradeService
 {
     UpgradeOperation UpgradeFromStaging(string ngxBasePath);
     UpgradeOperation SyncToNGX(string sourcePath, string sourceType, string ngxBasePath);
+    UpgradeOperation SyncFromDlssSDK(string zipPath, string ngxBasePath);
 }
 
 public class UpgradeService : IUpgradeService
@@ -145,6 +146,72 @@ public class UpgradeService : IUpgradeService
         }
 
         return PerformSync(operation, ngxBasePath, sourceVersions);
+    }
+
+    public UpgradeOperation SyncFromDlssSDK(string zipPath, string ngxBasePath)
+    {
+        // Auto-detect default NGX path if not configured
+        if (string.IsNullOrEmpty(ngxBasePath))
+        {
+            ngxBasePath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "NVIDIA", "NGX");
+        }
+
+        if (!File.Exists(zipPath))
+        {
+            return new UpgradeOperation
+            {
+                Status = OperationStatus.Failed,
+                ErrorMessage = $"DLSS SDK zip not found: {zipPath}"
+            };
+        }
+
+        if (!IsPathAllowed(ngxBasePath))
+        {
+            return new UpgradeOperation
+            {
+                Status = OperationStatus.Failed,
+                ErrorMessage = "Target NGX path not in allowed list."
+            };
+        }
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"DLSSVersionToolkit_DlssSDK_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, tempDir);
+
+            // Look for DLLs in DLSS/bin/Win64/ first, then fall back to any nvngx_*.dll
+            string? binPath = FindDllFolder(tempDir);
+            if (binPath == null)
+            {
+                return new UpgradeOperation
+                {
+                    Status = OperationStatus.Failed,
+                    ErrorMessage = "Could not find nvngx DLLs inside the downloaded SDK zip."
+                };
+            }
+
+            return SyncToNGX(binPath, "DlssSDK", ngxBasePath);
+        }
+        finally
+        {
+            try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    private static string? FindDllFolder(string rootDir)
+    {
+        // Try DLSS/bin/Win64/ first
+        var dllPath = Path.Combine(rootDir, "DLSS", "bin", "Win64", "nvngx_dlss.dll");
+        if (File.Exists(dllPath)) return Path.Combine(rootDir, "DLSS", "bin", "Win64");
+
+        // Fall back: find any nvngx_dlss.dll anywhere in the extracted folder
+        var found = Directory.GetFiles(rootDir, "nvngx_dlss.dll", SearchOption.AllDirectories).FirstOrDefault();
+        if (found != null) return Path.GetDirectoryName(found);
+
+        return null;
     }
 
     private UpgradeOperation PerformUpgrade(UpgradeOperation operation, string ngxBasePath, DLSSVersionEntry staging)

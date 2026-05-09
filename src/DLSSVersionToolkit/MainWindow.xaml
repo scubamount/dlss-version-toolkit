@@ -103,6 +103,8 @@
                     <MenuItem Header="Sync From..." Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}" Padding="16,8" Margin="4,0">
                         <MenuItem Header="Streamline SDK" Command="{Binding SyncFromStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
                         <MenuItem Header="AnWave" Command="{Binding SyncFromAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <Separator/>
+                        <MenuItem Header="DLSS SDK" Command="{Binding SyncFromDlssSdkCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding HasCachedSdk}"/>
                     </MenuItem>
                 </Menu>
 
@@ -307,16 +309,21 @@
                 <TextBlock Grid.Column="3" Text="{Binding StatusMessage}" Foreground="{StaticResource WarningBrush}"
                            FontSize="10" VerticalAlignment="Center" MaxWidth="300" TextTrimming="CharacterEllipsis"/>
 
-                <!-- Download progress -->
+                <!-- Download/Sync progress -->
                 <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0"
                             Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <TextBlock Text="Download: " Foreground="{StaticResource TextSecondaryBrush}" FontSize="10"/>
-                    <ProgressBar Value="{Binding DownloadProgress}" Maximum="100" Width="80" Height="8"
-                                 Foreground="{StaticResource NvidiaGreenBrush}" Background="{StaticResource SurfaceBrush}"/>
-                    <TextBlock Foreground="{StaticResource NvidiaGreenBrush}" FontSize="10" Margin="6,0,0,0">
-                        <Run Text="{Binding DownloadProgress, Mode=OneWay}"/><Run Text="%"/>
+                    <TextBlock Foreground="{StaticResource NvidiaGreenBrush}" FontSize="10">
+                        <Run Text="{Binding DownloadStatus, Mode=OneWay}"/>
                     </TextBlock>
+                    <ProgressBar Value="{Binding DownloadProgress}" Maximum="100" Width="80" Height="8"
+                                 Foreground="{StaticResource NvidiaGreenBrush}" Background="{StaticResource SurfaceBrush}" Margin="6,0,0,0"/>
                 </StackPanel>
+
+                <!-- Cached SDK indicator -->
+                <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Margin="20,0,0,0"
+                           Visibility="{Binding HasCachedSdk, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Run Text="DLSS SDK v"/><Run Text="{Binding CachedSdkVersion, Mode=OneWay}"/><Run Text=" cached"/>
+                </TextBlock>
             </Grid>
         </Border>
     </Grid>
