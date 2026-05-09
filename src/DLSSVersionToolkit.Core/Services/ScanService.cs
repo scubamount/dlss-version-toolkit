@@ -40,7 +40,15 @@ public class ScanService : IScanService
         var globalPath = string.IsNullOrEmpty(anWavePath) ? settings.AnWavePath : anWavePath;
         var slPath = string.IsNullOrEmpty(streamlinePath) ? settings.StreamlinePath : streamlinePath;
 
-        // Auto-detect if paths are empty
+        // Auto-detect NGX base path if not configured
+        if (string.IsNullOrEmpty(ngxPath))
+        {
+            ngxPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "NVIDIA", "NGX");
+        }
+
+        // Auto-detect AnWave and Streamline paths if empty
         if (string.IsNullOrEmpty(globalPath))
         {
             globalPath = FindAnWaveInDownloads();

@@ -131,10 +131,13 @@ public class DlssDownloadService : IDlssDownloadService
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
             if (!response.IsSuccessStatusCode)
+            {
+                System.Console.Error.WriteLine($"Download failed with status {response.StatusCode}");
                 return null;
+            }
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1L;
-            var filePath = destPath + ".tmp";
+            string filePath = destPath + ".tmp";
 
             await using var contentStream = await response.Content.ReadAsStreamAsync(ct);
             await using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
@@ -160,10 +163,23 @@ public class DlssDownloadService : IDlssDownloadService
             File.Move(filePath, destPath);
 
             _cachedDownloadPath = destPath;
+            System.Console.Error.WriteLine($"Download complete: {destPath} ({totalRead} bytes)");
             return destPath;
         }
-        catch
+        catch (UnauthorizedAccessException ex)
         {
+            System.Console.Error.WriteLine($"Access denied writing to cache directory: {ex.Message}");
+            return null;
+        }
+        catch (IOException ex)
+        {
+            System.Console.Error.WriteLine($"IO error during download: {ex.Message}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            System.Console.Error.WriteLine($"Download failed: {ex.Message}");
+            try { if (File.Exists(destPath + ".tmp")) File.Delete(destPath + ".tmp"); } catch { }
             return null;
         }
     }
