@@ -50,8 +50,9 @@ public partial class App : Application
         var scanService = new ScanService(ngxScanner, globalScanner, streamlineScanner, versionComparer, _settingsService);
         var exportService = new ExportService();
         var dlssDownloadService = new DlssDownloadService();
+        var anWaveAutoService = new AnWaveAutoService();
 
-        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService);
+        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, anWaveAutoService);
 
         SetupTrayIcon();
 

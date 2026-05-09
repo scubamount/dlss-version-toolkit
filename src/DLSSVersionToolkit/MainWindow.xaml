@@ -104,14 +104,22 @@
                         <MenuItem Header="Streamline SDK" Command="{Binding SyncFromStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
                         <MenuItem Header="AnWave" Command="{Binding SyncFromAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
                         <Separator/>
-                        <MenuItem Header="DLSS SDK" Command="{Binding SyncFromDlssSdkCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding HasCachedSdk}"/>
+                        <MenuItem Header="DLSS SDK → NGX" Command="{Binding SyncFromDlssSdkCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding HasCachedSdk}"/>
                         <Separator/>
-                        <MenuItem Header="Apply to AnWave" Command="{Binding ApplyToAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsAnWaveDetected}"/>
-                        <MenuItem Header="Sync SDK to NGX + AnWave" Command="{Binding SyncDlssSdkToBothCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding HasCachedSdk}"/>
+                        <MenuItem Header="Apply to AnWave (detected)" Command="{Binding ApplyToAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsAnWaveDetected}"/>
+                        <MenuItem Header="Auto-Apply DLSS to AnWave" Command="{Binding AutoApplyToAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsAnWaveInstalled}"/>
                     </MenuItem>
                 </Menu>
 
                 <Button Content="Export" Style="{StaticResource DarkButtonStyle}" Command="{Binding ExportCommand}"/>
+
+                <Button Content="Setup AnWave" Style="{StaticResource DarkButtonStyle}"
+                        Command="{Binding SetupAnWaveCommand}"
+                        IsEnabled="{Binding IsSettingUpAnWave, Converter={StaticResource InverseBoolConverter}}"/>
+
+                <Button Content="Auto-Apply DLSS" Style="{StaticResource DarkButtonStyle}"
+                        Command="{Binding AutoApplyToAnWaveCommand}"
+                        IsEnabled="{Binding IsAnWaveInstalled}"/>
 
                 <Button Content="Download DLSS" Style="{StaticResource DarkButtonStyle}"
                         Command="{Binding DownloadLatestCommand}"
@@ -322,21 +330,26 @@
                                  Foreground="{StaticResource NvidiaGreenBrush}" Background="{StaticResource SurfaceBrush}" Margin="6,0,0,0"/>
                 </StackPanel>
 
-                <!-- Cached SDK / AnWave indicator -->
+                <!-- AnWave / SDK indicator -->
                 <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
-                    <!-- AnWave detection -->
+                    <!-- AnWave installation status -->
                     <TextBlock FontSize="10" VerticalAlignment="Center" Margin="0,0,12,0">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsAnWaveDetected}" Value="True">
+                                    <DataTrigger Binding="{Binding IsAnWaveInstalled}" Value="True">
                                         <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </TextBlock.Style>
-                        <Run Text="AnWave: "/><Run Text="{Binding AnWaveDetectedPath, Mode=OneWay, TargetNullValue='not found', FallbackValue='not found'}"/>
+                        <Run Text="AnWave: "/>
+                        <Run Text="{Binding AnWaveInstalledPath, Mode=OneWay, TargetNullValue='not set', FallbackValue='not set'}"/>
+                    </TextBlock>
+                    <TextBlock FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,12,0" Text="|">
+                        <Run Text="{Binding AnWaveGlomVersion, Mode=OneWay, TargetNullValue=''}"/>
+                        <Run Text=" v"/><Run Text="{Binding AnWaveDllVersion, Mode=OneWay, TargetNullValue=''}"/>
                     </TextBlock>
                     <!-- Cached SDK version -->
                     <TextBlock Text="|" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"

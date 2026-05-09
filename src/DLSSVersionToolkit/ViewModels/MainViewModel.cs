@@ -17,6 +17,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ISettingsService _settingsService;
     private readonly IBackupService _backupService;
     private readonly IDlssDownloadService _dlssDownloadService;
+    private readonly IAnWaveAutoService _anWaveAutoService;
     private ScanResult? _lastScanResult;
 
     [ObservableProperty]
@@ -61,13 +62,29 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isAnWaveDetected;
 
+    [ObservableProperty]
+    private string _anWaveInstalledPath = "";
+
+    [ObservableProperty]
+    private string _anWaveGlomVersion = "";
+
+    [ObservableProperty]
+    private string _anWaveDllVersion = "";
+
+    [ObservableProperty]
+    private bool _isAnWaveInstalled;
+
+    [ObservableProperty]
+    private bool _isSettingUpAnWave;
+
     public MainViewModel(
         IScanService scanService,
         IUpgradeService upgradeService,
         IExportService exportService,
         ISettingsService settingsService,
         IBackupService backupService,
-        IDlssDownloadService dlssDownloadService)
+        IDlssDownloadService dlssDownloadService,
+        IAnWaveAutoService anWaveAutoService)
     {
         _scanService = scanService;
         _upgradeService = upgradeService;
@@ -75,6 +92,7 @@ public partial class MainViewModel : ObservableObject
         _settingsService = settingsService;
         _backupService = backupService;
         _dlssDownloadService = dlssDownloadService;
+        _anWaveAutoService = anWaveAutoService;
     }
 
     [RelayCommand]
@@ -656,5 +674,143 @@ public partial class MainViewModel : ObservableObject
         catch { }
 
         return null;
+    }
+
+    [RelayCommand]
+    private async Task SetupAnWaveAsync()
+    {
+        if (IsSettingUpAnWave) return;
+
+        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
+            System.Security.Principal.WindowsIdentity.GetCurrent()
+        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        if (!isAdmin)
+        {
+            MessageBox.Show("Administrator access is required.\n\nPlease run the app as Administrator.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        IsSettingUpAnWave = true;
+        ScanStatus = "Setting up AnWave...";
+        StatusMessage = "";
+        DownloadStatus = "Downloading nvidiaDlssGlom...";
+
+        try
+        {
+            var progress = new Progress<int>(pct =>
+            {
+                if (pct < 30) DownloadStatus = $"Downloading nvidiaDlssGlom... {pct}%";
+                else if (pct < 70) DownloadStatus = $"Downloading DLSS DLLs... {pct}%";
+                else DownloadStatus = $"Activating override... {pct}%";
+            });
+
+            var result = await _anWaveAutoService.SetupAnWaveAsync(progress);
+
+            if (result.Success)
+            {
+                IsAnWaveInstalled = true;
+                AnWaveInstalledPath = result.InstalledPath ?? "";
+                AnWaveGlomVersion = result.GlomVersion ?? "";
+                AnWaveDllVersion = result.DllVersion ?? "";
+                AnWaveDetectedPath = result.InstalledPath ?? "";
+                IsAnWaveDetected = true;
+
+                MessageBox.Show(
+                    $"AnWave setup complete!\n\n" +
+                    $"nvidiaDlssGlom v{result.GlomVersion} installed.\n" +
+                    $"DLSS version: {result.DllVersion}\n\n" +
+                    $"Location: {result.InstalledPath}\n\n" +
+                    $"DLSS Override has been activated globally.\n" +
+                    $"Games using DLSS should now use the latest version.",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show($"AnWave setup failed:\n{result.ErrorMessage}",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error: {ex.Message}",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsSettingUpAnWave = false;
+            ScanStatus = "Ready";
+            DownloadStatus = "";
+        }
+    }
+
+    [RelayCommand]
+    private async Task AutoApplyToAnWaveAsync()
+    {
+        if (IsScanning || IsSettingUpAnWave) return;
+
+        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
+            System.Security.Principal.WindowsIdentity.GetCurrent()
+        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        if (!isAdmin)
+        {
+            MessageBox.Show("Administrator access is required.\n\nPlease run the app as Administrator.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var targetPath = AnWaveInstalledPath;
+        if (string.IsNullOrEmpty(targetPath) || !Directory.Exists(targetPath))
+        {
+            MessageBox.Show("AnWave is not installed yet. Please click 'Setup AnWave' first.",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"Apply current NGX Release DLLs to AnWave?\n\n" +
+            $"Target: {targetPath}\n\n" +
+            $"This will copy the latest NGX Release DLSS DLLs to AnWave\n" +
+            $"and activate the global override.",
+            "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+
+        IsScanning = true;
+        ScanStatus = "Applying to AnWave...";
+        DownloadStatus = "";
+
+        try
+        {
+            var settings = await _settingsService.LoadAsync();
+            var progress = new Progress<int>(pct => DownloadStatus = $"Applying... {pct}%");
+            var applyResult = await _anWaveAutoService.AutoApplyAsync(targetPath, settings.NgxBasePath, progress);
+
+            if (applyResult.Success)
+            {
+                AnWaveDllVersion = applyResult.AppliedVersion ?? AnWaveDllVersion;
+                MessageBox.Show(
+                    $"DLSS applied to AnWave!\n\n" +
+                    $"Files copied: {string.Join(", ", applyResult.FilesCopied)}\n" +
+                    $"Version: {applyResult.AppliedVersion ?? "unknown"}\n\n" +
+                    $"Global DLSS Override is now active.",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+                await ScanAsync();
+            }
+            else
+            {
+                MessageBox.Show($"Failed: {applyResult.ErrorMessage}",
+                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error: {ex.Message}",
+                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsScanning = false;
+            ScanStatus = "Ready";
+        }
     }
 }
