@@ -25,6 +25,7 @@
     <Authors>scubamount</Authors>
     <Product>DLSS Version Toolkit</Product>
     <Description>WPF GUI for checking and upgrading NVIDIA DLSS versions</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
 </Project>

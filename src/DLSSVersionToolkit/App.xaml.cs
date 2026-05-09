@@ -16,14 +16,14 @@ public partial class App : Application
 
     private async void Application_Startup(object sender, StartupEventArgs e)
     {
-        // Single-instance enforcement
+        // Single-instance enforcement — Global\ prefix ensures the mutex is visible
+        // across all integrity levels, so elevated and non-elevated instances share it.
         const string mutexName = "Global\\DLSSVersionToolkit_SingleInstance";
         _mutex = new Mutex(false, mutexName, out bool createdNew);
 
         if (!createdNew)
         {
-            MessageBox.Show("DLSS Version Toolkit is already running.", "DLSS Version Toolkit",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+            // Another instance is already running — try to bring it to front
             var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
             var processes = System.Diagnostics.Process.GetProcessesByName("DLSSVersionToolkit");
             foreach (var proc in processes)

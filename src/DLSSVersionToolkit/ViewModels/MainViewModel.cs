@@ -173,16 +173,7 @@ public partial class MainViewModel : ObservableObject
     {
         StatusMessage = "";
 
-        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
-            System.Security.Principal.WindowsIdentity.GetCurrent()
-        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
-
-        if (!isAdmin)
-        {
-            MessageBox.Show("Administrator access is required to upgrade DLSS versions.\n\nPlease run the app as Administrator.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
+        
 
         var result = MessageBox.Show("This will upgrade NGX Release to the latest Staging version.\nA backup will be created before any changes.\n\nContinue?",
             "Confirm Upgrade", MessageBoxButton.YesNo, MessageBoxImage.Question);
@@ -246,17 +237,6 @@ public partial class MainViewModel : ObservableObject
     private async Task SyncAsync(string sourceType)
     {
         StatusMessage = "";
-
-        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
-            System.Security.Principal.WindowsIdentity.GetCurrent()
-        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
-
-        if (!isAdmin)
-        {
-            MessageBox.Show("Administrator access is required to sync DLSS versions.\n\nPlease run the app as Administrator.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
 
         var result = MessageBox.Show($"This will sync DLSS versions from {sourceType} to NGX Release.\nA backup will be created before any changes.\n\nContinue?",
             "Confirm Sync", MessageBoxButton.YesNo, MessageBoxImage.Question);
@@ -322,16 +302,6 @@ public partial class MainViewModel : ObservableObject
         var result = MessageBox.Show($"Sync DLSS SDK {CachedSdkVersion} to NGX Release?\nA backup will be created first.",
             "Confirm Sync", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (result != MessageBoxResult.Yes) return;
-
-        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
-            System.Security.Principal.WindowsIdentity.GetCurrent()
-        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
-        if (!isAdmin)
-        {
-            MessageBox.Show("Administrator access is required.\n\nPlease run the app as Administrator.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
 
         IsScanning = true;
         ScanStatus = "Syncing...";
@@ -505,16 +475,6 @@ public partial class MainViewModel : ObservableObject
     {
         if (IsScanning) return;
 
-        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
-            System.Security.Principal.WindowsIdentity.GetCurrent()
-        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
-        if (!isAdmin)
-        {
-            MessageBox.Show("Administrator access is required.\n\nPlease run the app as Administrator.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
         var anWavePath = AnWaveDetectedPath;
         if (string.IsNullOrEmpty(anWavePath))
         {
@@ -576,16 +536,6 @@ public partial class MainViewModel : ObservableObject
         }
 
         if (IsScanning) return;
-
-        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
-            System.Security.Principal.WindowsIdentity.GetCurrent()
-        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
-        if (!isAdmin)
-        {
-            MessageBox.Show("Administrator access is required.\n\nPlease run the app as Administrator.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
 
         var result = MessageBox.Show($"Sync DLSS SDK {CachedSdkVersion} to NGX Release and then apply to AnWave?\n\nThis is a two-step process:\n1. Sync to NGX (with backup)\n2. Apply to AnWave",
             "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question);
@@ -681,16 +631,6 @@ public partial class MainViewModel : ObservableObject
     {
         if (IsSettingUpAnWave) return;
 
-        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
-            System.Security.Principal.WindowsIdentity.GetCurrent()
-        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
-        if (!isAdmin)
-        {
-            MessageBox.Show("Administrator access is required.\n\nPlease run the app as Administrator.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
         IsSettingUpAnWave = true;
         ScanStatus = "Setting up AnWave...";
         StatusMessage = "";
@@ -748,16 +688,6 @@ public partial class MainViewModel : ObservableObject
     private async Task AutoApplyToAnWaveAsync()
     {
         if (IsScanning || IsSettingUpAnWave) return;
-
-        bool isAdmin = new System.Security.Principal.WindowsPrincipal(
-            System.Security.Principal.WindowsIdentity.GetCurrent()
-        ).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
-        if (!isAdmin)
-        {
-            MessageBox.Show("Administrator access is required.\n\nPlease run the app as Administrator.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
 
         var targetPath = AnWaveInstalledPath;
         if (string.IsNullOrEmpty(targetPath) || !Directory.Exists(targetPath))
