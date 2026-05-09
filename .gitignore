@@ -16,6 +16,24 @@ $RECYCLE.BIN/
 
 # Distribution artifacts
 dist/
+publish/
+*.nupkg
+
+# .NET build output
+src/**/bin/
+src/**/obj/
+src/DLSSVersionToolkit/**/bin/
+src/DLSSVersionToolkit/**/obj/
+tests/**/bin/
+tests/**/obj/
+**/TestResults/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+**/packages/
 *.nupkg
 
 # Environment
