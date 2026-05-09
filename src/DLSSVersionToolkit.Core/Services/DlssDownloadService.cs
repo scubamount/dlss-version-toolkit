@@ -125,63 +125,68 @@ public class DlssDownloadService : IDlssDownloadService
             return destPath;
         }
 
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, latest.DownloadUrl);
-            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-            if (!response.IsSuccessStatusCode)
+try
             {
-                System.Console.Error.WriteLine($"Download failed with status {response.StatusCode}");
+                using var request = new HttpRequestMessage(HttpMethod.Get, latest.DownloadUrl);
+                using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    System.Console.Error.WriteLine($"Download failed with status {response.StatusCode}");
+                    return null;
+                }
+
+                var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+                var filePath = destPath + ".tmp";
+
+                await using var contentStream = await response.Content.ReadAsStreamAsync(ct);
+                await using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
+
+                var buffer = new byte[8192];
+                long totalRead = 0;
+                int bytesRead;
+
+                while ((bytesRead = await contentStream.ReadAsync(buffer, ct)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                    totalRead += bytesRead;
+
+                    if (totalBytes > 0)
+                    {
+                        var pct = (int)(totalRead * 100 / totalBytes);
+                        progress?.Report(pct);
+                    }
+                }
+
+                fileStream.Close();
+                contentStream.Close();
+
+                // Use Copy + Delete instead of Move (Move can fail across drives or with file locks)
+                File.Copy(filePath, destPath, true);
+                File.Delete(filePath);
+
+                _cachedDownloadPath = destPath;
+                System.Console.Error.WriteLine($"Download complete: {destPath} ({totalRead} bytes)");
+                return destPath;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                System.Console.Error.WriteLine($"Access denied writing to cache directory: {ex.Message}");
+                try { if (File.Exists(destPath + ".tmp")) File.Delete(destPath + ".tmp"); } catch { }
                 return null;
             }
-
-            var totalBytes = response.Content.Headers.ContentLength ?? -1L;
-            string filePath = destPath + ".tmp";
-
-            await using var contentStream = await response.Content.ReadAsStreamAsync(ct);
-            await using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
-
-            var buffer = new byte[8192];
-            long totalRead = 0;
-            int bytesRead;
-
-            while ((bytesRead = await contentStream.ReadAsync(buffer, ct)) > 0)
+            catch (IOException ex)
             {
-                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                totalRead += bytesRead;
-
-                if (totalBytes > 0)
-                {
-                    var pct = (int)(totalRead * 100 / totalBytes);
-                    progress?.Report(pct);
-                }
+                System.Console.Error.WriteLine($"IO error during download: {ex.Message}");
+                try { if (File.Exists(destPath + ".tmp")) File.Delete(destPath + ".tmp"); } catch { }
+                return null;
             }
-
-            if (File.Exists(destPath))
-                File.Delete(destPath);
-            File.Move(filePath, destPath);
-
-            _cachedDownloadPath = destPath;
-            System.Console.Error.WriteLine($"Download complete: {destPath} ({totalRead} bytes)");
-            return destPath;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            System.Console.Error.WriteLine($"Access denied writing to cache directory: {ex.Message}");
-            return null;
-        }
-        catch (IOException ex)
-        {
-            System.Console.Error.WriteLine($"IO error during download: {ex.Message}");
-            return null;
-        }
-        catch (Exception ex)
-        {
-            System.Console.Error.WriteLine($"Download failed: {ex.Message}");
-            try { if (File.Exists(destPath + ".tmp")) File.Delete(destPath + ".tmp"); } catch { }
-            return null;
-        }
+            catch (Exception ex)
+            {
+                System.Console.Error.WriteLine($"Download failed: {ex.Message}");
+                try { if (File.Exists(destPath + ".tmp")) File.Delete(destPath + ".tmp"); } catch { }
+                return null;
+            }
     }
 
     public string? GetCachedDownloadPath() => _cachedDownloadPath;
