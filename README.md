@@ -13,7 +13,7 @@ NVIDIA DLSS components live in multiple locations on your system. Two are manage
 | **NGX Release** | Active DLSS override used by games | Yes — by NVIDIA App |
 | **NGX Staging** | Driver-staged DLSS versions | Yes — by NVIDIA drivers |
 | **AnWave** | Global DLL injection override | Yes — auto-installed by this tool from [SimonMacer/AnWave](https://github.com/SimonMacer/AnWave) |
-| **Streamline SDK** | NVIDIA's SDK with the latest DLLs | No — [download from NVIDIA Developer](https://developer.nvidia.com/streamline-sdk) |
+| **Streamline SDK** | NVIDIA's SDK with the latest DLLs | Yes — auto-downloaded from NVIDIA-RTX/Streamline on GitHub |
 
 This tool also downloads the official **DLSS SDK** (`ngx_dlss_demo_windows.zip`) from [NVIDIA/DLSS](https://github.com/NVIDIA/DLSS) on GitHub automatically — no manual download needed.
 
@@ -165,7 +165,7 @@ Click **Setup AnWave** in the Advanced section. The app downloads nvidiaDlssGlom
 
 ### "Streamline SDK not found"
 
-The Streamline SDK is not installed by the NVIDIA driver — you must download it separately from [developer.nvidia.com/streamline-sdk](https://developer.nvidia.com/streamline-sdk). Place the extracted folder in your Downloads directory for auto-detection, or specify its path in Settings.
+The app automatically downloads the Streamline SDK from NVIDIA-RTX/Streamline on GitHub when needed. If you have a manual Streamline SDK installation, place the extracted folder in your Downloads directory for auto-detection, or specify its path in Settings.
 
 ### Download fails
 
