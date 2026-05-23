@@ -1,6 +1,7 @@
 namespace DLSSVersionToolkit.Core.Services;
 
 using System.IO;
+using DLSSVersionToolkit.Core.Models;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -91,6 +92,45 @@ public class AnWaveAutoService : IAnWaveAutoService
     {
         progress?.Report(0);
 
+        // Quick check: if InstallDir already has the main DLL, skip re-download
+        var existingDll = Path.Combine(InstallDir, "nvngx_dlss.dll");
+        if (File.Exists(existingDll))
+        {
+            _installedPath = InstallDir;
+            // Read actual version from the existing DLL
+            try
+            {
+                var vi = System.Diagnostics.FileVersionInfo.GetVersionInfo(existingDll);
+                _dllVersion = vi.FileVersion ?? vi.ProductVersion ?? "unknown";
+            }
+            catch
+            {
+                _dllVersion = _dllVersion ?? "unknown";
+            }
+            // Read glom version from any nvidiaDlssGlom*.exe in InstallDir
+            try
+            {
+                var glomExe = Directory.GetFiles(InstallDir, "nvidiaDlssGlom*.exe").FirstOrDefault();
+                if (glomExe != null)
+                {
+                    var vi = System.Diagnostics.FileVersionInfo.GetVersionInfo(glomExe);
+                    _glomVersion = vi.FileVersion ?? vi.ProductVersion ?? "cached";
+                }
+            }
+            catch
+            {
+                _glomVersion = _glomVersion ?? "cached";
+            }
+            progress?.Report(100);
+            return new AnWaveSetupResult
+            {
+                Success = true,
+                InstalledPath = InstallDir,
+                GlomVersion = _glomVersion ?? "cached",
+                DllVersion = _dllVersion ?? "unknown"
+            };
+        }
+
         // Step 1: Find and download latest nvidiaDlssGlom release
         progress?.Report(5);
         var glomUrl = await GetGlomDownloadUrl(ct);
@@ -103,10 +143,29 @@ public class AnWaveAutoService : IAnWaveAutoService
         var versionMatch = GlomVersionRegex.Match(glomUrl);
         _glomVersion = versionMatch.Success ? versionMatch.Groups[1].Value : "unknown";
 
-        // Create directories
-        if (!Directory.Exists(CacheDir)) Directory.CreateDirectory(CacheDir);
-        if (!Directory.Exists(InstallDir)) Directory.CreateDirectory(InstallDir);
+	// Pre-flight: network check (needed for GitHub API)
+	if (!OperationGuard.IsNetworkAvailable())
+	{
+		// No network — check if we have a cached glom to work with
+		if (!Directory.Exists(CacheDir) || Directory.GetFiles(CacheDir, "nvidiaDlssGlom*.rar").Length == 0)
+			return new AnWaveSetupResult { Success = false, ErrorMessage = "No internet connection and no cached nvidiaDlssGlom found." };
+	}
 
+	// Pre-flight: disk space check (need ~300 MB for glom + DLSS SDK)
+	if (!OperationGuard.HasDiskSpace(InstallDir, 300 * 1024 * 1024))
+		return new AnWaveSetupResult { Success = false, ErrorMessage = "Insufficient disk space for AnWave setup (need at least 300 MB)." };
+
+	// Pre-flight: ensure install directory is writable
+	if (Directory.Exists(InstallDir) && !OperationGuard.IsDirectoryWritable(InstallDir))
+		return new AnWaveSetupResult { Success = false, ErrorMessage = $"AnWave install directory is not writable: {InstallDir}" };
+
+	// Create directories
+	if (!Directory.Exists(CacheDir)) Directory.CreateDirectory(CacheDir);
+	if (!Directory.Exists(InstallDir)) Directory.CreateDirectory(InstallDir);
+
+	// Pre-flight: verify the install directory we just created is writable
+	if (!OperationGuard.IsDirectoryWritable(InstallDir))
+		return new AnWaveSetupResult { Success = false, ErrorMessage = $"Cannot write to AnWave install directory: {InstallDir}" };
         // Check if we already have this version cached
         var glomFileName = Path.GetFileName(glomUrl);
         var cachedGlomPath = Path.Combine(CacheDir, glomFileName);
@@ -151,15 +210,24 @@ progress?.Report(30);
                 entry.WriteToDirectory(tmpExtract, new ExtractionOptions { Overwrite = true });
             }
 
-            // Move extracted files to install dir
-            foreach (var file in Directory.GetFiles(tmpExtract))
-            {
-                var dest = Path.Combine(InstallDir, Path.GetFileName(file));
-                File.Copy(file, dest, true);
-            }
+		// Move extracted files to install dir
+		foreach (var file in Directory.GetFiles(tmpExtract))
+		{
+			var srcInfo = new FileInfo(file);
+			var dest = Path.Combine(InstallDir, Path.GetFileName(file));
+			File.Copy(file, dest, true);
 
-            // Clean up temp
-            try { Directory.Delete(tmpExtract, true); } catch { }
+			// Post-copy verification: check file size matches
+			if (!OperationGuard.VerifyFile(dest, srcInfo.Length))
+				System.Diagnostics.Debug.WriteLine($"ExtractGlomFromCache: post-copy verification failed for {dest}");
+		}
+
+		// Verify nvidiaDlssGlom.exe exists after extraction
+		var glomExe = Directory.GetFiles(InstallDir, "nvidiaDlssGlom*.exe").FirstOrDefault();
+		if (glomExe == null || !File.Exists(glomExe))
+			return new AnWaveSetupResult { Success = false, ErrorMessage = "nvidiaDlssGlom.exe not found after extraction." };
+
+		// Clean up temp
         }
         catch (Exception ex)
         {
@@ -171,10 +239,14 @@ progress?.Report(30);
         // Step 2: Download DLSS DLLs from NVIDIA GitHub
         var ngxZipPath = Path.Combine(InstallDir, "ngx_dlss_demo.zip");
 
-        // Download from NVIDIA/DLSS releases (latest)
-        var latestRelease = await GetLatestNvidiaReleaseAsync(ct);
-        if (string.IsNullOrEmpty(latestRelease))
-            return new AnWaveSetupResult { Success = false, ErrorMessage = "Could not fetch latest NVIDIA/DLSS release." };
+	// Network check before downloading DLSS DLLs from NVIDIA
+	if (!OperationGuard.IsNetworkAvailable())
+		return new AnWaveSetupResult { Success = false, ErrorMessage = "No internet connection — cannot download DLSS DLLs from NVIDIA." };
+
+	// Download from NVIDIA/DLSS releases (latest)
+	var latestRelease = await GetLatestNvidiaReleaseAsync(ct);
+	if (string.IsNullOrEmpty(latestRelease))
+		return new AnWaveSetupResult { Success = false, ErrorMessage = "Could not fetch latest NVIDIA/DLSS release." };
 
         _dllVersion = ExtractVersionFromUrl(latestRelease);
         var nvidiaDllUrl = latestRelease;
@@ -193,20 +265,33 @@ progress?.Report(30);
             Directory.CreateDirectory(tmpExtract);
             System.IO.Compression.ZipFile.ExtractToDirectory(ngxZipPath, tmpExtract, true);
 
-            // Copy nvngx DLLs + config to install dir
-            foreach (var dll in Directory.GetFiles(tmpExtract, "nvngx_*.dll"))
-            {
-                try { File.Copy(dll, Path.Combine(InstallDir, Path.GetFileName(dll)), true); } catch { }
-            }
-            var cfg = Directory.GetFiles(tmpExtract, "nvngx_package_config.txt").FirstOrDefault();
-            if (cfg != null)
-            {
-                try { File.Copy(cfg, Path.Combine(InstallDir, "nvngx_package_config.txt"), true); } catch { }
-            }
+		// Copy nvngx DLLs + config to install dir with verification
+		foreach (var dll in Directory.GetFiles(tmpExtract, "nvngx_*.dll"))
+		{
+			try
+			{
+				var srcSize = new FileInfo(dll).Length;
+				var dest = Path.Combine(InstallDir, Path.GetFileName(dll));
+				File.Copy(dll, dest, true);
 
-            // Clean up
-            try { Directory.Delete(tmpExtract, true); } catch { }
-            try { File.Delete(ngxZipPath); } catch { }
+				// Post-copy verification
+				if (!OperationGuard.VerifyFile(dest, srcSize))
+					System.Diagnostics.Debug.WriteLine($"ExtractGlomFromCache: DLL post-copy verification failed for {dest}");
+			}
+			catch (Exception ex_dll) { System.Diagnostics.Debug.WriteLine($"ExtractGlomFromCache: DLL copy failed: {ex_dll.Message}"); }
+		}
+		var cfg = Directory.GetFiles(tmpExtract, "nvngx_package_config.txt").FirstOrDefault();
+		if (cfg != null)
+		{
+			try { File.Copy(cfg, Path.Combine(InstallDir, "nvngx_package_config.txt"), true); } catch { }
+		}
+
+		// Verify the main DLL has a valid PE signature
+		var mainDll = Path.Combine(InstallDir, "nvngx_dlss.dll");
+		if (File.Exists(mainDll) && !OperationGuard.VerifyDllSignature(mainDll))
+			return new AnWaveSetupResult { Success = false, ErrorMessage = "Downloaded nvngx_dlss.dll failed PE signature verification." };
+
+		// Clean up
         }
         catch (Exception ex)
         {
@@ -258,24 +343,37 @@ progress?.Report(30);
 
         var result = new AnWaveAutoApplyResult();
 
-        // Auto-detect NGX path
-        if (string.IsNullOrEmpty(ngxBasePath))
+        // Collect NGX candidate paths (explicit path first, then default known paths)
+        var candidates = GetNgxCandidatePaths(ngxBasePath);
+
+        // Find the NGX Release version folder across all candidate paths
+        var ngxScanner = new NgxScanner(new NgxConfigParser());
+        List<DLSSVersionEntry>? releases = null;
+
+        foreach (var candidate in candidates)
         {
-            ngxBasePath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "NVIDIA", "NGX");
+            try
+            {
+                var found = ngxScanner.Scan(candidate).Where(e => e.Source == "NGX_Release").ToList();
+                if (found.Count > 0)
+                {
+                    releases = found;
+                    break;
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                System.Diagnostics.Debug.WriteLine($"AutoApplySync: access denied scanning NGX path: {candidate}");
+            }
         }
 
-        // Find the NGX Release version folder
-        var ngxScanner = new NgxScanner(new NgxConfigParser());
-        var releases = ngxScanner.Scan(ngxBasePath).Where(e => e.Source == "NGX_Release").ToList();
-        if (releases.Count == 0)
+        if (releases == null || releases.Count == 0)
         {
             result.ErrorMessage = "No NGX Release version found";
             return result;
         }
 
-        var latestRelease = releases.OrderByDescending(e => ParseVersion(e.DLSS)).First();
+        var latestRelease = releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
 
         progress?.Report(20);
 
@@ -292,14 +390,27 @@ progress?.Report(30);
         // Copy DLLs and config to the AnWave folder
         var dllsToCopy = new[] { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll" };
 
-        foreach (var dllName in dllsToCopy)
-        {
-            var srcDll = Directory.GetFiles(ngxFolder, dllName, SearchOption.AllDirectories).FirstOrDefault();
-            if (srcDll != null && File.Exists(srcDll))
-            {
-                var destPath = Path.Combine(anWavePath, dllName);
-                File.Copy(srcDll, destPath, true);
-                result.FilesCopied.Add(dllName);
+	foreach (var dllName in dllsToCopy)
+	{
+		var srcDll = Directory.GetFiles(ngxFolder, dllName, SearchOption.AllDirectories).FirstOrDefault();
+		if (srcDll != null && File.Exists(srcDll))
+		{
+			// Pre-copy: verify source DLL has valid PE signature
+			if (!OperationGuard.VerifyDllSignature(srcDll))
+			{
+				System.Diagnostics.Debug.WriteLine($"AutoApplySync: source DLL failed signature check: {srcDll}");
+				continue; // Skip this DLL rather than fail the whole operation
+			}
+
+			var srcSize = new FileInfo(srcDll).Length;
+			var destPath = Path.Combine(anWavePath, dllName);
+			File.Copy(srcDll, destPath, true);
+
+			// Post-copy verification: check file size matches
+			if (!OperationGuard.VerifyFile(destPath, srcSize))
+				System.Diagnostics.Debug.WriteLine($"AutoApplySync: post-copy verification failed for {destPath}");
+
+			result.FilesCopied.Add(dllName);
             }
         }
 
@@ -331,13 +442,43 @@ progress?.Report(30);
         return result;
     }
 
+    private static List<string> GetNgxCandidatePaths(string? ngxBasePath)
+    {
+        var candidates = new List<string>();
+
+        // 1. Explicitly configured path (settings or parameter)
+        if (!string.IsNullOrEmpty(ngxBasePath))
+            candidates.Add(ngxBasePath);
+
+        // 2. Default known paths, matching ScanService.ScanAllAsync behavior
+        var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        if (!string.IsNullOrEmpty(programData))
+        {
+            var programDataPath = Path.Combine(programData, "NVIDIA", "NGX");
+            if (!candidates.Contains(programDataPath, StringComparer.OrdinalIgnoreCase))
+                candidates.Add(programDataPath);
+        }
+
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (!string.IsNullOrEmpty(appData))
+        {
+            var appDataPath = Path.Combine(appData, "NVIDIA", "NGX");
+            if (!candidates.Contains(appDataPath, StringComparer.OrdinalIgnoreCase))
+                candidates.Add(appDataPath);
+        }
+
+        return candidates;
+    }
+
     private void WriteNgXConfig()
     {
-        var ngxDir = Path.GetDirectoryName(ConfigFilePath);
-        if (ngxDir != null && !Directory.Exists(ngxDir))
-            Directory.CreateDirectory(ngxDir);
+        try
+        {
+            var ngxDir = Path.GetDirectoryName(ConfigFilePath);
+            if (ngxDir != null && !Directory.Exists(ngxDir))
+                Directory.CreateDirectory(ngxDir);
 
-        var config = @"[dlss_override]
+            var config = @"[dlss_override]
 app_E658700_force = 1
 app_E658700 = 535
 
@@ -345,7 +486,14 @@ app_E658700 = 535
 app_E658703_force = 1
 app_E658703 = 535
 ";
-        File.WriteAllText(ConfigFilePath, config);
+            File.WriteAllText(ConfigFilePath, config);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                "Administrator access is required to activate the DLSS Override. " +
+                "Restart the app as Administrator and try again.");
+        }
     }
 
     private async Task<string?> GetLatestNvidiaReleaseAsync(CancellationToken ct)
@@ -384,13 +532,8 @@ app_E658703 = 535
 
     private static string? ExtractVersionFromUrl(string url)
     {
-        var match = Regex.Match(url, @"/releases/download/[^/]+/ngx_dlss_demo_windows\.zip", RegexOptions.IgnoreCase);
-        if (match.Success)
-        {
-            var tagMatch = Regex.Match(url, @"/releases/tag/v?([0-9.]+)");
-            if (tagMatch.Success) return tagMatch.Groups[1].Value;
-        }
-        return null;
+        var match = Regex.Match(url, @"/releases/(?:download|tag)/v?([0-9.]+)", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     private async Task<string?> GetGlomDownloadUrl(CancellationToken ct)
@@ -450,15 +593,18 @@ app_E658703 = 535
         catch { return false; }
     }
 
-    private static double ParseVersion(string version)
+    private static Version? TryParseVersion(string version)
     {
         try
         {
-            var parts = version.Split('.');
+            var cleaned = System.Text.RegularExpressions.Regex.Replace(version, "[a-zA-Z]", "");
+            var parts = cleaned.Split('.');
             var major = int.TryParse(parts.ElementAtOrDefault(0), out var m) ? m : 0;
             var minor = int.TryParse(parts.ElementAtOrDefault(1), out var n) ? n : 0;
-            return major * 1000 + minor;
+            var build = int.TryParse(parts.ElementAtOrDefault(2), out var b) ? b : 0;
+            var rev = int.TryParse(parts.ElementAtOrDefault(3), out var r) ? r : 0;
+            return new Version(major, minor, build, rev);
         }
-        catch { return 0; }
+        catch { return null; }
     }
 }
