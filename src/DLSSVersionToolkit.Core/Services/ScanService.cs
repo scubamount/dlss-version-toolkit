@@ -2,9 +2,12 @@ namespace DLSSVersionToolkit.Core.Services;
 
 using DLSSVersionToolkit.Core.Models;
 
+using System.Diagnostics;
 public interface IScanService
 {
-    Task<ScanResult> ScanAllAsync(string? ngxBasePath = null, string? anWavePath = null, string? streamlinePath = null);
+	Task<ScanResult> ScanAllAsync(string? ngxBasePath = null, string? anWavePath = null, string? streamlinePath = null);
+	/// <summary>Verifies that a DLL file has a valid MZ/PE header signature.</summary>
+	bool VerifyDllIntegrity(string dllPath);
 }
 
 public class ScanService : IScanService
@@ -36,55 +39,97 @@ public class ScanService : IScanService
 
         var settings = await _settingsService.LoadAsync();
 
-        var ngxPath = ngxBasePath ?? settings.NgxBasePath;
-        var globalPath = string.IsNullOrEmpty(anWavePath) ? settings.AnWavePath : anWavePath;
-        var slPath = string.IsNullOrEmpty(streamlinePath) ? settings.StreamlinePath : streamlinePath;
+        var explicitNgxPath = ngxBasePath ?? settings.NgxBasePath;
+	var globalPath = string.IsNullOrEmpty(anWavePath) ? settings.AnWavePath : anWavePath;
+	var slPath = string.IsNullOrEmpty(streamlinePath) ? settings.StreamlinePath : streamlinePath;
 
-        // Auto-detect NGX base path if not configured
-        if (string.IsNullOrEmpty(ngxPath))
-        {
-            ngxPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "NVIDIA", "NGX");
-        }
+	// If configured paths don't exist on disk, clear them so auto-detect can find real paths
+	if (!string.IsNullOrEmpty(globalPath) && !Directory.Exists(globalPath))
+		globalPath = null;
+	if (!string.IsNullOrEmpty(slPath) && !Directory.Exists(slPath))
+		slPath = null;
 
-        // Auto-detect AnWave and Streamline paths if empty
-        if (string.IsNullOrEmpty(globalPath))
-        {
-            globalPath = FindAnWaveInDownloads();
-        }
-        if (string.IsNullOrEmpty(slPath))
-        {
-            slPath = _streamlineScanner.AutoDetectInDownloads();
-        }
+        // Collect all NGX base paths to scan
+        var ngxCandidates = new List<string>();
 
-        // Scan NGX
-        var ngxEntries = _ngxScanner.Scan(ngxPath);
-        if (ngxEntries.Count == 0)
-        {
-            result.Warnings.Add("No NGX versions found");
-        }
-        result.Sources.AddRange(ngxEntries);
+        // 1. Explicitly configured path (settings or parameter)
+        if (!string.IsNullOrEmpty(explicitNgxPath))
+            ngxCandidates.Add(explicitNgxPath);
 
-        // Scan AnWave
-        if (!string.IsNullOrEmpty(globalPath))
+        // 2. Default known paths
+        var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+        if (!string.IsNullOrEmpty(programData))
         {
-            var globalEntry = _globalScanner.Scan(globalPath);
-            if (globalEntry != null)
-                result.Sources.Add(globalEntry);
-            else
-                result.Warnings.Add("AnWave/dlssglom not found or has no valid DLLs");
+            var programDataPath = Path.Combine(programData, "NVIDIA", "NGX");
+            if (!ngxCandidates.Contains(programDataPath, StringComparer.OrdinalIgnoreCase))
+                ngxCandidates.Add(programDataPath);
+        }
+        if (!string.IsNullOrEmpty(appData))
+        {
+            var appDataPath = Path.Combine(appData, "NVIDIA", "NGX");
+            if (!ngxCandidates.Contains(appDataPath, StringComparer.OrdinalIgnoreCase))
+                ngxCandidates.Add(appDataPath);
         }
 
-        // Scan Streamline SDK
-        if (!string.IsNullOrEmpty(slPath))
+        result.NgxPathsChecked = ngxCandidates;
+
+        // Scan each NGX path — deduplicate by source name (first found wins)
+        foreach (var path in ngxCandidates)
         {
-            var slEntry = _streamlineScanner.Scan(slPath);
-            if (slEntry != null)
-                result.Sources.Add(slEntry);
-            else
-                result.Warnings.Add("Streamline SDK not found at specified path");
+            var entries = _ngxScanner.Scan(path);
+            foreach (var entry in entries)
+            {
+                if (!result.Sources.Any(s => s.Source == entry.Source))
+                    result.Sources.Add(entry);
+            }
         }
+
+        if (result.Sources.Count == 0)
+        {
+            result.Warnings.Add("No NGX versions found at any known path");
+        }
+
+	// Auto-detect AnWave path if not configured
+	if (string.IsNullOrEmpty(globalPath))
+	{
+		var anWaveAppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+		if (!string.IsNullOrEmpty(anWaveAppData))
+		{
+			var defaultAnWave = Path.Combine(anWaveAppData, "DLSSVersionToolkit", "AnWave");
+			if (Directory.Exists(defaultAnWave))
+				globalPath = defaultAnWave;
+		}
+	}
+
+	// Scan AnWave
+	if (!string.IsNullOrEmpty(globalPath))
+	{
+		var globalEntry = _globalScanner.Scan(globalPath);
+		if (globalEntry != null)
+			result.Sources.Add(globalEntry);
+		else
+			result.Warnings.Add("AnWave/dlssglom not found or has no valid DLLs");
+	}
+
+	// Auto-detect Streamline SDK path if not configured
+	if (string.IsNullOrEmpty(slPath))
+	{
+		var detected = _streamlineScanner.AutoDetectInDownloads();
+		if (!string.IsNullOrEmpty(detected))
+			slPath = detected;
+	}
+
+	// Scan Streamline SDK
+	if (!string.IsNullOrEmpty(slPath))
+	{
+		var slEntry = _streamlineScanner.Scan(slPath);
+		if (slEntry != null)
+			result.Sources.Add(slEntry);
+		else
+			result.Warnings.Add("Streamline SDK not found at specified path");
+	}
 
         // Mark newest versions
         _versionComparer.MarkNewest(result);
@@ -101,6 +146,7 @@ public class ScanService : IScanService
     private static string? FindAnWaveInDownloads()
     {
         var downloads = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(downloads)) return null;
         var downloadsPath = Path.Combine(downloads, "Downloads");
 
         if (!Directory.Exists(downloadsPath))
@@ -121,8 +167,19 @@ public class ScanService : IScanService
                     return candidate;
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"FindAnWaveInDownloads: error scanning downloads directory: {ex.Message}");
+        }
 
         return null;
     }
+	/// <summary>
+	/// Verifies that a DLL file has a valid MZ/PE header signature.
+	/// Delegates to OperationGuard.VerifyDllSignature.
+	/// </summary>
+	public bool VerifyDllIntegrity(string dllPath)
+	{
+		return OperationGuard.VerifyDllSignature(dllPath);
+	}
 }

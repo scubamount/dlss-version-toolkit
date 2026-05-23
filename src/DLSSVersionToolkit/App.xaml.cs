@@ -51,9 +51,10 @@ public partial class App : Application
         var exportService = new ExportService();
         var dlssDownloadService = new DlssDownloadService();
         var streamlineDownloadService = new StreamlineDownloadService();
+        var dlssIndicatorService = new DlssIndicatorService();
         var anWaveAutoService = new AnWaveAutoService();
 
-        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService);
+        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService);
 
         SetupTrayIcon();
 
@@ -120,7 +121,11 @@ public partial class App : Application
 
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        _settingsService ??= new SettingsService();
+        if (_settingsService == null)
+        {
+            ExitApplication();
+            return;
+        }
         var settings = _settingsService.GetCached();
 
         if (settings.MinimizeToTray)

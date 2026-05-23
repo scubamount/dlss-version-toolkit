@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DLSSVersionToolkit.Core.Models;
 using DLSSVersionToolkit.Core.Services;
+using System.Diagnostics;
 
 namespace DLSSVersionToolkit.ViewModels;
 
@@ -19,7 +20,9 @@ public partial class MainViewModel : ObservableObject
     private readonly IDlssDownloadService _dlssDownloadService;
     private readonly IStreamlineDownloadService _streamlineDownloadService;
     private readonly IAnWaveAutoService _anWaveAutoService;
+    private readonly IDlssIndicatorService _dlssIndicatorService;
     private ScanResult? _lastScanResult;
+    private bool _shownNgxNotFoundDialog;
 
     [ObservableProperty]
     private ObservableCollection<DLSSVersionEntry> _versions = new();
@@ -88,6 +91,11 @@ public partial class MainViewModel : ObservableObject
     private bool _hasCachedStreamline;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DlssIndicatorStatus))]
+    private bool _isDlssIndicatorEnabled;
+
+    public string DlssIndicatorStatus => $"DLSS Indicator: {(IsDlssIndicatorEnabled ? "On" : "Off")}";
+    [ObservableProperty]
     private string _currentDlssVersion = "—";
 
     [ObservableProperty]
@@ -98,7 +106,6 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _updateAvailable;
-
     public MainViewModel(
         IScanService scanService,
         IUpgradeService upgradeService,
@@ -107,7 +114,8 @@ public partial class MainViewModel : ObservableObject
         IBackupService backupService,
         IDlssDownloadService dlssDownloadService,
         IStreamlineDownloadService streamlineDownloadService,
-        IAnWaveAutoService anWaveAutoService)
+        IAnWaveAutoService anWaveAutoService,
+        IDlssIndicatorService dlssIndicatorService)
     {
         _scanService = scanService;
         _upgradeService = upgradeService;
@@ -117,6 +125,25 @@ public partial class MainViewModel : ObservableObject
         _dlssDownloadService = dlssDownloadService;
         _streamlineDownloadService = streamlineDownloadService;
         _anWaveAutoService = anWaveAutoService;
+        _dlssIndicatorService = dlssIndicatorService;
+        IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
+    }
+
+    [RelayCommand]
+    private void ToggleDlssIndicator()
+    {
+        try
+        {
+            var newState = !IsDlssIndicatorEnabled;
+            _dlssIndicatorService.SetEnabled(newState);
+            IsDlssIndicatorEnabled = newState;
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(
+                ex.Message,
+                "DLSS Version Toolkit", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+        }
     }
 
     [RelayCommand]
@@ -129,34 +156,73 @@ public partial class MainViewModel : ObservableObject
         StatusMessage = "";
         DownloadStatus = "";
 
-        try
-        {
-            // Step 1: Download latest DLSS SDK from NVIDIA if not cached
-            var releases = await _dlssDownloadService.GetAvailableReleasesAsync();
-            var latest = releases.FirstOrDefault();
-            var needsDownload = latest != null &&
-                _dlssDownloadService.GetCachedDownloadPath() == null;
+	try
+	{
+		// Pre-flight: network check
+		DownloadStatus = "Checking network...";
+		if (!OperationGuard.IsNetworkAvailable())
+		{
+			// No network — check if we have a cached SDK to fall back to
+			var cachedPath = _dlssDownloadService.GetCachedDownloadPath();
+			if (string.IsNullOrEmpty(cachedPath) || !File.Exists(cachedPath))
+			{
+				MessageBox.Show(
+					"No internet connection detected and no cached DLSS SDK exists.\n\n" +
+					"What to do: Connect to the internet and try again, or use 'Sync from DLSS SDK' with a previously downloaded zip.",
+					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+				return;
+			}
+		}
 
-            var sdkVersion = latest?.Version ?? "unknown";
+		// Pre-flight: disk space check (need ~500 MB for download + extract)
+		var ngxBase = Path.Combine(
+			Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+			"NVIDIA", "NGX");
+		var appDataBase = Path.Combine(
+			Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+			"DLSSVersionToolkit");
 
-            if (needsDownload)
+		if (!OperationGuard.HasDiskSpace(appDataBase, 500 * 1024 * 1024))
+		{
+			MessageBox.Show(
+			"Insufficient disk space for the update operation." + Environment.NewLine +
+			"At least 500 MB free space is required in the DLSSVersionToolkit data directory." + Environment.NewLine + Environment.NewLine +
+			"What to do: Free up disk space and try again.",
+				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+			return;
+		}
+
+		if (Directory.Exists(ngxBase) && !OperationGuard.IsDirectoryWritable(ngxBase))
+		{
+			MessageBox.Show(
+				"The NGX directory is not writable. Administrator access may be required.\n\n" +
+				$"Path: {ngxBase}\n\n" +
+				"What to do: Restart the app as Administrator and try again.",
+				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+			return;
+		}
+
+		// Step 1: Download latest DLSS SDK from NVIDIA (skips if already cached)
+		DownloadStatus = "Checking for latest DLSS SDK...";
+		var downloadPath = await _dlssDownloadService.DownloadLatestAsync(null);
+
+            if (downloadPath == null)
             {
-                DownloadStatus = "Downloading DLSS SDK v" + latest.Version + "...";
-                var progress = new Progress<int>(pct => DownloadStatus = $"Downloading DLSS SDK... {pct}%");
-                var path = await _dlssDownloadService.DownloadLatestAsync(progress);
-                if (path == null)
+                var cachedPath = _dlssDownloadService.GetCachedDownloadPath();
+                if (cachedPath == null || !File.Exists(cachedPath))
                 {
                     MessageBox.Show(
-                        "Failed to download the latest DLSS SDK.\n\n" +
+                        "Could not download the latest DLSS SDK and no cached version exists.\n\n" +
                         "What happened: The download from NVIDIA/DLSS on GitHub could not be completed.\n" +
-                        "What to do: Check your internet connection and try again. If the problem persists, the GitHub API rate limit may have been reached — wait a few minutes.",
+                        "What to do: Check your internet connection and try again.",
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
-                CachedSdkVersion = _dlssDownloadService.GetCachedSdkVersion() ?? "";
-                sdkVersion = CachedSdkVersion;
-                HasCachedSdk = true;
             }
+
+            var sdkVersion = _dlssDownloadService.GetCachedSdkVersion() ?? "unknown";
+            CachedSdkVersion = sdkVersion;
+            HasCachedSdk = true;
 
             DownloadStatus = "Applying to NGX Release...";
 
@@ -186,52 +252,148 @@ public partial class MainViewModel : ObservableObject
 
             DownloadStatus = "Applying to AnWave...";
 
-            // Step 3: Apply to AnWave if installed (check all sources)
-            var anWaveTarget = !string.IsNullOrEmpty(AnWaveInstalledPath) ? AnWaveInstalledPath
-                : !string.IsNullOrEmpty(settings.AnWavePath) ? settings.AnWavePath
-                : !string.IsNullOrEmpty(AnWaveDetectedPath) ? AnWaveDetectedPath : null;
+            // Step 3: Apply to AnWave if installed (check all sources, including service instance)
+            var anWaveTarget = !string.IsNullOrEmpty(settings.AnWavePath) ? settings.AnWavePath
+                : !string.IsNullOrEmpty(AnWaveInstalledPath) ? AnWaveInstalledPath
+                : !string.IsNullOrEmpty(AnWaveDetectedPath) ? AnWaveDetectedPath
+                : _anWaveAutoService.GetInstalledPath();
+
+            // Ultimate fallback: directly check known install directory on disk
+            if (string.IsNullOrEmpty(anWaveTarget) || !Directory.Exists(anWaveTarget))
+            {
+                var knownDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "DLSSVersionToolkit", "AnWave");
+                if (Directory.Exists(knownDir))
+                    anWaveTarget = knownDir;
+            }
 
             if (!string.IsNullOrEmpty(anWaveTarget) && Directory.Exists(anWaveTarget))
             {
-                var anWaveOp = await _anWaveAutoService.AutoApplyAsync(AnWaveInstalledPath, settings.NgxBasePath, null);
+                var anWaveOp = await _anWaveAutoService.AutoApplyAsync(anWaveTarget, settings.NgxBasePath, null);
                 if (!anWaveOp.Success)
                 {
-                    var ngxFiles = string.Join("\n  • ", ngxOp.FilesCopied);
+                    var ngxFiles = ngxOp.FilesCopied.Count > 0
+                        ? string.Join("\n  • ", ngxOp.FilesCopied)
+                        : "  (no files needed copying)";
                     MessageBox.Show(
                         $"Partial update — NGX succeeded but AnWave failed.\n\n" +
                         $"✅ NGX Release: v{sdkVersion} applied ({ngxOp.FilesCopied.Count} files)\n" +
                         $"  {ngxFiles}\n\n" +
                         $"❌ AnWave: {anWaveOp.ErrorMessage}\n\n" +
-                        "What to do: NGX is updated. To fix AnWave, try 'Apply to AnWave' separately or re-run 'Setup AnWave'.",
+                        "What to do: NGX is updated. Run 'Update All' again or re-run 'Setup AnWave' to fix AnWave.",
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
                 else
                 {
-                    var ngxFiles = string.Join("\n  • ", ngxOp.FilesCopied);
+                    var ngxStatus = ngxOp.FilesCopied.Count > 0
+                        ? $"v{sdkVersion} updated ({ngxOp.FilesCopied.Count} files)"
+                        : "already up to date";
+                    var ngxDetail = ngxOp.FilesCopied.Count > 0
+                        ? string.Join("\n  • ", ngxOp.FilesCopied)
+                        : "  (no files needed)";
                     var anWaveFiles = string.Join("\n  • ", anWaveOp.FilesCopied);
                     var appliedVer = anWaveOp.AppliedVersion ?? sdkVersion;
                     MessageBox.Show(
-                        $"All updated successfully!\n\n" +
-                        $"✅ NGX Release: v{sdkVersion} applied ({ngxOp.FilesCopied.Count} files)\n" +
-                        $"  {ngxFiles}\n\n" +
+                        $"All done!\n\n" +
+                        $"✅ NGX Release: {ngxStatus}\n" +
+                        $"  {ngxDetail}\n\n" +
                         $"✅ AnWave: v{appliedVer} applied ({anWaveOp.FilesCopied.Count} files)\n" +
                         $"  {anWaveFiles}\n\n" +
                         "DLSS Override is now globally active.\n" +
                         "Games using DLSS will use v" + appliedVer + ".",
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
             }
-            else
-            {
-                var ngxFiles = string.Join("\n  • ", ngxOp.FilesCopied);
-                MessageBox.Show(
-                    $"NGX Release updated to v{sdkVersion}.\n\n" +
-                    $"Files copied ({ngxOp.FilesCopied.Count}):\n" +
-                    $"  {ngxFiles}\n\n" +
-                    "AnWave is not installed — the global DLSS Override is not active.\n\n" +
-                    "What to do next: Click 'Setup AnWave' to complete the workflow and activate the global override for all games.",
-                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
             }
+		else
+		{
+			// AnWave not detected — auto-setup then apply
+			DownloadStatus = "Setting up AnWave...";
+
+			var setupProgress = new Progress<int>(pct =>
+			{
+				if (pct < 30) DownloadStatus = $"Downloading nvidiaDlssGlom... {pct}%";
+				else if (pct < 70) DownloadStatus = $"Downloading DLSS DLLs... {pct}%";
+				else DownloadStatus = $"Activating override... {pct}%";
+			});
+
+			var setupResult = await _anWaveAutoService.SetupAnWaveAsync(setupProgress);
+
+			if (setupResult.Success)
+			{
+				IsAnWaveInstalled = true;
+				AnWaveInstalledPath = setupResult.InstalledPath ?? "";
+				AnWaveGlomVersion = setupResult.GlomVersion ?? "";
+				AnWaveDllVersion = setupResult.DllVersion ?? "";
+				AnWaveDetectedPath = setupResult.InstalledPath ?? "";
+		IsAnWaveDetected = true;
+
+		// Persist AnWave path to settings so subsequent scans find it
+		try
+		{
+			var currentSettings = await _settingsService.LoadAsync();
+			if (string.IsNullOrEmpty(currentSettings.AnWavePath) && !string.IsNullOrEmpty(setupResult.InstalledPath))
+			{
+				currentSettings.AnWavePath = setupResult.InstalledPath;
+				await _settingsService.SaveAsync(currentSettings);
+			}
+		}
+		catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Failed to save AnWave path to settings: {ex.Message}"); }
+				// Re-resolve AnWave path after setup
+				anWaveTarget = setupResult.InstalledPath;
+
+				// Apply NGX DLLs to AnWave folder
+				var anWaveOp = await _anWaveAutoService.AutoApplyAsync(anWaveTarget!, settings.NgxBasePath, null);
+
+				var ngxFiles = ngxOp.FilesCopied.Count > 0
+					? string.Join("\n • ", ngxOp.FilesCopied)
+					: " (no files needed)";
+				var ngxStatus = ngxOp.FilesCopied.Count > 0
+					? $"v{sdkVersion} updated ({ngxOp.FilesCopied.Count} files)"
+					: "already up to date";
+
+				if (!anWaveOp.Success)
+				{
+					MessageBox.Show(
+						$"Partial update — NGX succeeded but AnWave apply failed after setup.\n\n" +
+						$"✅ NGX Release: {ngxStatus}\n" +
+						$" {ngxFiles}\n\n" +
+						$"❌ AnWave apply: {anWaveOp.ErrorMessage}\n\n" +
+						"What to do: NGX is updated. Run 'Update All' again or re-run 'Setup AnWave' to fix AnWave.",
+						"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+				}
+				else
+				{
+					var anWaveFiles = string.Join("\n • ", anWaveOp.FilesCopied);
+					var appliedVer = anWaveOp.AppliedVersion ?? sdkVersion;
+					MessageBox.Show(
+						$"All done!\n\n" +
+						$"✅ NGX Release: {ngxStatus}\n" +
+						$" {ngxFiles}\n\n" +
+						$"✅ AnWave setup + apply: v{appliedVer} ({anWaveOp.FilesCopied.Count} files)\n" +
+						$" {anWaveFiles}\n\n" +
+						"DLSS Override is now globally active.\n" +
+						"Games using DLSS will use v" + appliedVer + ".",
+						"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+				}
+			}
+			else
+			{
+				var ngxFiles = ngxOp.FilesCopied.Count > 0
+					? string.Join("\n • ", ngxOp.FilesCopied)
+					: " (already up to date)";
+				var versionStatus = ngxOp.FilesCopied.Count > 0
+					? $"NGX Release updated to v{sdkVersion}."
+					: $"NGX Release already at v{sdkVersion}.";
+				MessageBox.Show(
+					$"{versionStatus}\n\n" +
+					$"Files copied ({ngxOp.FilesCopied.Count}):\n" +
+					$" {ngxFiles}\n\n" +
+					$"❌ AnWave auto-setup failed: {setupResult.ErrorMessage}\n\n" +
+					"What to do: NGX is updated. Try 'Setup AnWave' separately from the Advanced menu.",
+					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+			}
+		}
 
             await ScanAsync();
         }
@@ -279,6 +441,25 @@ public partial class MainViewModel : ObservableObject
             else
             {
                 CurrentDlssVersion = "Not installed";
+            }
+
+            // Show dialog once when NGX versions were not found at any checked path
+            var hasNgxSources = result.Sources.Any(s => s.Source?.StartsWith("NGX_") == true);
+            if (!hasNgxSources && result.NgxPathsChecked.Count > 0 && !_shownNgxNotFoundDialog)
+            {
+                _shownNgxNotFoundDialog = true;
+                var paths = string.Join("\n  • ", result.NgxPathsChecked);
+                System.Windows.MessageBox.Show(
+                    $"NGX versions were not found at any known location.\n\n" +
+                    $"Paths checked:\n  • {paths}\n\n" +
+                    "This usually means:\n" +
+                    "  • DLSS Override is not yet enabled in the NVIDIA App\n" +
+                    "  • Or the NGX directory was moved or deleted\n\n" +
+                    "What to do:\n" +
+                    "  1. Open the NVIDIA App and enable DLSS Override for at least one game\n" +
+                    "  2. Then click Scan again\n" +
+                    "  Or set a custom NGX path in Settings if yours is in a non-default location",
+                    "DLSS Version Toolkit", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
             }
 
             // Check available version from cached download
@@ -385,7 +566,7 @@ public partial class MainViewModel : ObservableObject
                         $"Files copied ({operation.FilesCopied.Count}):\n" +
                         $"  {files}\n\n" +
                         $"Backup saved to:\n  {operation.BackupPath}\n\n" +
-                        "What to do next: Your NGX Release is now updated. If you use AnWave, click 'Apply to AnWave' to keep it in sync.",
+                        "What to do next: Your NGX Release is now updated. If you use AnWave, run 'Update All' to keep it in sync.",
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
                     break;
                 case OperationStatus.Failed:
@@ -488,7 +669,7 @@ public partial class MainViewModel : ObservableObject
                     $"Streamline SDK v{CachedStreamlineVersion} downloaded and synced to NGX Release.\n\n" +
                     $"Files copied ({op.FilesCopied.Count}):\n" +
                     $" {files}\n\n" +
-                    "What to do next: If you use AnWave, click 'Apply to AnWave' to keep it in sync.",
+                        "What to do next: If you use AnWave, run 'Update All' to keep it in sync.",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
                 await ScanAsync();
             }
@@ -600,7 +781,7 @@ public partial class MainViewModel : ObservableObject
                         $"Files copied ({operation.FilesCopied.Count}):\n" +
                         $"  {files}\n\n" +
                         $"Backup saved to:\n  {operation.BackupPath}\n\n" +
-                        "What to do next: If you use AnWave, click 'Apply to AnWave' to keep it in sync.",
+                        "What to do next: If you use AnWave, run 'Update All' to keep it in sync.",
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
                     break;
                 case OperationStatus.Failed:
@@ -698,7 +879,7 @@ public partial class MainViewModel : ObservableObject
                         $"Files copied ({operation.FilesCopied.Count}):\n" +
                         $"  {files}\n\n" +
                         $"Backup saved to:\n  {operation.BackupPath}\n\n" +
-                        "What to do next: If you use AnWave, click 'Apply to AnWave' to keep it in sync.",
+                        "What to do next: If you use AnWave, run 'Update All' to keep it in sync.",
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
                     await ScanAsync();
                     break;
@@ -938,95 +1119,6 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task ApplyToAnWaveAsync()
-    {
-        if (IsScanning) return;
-
-        var settings = await _settingsService.LoadAsync();
-        var anWavePath = !string.IsNullOrEmpty(settings.AnWavePath) ? settings.AnWavePath
-            : !string.IsNullOrEmpty(AnWaveInstalledPath) ? AnWaveInstalledPath
-            : AnWaveDetectedPath;
-
-        if (string.IsNullOrEmpty(anWavePath))
-        {
-            MessageBox.Show(
-                "AnWave is not installed — no path found.\n\n" +
-                "What to do: Click 'Setup AnWave' to automatically download and configure nvidiaDlssGlom with the latest DLSS DLLs.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        if (!Directory.Exists(anWavePath))
-        {
-            MessageBox.Show(
-                "AnWave path does not exist — the folder may have been moved or deleted.\n\n" +
-                $"Path: {anWavePath}\n\n" +
-                "What to do: Click 'Setup AnWave' to re-download and install it.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var ngxRelease = _lastScanResult?.Sources.FirstOrDefault(s => s.Source == "NGX_Release");
-        var ngxVer = ngxRelease?.DLSS ?? "unknown";
-
-        var result = MessageBox.Show(
-            $"Apply NGX Release DLSS (v{ngxVer}) to AnWave?\n\n" +
-            $"Target: {anWavePath}\n\n" +
-            "This will copy the latest NGX Release DLLs to the AnWave folder.",
-            "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (result != MessageBoxResult.Yes) return;
-
-        IsScanning = true;
-        ScanStatus = "Applying...";
-        StatusMessage = "";
-
-        try
-        {
-            var operation = _upgradeService.ApplyToAnWave(anWavePath, settings.NgxBasePath);
-
-            switch (operation.Status)
-            {
-                case OperationStatus.Completed:
-                    var files = string.Join("\n  • ", operation.FilesCopied);
-                    MessageBox.Show(
-                        $"DLSS v{ngxVer} applied to AnWave.\n\n" +
-                        $"Files copied ({operation.FilesCopied.Count}):\n" +
-                        $"  {files}\n\n" +
-                        "What to do next: The global DLSS Override should now be active. Launch a DLSS-enabled game to verify.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
-                    await ScanAsync();
-                    break;
-                case OperationStatus.Failed:
-                    MessageBox.Show(
-                        $"Failed to apply DLSS to AnWave.\n\n" +
-                        $"Error: {operation.ErrorMessage}\n\n" +
-                        "What to do: Check the error above. Ensure the NGX Release folder contains valid DLLs and the AnWave folder is writable.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-                    break;
-                default:
-                    MessageBox.Show(
-                        $"Unexpected status: {operation.Status}\n\n" +
-                        $"{operation.ErrorMessage}\n\n" +
-                        "What to do: Try scanning and applying again.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    break;
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                $"Error applying to AnWave: {ex.Message}\n\n" +
-                "What to do: Check the error above. If it's a file access issue, ensure no other programs are using the AnWave directory.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            IsScanning = false;
-            ScanStatus = "Ready";
-        }
-    }
-
-    [RelayCommand]
     private async Task SyncDlssSdkToBothAsync()
     {
         if (!HasCachedSdk)
@@ -1119,7 +1211,7 @@ public partial class MainViewModel : ObservableObject
                         $"✅ Step 1 — NGX Release: v{CachedSdkVersion} applied ({ngxxOperation.FilesCopied.Count} files)\n" +
                         $"  {ngxFiles}\n\n" +
                         $"❌ Step 2 — AnWave: {anWaveOp.ErrorMessage}\n\n" +
-                        "What to do: NGX is updated. Try 'Apply to AnWave' separately or re-run 'Setup AnWave'.",
+                        "What to do: NGX is updated. Run 'Update All' to re-apply or re-run 'Setup AnWave'.",
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
@@ -1173,7 +1265,10 @@ public partial class MainViewModel : ObservableObject
                 if (File.Exists(exePath)) return candidate;
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"FindAnWaveInDownloads: error: {ex.Message}");
+        }
 
         return null;
     }
@@ -1239,81 +1334,6 @@ public partial class MainViewModel : ObservableObject
             IsSettingUpAnWave = false;
             ScanStatus = "Ready";
             DownloadStatus = "";
-        }
-    }
-
-    [RelayCommand]
-    private async Task AutoApplyToAnWaveAsync()
-    {
-        if (IsScanning || IsSettingUpAnWave) return;
-
-        var targetPath = AnWaveInstalledPath;
-        if (string.IsNullOrEmpty(targetPath) || !Directory.Exists(targetPath))
-        {
-            MessageBox.Show(
-                "AnWave is not installed yet.\n\n" +
-                "What to do: Click 'Setup AnWave' first to download and configure nvidiaDlssGlom with the latest DLSS DLLs.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var ngxRelease = _lastScanResult?.Sources.FirstOrDefault(s => s.Source == "NGX_Release");
-        var ngxVer = ngxRelease?.DLSS ?? "unknown";
-
-        var result = MessageBox.Show(
-            $"Apply NGX Release DLSS (v{ngxVer}) to AnWave?\n\n" +
-            $"Target: {targetPath}\n\n" +
-            "This will copy the latest NGX Release DLSS DLLs to AnWave\n" +
-            "and activate the global override.",
-            "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (result != MessageBoxResult.Yes) return;
-
-        IsScanning = true;
-        ScanStatus = "Applying to AnWave...";
-        DownloadStatus = "";
-
-        try
-        {
-            var settings = await _settingsService.LoadAsync();
-            var progress = new Progress<int>(pct => DownloadStatus = $"Applying... {pct}%");
-            var applyResult = await _anWaveAutoService.AutoApplyAsync(targetPath, settings.NgxBasePath, progress);
-
-            if (applyResult.Success)
-            {
-                AnWaveDllVersion = applyResult.AppliedVersion ?? AnWaveDllVersion;
-                var appliedVer = applyResult.AppliedVersion ?? "unknown";
-                var files = string.Join("\n  • ", applyResult.FilesCopied);
-                MessageBox.Show(
-                    $"DLSS v{appliedVer} applied to AnWave!\n\n" +
-                    $"Files copied ({applyResult.FilesCopied.Count}):\n" +
-                    $"  {files}\n\n" +
-                    $"Config written: {(applyResult.ConfigWritten ? "Yes" : "No")}\n\n" +
-                    "Global DLSS Override is now active.\n" +
-                    "Games using DLSS should now use v" + appliedVer + ".\n\n" +
-                    "What to do next: Launch a DLSS-enabled game to verify the override is working.",
-                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
-                await ScanAsync();
-            }
-            else
-            {
-                MessageBox.Show(
-                    $"Failed to apply DLSS to AnWave.\n\n" +
-                    $"Error: {applyResult.ErrorMessage}\n\n" +
-                    "What to do: Check the error above. Ensure the NGX Release folder contains valid DLLs and the AnWave folder is writable.",
-                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                $"Error applying to AnWave: {ex.Message}\n\n" +
-                "What to do: Check the error above. If it's a file access issue, ensure no other programs are using the AnWave directory.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            IsScanning = false;
-            ScanStatus = "Ready";
         }
     }
 }

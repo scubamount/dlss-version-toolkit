@@ -115,15 +115,25 @@
                 <!-- Advanced dropdown -->
                 <Menu Grid.Column="3" Background="Transparent" VerticalAlignment="Center" HorizontalAlignment="Left">
                     <MenuItem Header="Advanced ▾" Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextSecondaryBrush}" Padding="12,6" FontSize="11">
-                <MenuItem Header="Sync From Streamline SDK" Command="{Binding SyncFromStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                <MenuItem Header="Sync From AnWave" Command="{Binding SyncFromAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                <MenuItem Header="Download DLSS SDK" Command="{Binding DownloadLatestCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                <MenuItem Header="Download Streamline SDK" Command="{Binding DownloadStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <!-- Download SDKs submenu -->
+                        <MenuItem Header="Download SDKs" Foreground="{StaticResource TextPrimaryBrush}">
+                            <MenuItem Header="DLSS SDK" Command="{Binding DownloadLatestCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <MenuItem Header="Streamline SDK" Command="{Binding DownloadStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </MenuItem>
+                        <!-- Sync to NGX submenu -->
+                        <MenuItem Header="Sync to NGX" Foreground="{StaticResource TextPrimaryBrush}">
+                            <MenuItem Header="From DLSS SDK" Command="{Binding SyncFromDlssSdkCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <MenuItem Header="From Streamline SDK" Command="{Binding SyncFromStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <MenuItem Header="From AnWave" Command="{Binding SyncFromAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </MenuItem>
                         <Separator/>
-                        <MenuItem Header="Apply to AnWave (detected)" Command="{Binding ApplyToAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsAnWaveDetected}"/>
-                        <MenuItem Header="Auto-Apply DLSS" Command="{Binding AutoApplyToAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsAnWaveInstalled}"/>
+                        <!-- AnWave submenu -->
+                        <MenuItem Header="AnWave" Foreground="{StaticResource TextPrimaryBrush}">
+                            <MenuItem Header="Setup AnWave" Command="{Binding SetupAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsSettingUpAnWave, Converter={StaticResource InverseBoolConverter}}"/>
+                        </MenuItem>
                         <Separator/>
-                        <MenuItem Header="Setup AnWave" Command="{Binding SetupAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsSettingUpAnWave, Converter={StaticResource InverseBoolConverter}}"/>
+                        <!-- DLSS Indicator toggle -->
+                        <MenuItem Header="{Binding DlssIndicatorStatus}" Command="{Binding ToggleDlssIndicatorCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
                     </MenuItem>
                 </Menu>
 
@@ -174,14 +184,9 @@
                         <Run Text="AnWave: "/>
                         <Run Text="{Binding AnWaveDllVersion, Mode=OneWay, TargetNullValue='not set', FallbackValue='not set'}"/>
                     </TextBlock>
-                    <TextBlock Text="|" Foreground="#555555" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"
-                               Visibility="{Binding IsAnWaveInstalled, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <Button Content="Setup" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
                             Command="{Binding SetupAnWaveCommand}" Margin="0,0,0,0"
                             Visibility="{Binding IsAnWaveInstalled, Converter={StaticResource InverseBoolToVisibilityConverter}}"/>
-                    <Button Content="Auto-Apply" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
-                            Command="{Binding AutoApplyToAnWaveCommand}"
-                            Visibility="{Binding IsAnWaveInstalled, Converter={StaticResource BoolToVisibilityConverter}}"/>
                 </StackPanel>
             </Grid>
         </Border>
