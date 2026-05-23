@@ -22,14 +22,14 @@ This tool also downloads the official **DLSS SDK** (`ngx_dlss_demo_windows.zip`)
 ## Features
 
 - **Visual dashboard** — see all DLSS versions at a glance in a clean dark-themed table
-- **Update All** — one button to download the latest DLSS SDK, sync to NGX Release, and apply to AnWave
-- **AnWave auto-setup** — downloads and installs nvidiaDlssGlom from GitHub, fetches the latest DLSS DLLs from NVIDIA, and activates the global DLSS override automatically
+- **Update All** — one button to download the latest DLSS SDK, sync to NGX Release, auto-setup AnWave if not installed, and apply DLLs
+- **AnWave auto-setup** — integrated into Update All — downloads and installs nvidiaDlssGlom from GitHub, fetches the latest DLSS DLLs from NVIDIA, and activates the global DLSS override automatically
 - **Sync from any source** — pull newer DLLs from Streamline SDK or AnWave into NGX Release
 - **Download latest DLSS** — fetch the newest official DLSS SDK directly from NVIDIA's GitHub; cached locally and skipped if already present
 - **Export** — save version reports as CSV or JSON
 - **System tray** — minimize to tray with notifications when new versions are detected
 - **Background scanning** — optionally check for updates every 4 hours automatically
-- **Hardened operations** — PE header verification, post-copy file validation, automatic rollback on failure, path allowlisting
+- **Operation hardening** — pre-flight checks (network, disk space, writable), PE signature verification, post-copy file size validation, backup verification, automatic rollback on failure, path allowlisting
 - **Improved dialogs** — every operation result shows version numbers, file lists, and actionable next-step guidance
 
 ## Screenshots
@@ -91,13 +91,13 @@ Green text in the table indicates the newest version for that component across a
 
 ### Update All (Recommended)
 
-Click **Update All** to run the complete upgrade workflow:
+1. Pre-flight checks — verifies network connectivity, disk space (500 MB minimum), and target directory write access
+2. Downloads the latest DLSS SDK from NVIDIA/DLSS on GitHub (skipped if already cached)
+3. Syncs the SDK DLLs to NGX Release (with verified backup and automatic rollback on failure)
+4. Auto-setups AnWave if not installed — downloads nvidiaDlssGlom, fetches DLSS DLLs, activates override
+5. Applies the updated DLLs to the AnWave folder (PE signature + file size verified)
 
-1. Downloads the latest DLSS SDK from NVIDIA/DLSS on GitHub (skipped if already cached)
-2. Syncs the SDK DLLs to NGX Release (with automatic backup)
-3. Applies the updated DLLs to AnWave (if installed)
-
-Each step shows a dialog with the version applied, files copied, and what to do next.
+Each step shows a dialog with the version applied, files copied, and what to do next. If AnWave setup fails, NGX is still updated — try Setup AnWave separately from the Advanced menu.
 
 ### Advanced Operations
 
@@ -138,10 +138,13 @@ When **Minimize to tray** is enabled:
 DLSS Version Toolkit implements defense-in-depth for file operations:
 
 - **Path allowlisting** — only `C:\ProgramData\NVIDIA\NGX` and `%APPDATA%\NVIDIA\NGX` are writable targets
+- **Pre-flight checks** — network connectivity, disk space (500 MB), and directory write access verified before any operation starts
 - **PE header verification** — DLLs are checked for valid MZ/PE signatures before being copied
 - **Post-copy validation** — file sizes are verified after copy to catch truncated or mismatched binaries
-- **Automatic rollback** — if any operation fails, the backup is restored automatically
+- **Backup verification** — backups are validated (non-empty, correct file count) before any file modification proceeds
+- **Automatic rollback** — if any operation fails, the verified backup is restored automatically
 - **Backup isolation** — backups are stored in the same volume as the target, ensuring restoration is always possible
+- **OperationGuard** — centralized verification class used across all services (network, disk, writable, PE signature, file, backup, directory creation)
 - **Long path support** — paths exceeding 240 characters are handled via the `\\?\` prefix
 - **SharpCompress 0.48.0** — patched against CVE-2026-44788 (directory traversal in `WriteToDirectory`)
 
@@ -161,15 +164,15 @@ This is normal — some NVIDIA driver builds don't include DeepDVC in the NGX co
 
 ### "AnWave not installed"
 
-Click **Setup AnWave** in the Advanced section. The app downloads nvidiaDlssGlom from [SimonMacer/AnWave](https://github.com/SimonMacer/AnWave), fetches the latest DLSS DLLs from NVIDIA, and activates the global override automatically. No manual download required.
+AnWave setup is fully integrated into **Update All** — just click Update All and the tool will automatically install AnWave if it's not already present. You can also click **Setup AnWave** in the Advanced section to install it separately. No manual download required.
 
 ### "Streamline SDK not found"
 
-The app automatically downloads the Streamline SDK from NVIDIA-RTX/Streamline on GitHub when needed. If you have a manual Streamline SDK installation, place the extracted folder in your Downloads directory for auto-detection, or specify its path in Settings.
+The app automatically downloads the Streamline SDK from NVIDIA-RTX/Streamline on GitHub when needed. If you have a manual Streamline SDK installation, place the extracted folder in your Downloads directory for auto-detection, or specify its path in Settings. The scan auto-detects the Streamline SDK in your Downloads folder even when the Settings path is empty.
 
-### Download fails
+### "AnWave/dlssglom not found or has no valid DLLs"
 
-Ensure you have an active internet connection. The app uses the GitHub API to check for releases. If rate-limited, try again in a few minutes.
+This warning appears in the status bar when the AnWave directory exists but contains no DLLs with valid version info. Click **Update All** to re-setup AnWave and apply the latest DLLs. If your Settings has an incorrect AnWave path, clear it and let the app auto-detect.
 
 ## Project Structure
 

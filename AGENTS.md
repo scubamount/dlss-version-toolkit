@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-05-09
+Auto-generated from all feature plans. Last updated: 2026-05-22
 
 ## Active Technologies
 
@@ -45,7 +45,10 @@ dotnet test
 
 ## Recent Changes
 
-- **v0.0.13**: Streamline SDK auto-download — `StreamlineDownloadService` downloads from `NVIDIA-RTX/Streamline` GitHub releases (`streamline-sdk-v*.zip`), caches in `%APPDATA%\DLSSVersionToolkit\StreamlineDownloads\` (max 3), `SyncFromCachedSdkAsync()` extracts to temp dir then syncs to NGX; `DownloadStreamlineCommand` added to Advanced menu; `SyncFromStreamlineAsync` now auto-downloads from GitHub when no path configured (instead of falling back to DLSS SDK); `IStreamlineDownloadService` injected into `MainViewModel`; 4 new unit tests (GetCacheInfo, GetCachedSdkVersion, GetCachedDownloadPath, TrimCache)
+- **v0.0.18**: Operation hardening + scan auto-detect — New `OperationGuard` static class with `IsNetworkAvailable`, `IsDirectoryWritable`, `HasDiskSpace`, `VerifyDllSignature`, `VerifyFile`, `VerifyBackupDirectory`, `EnsureDirectoryExists`; pre-flight checks in `OneClickUpdateAllAsync` (network, 500MB disk, writable); `DlssDownloadService` hardened (network check, disk space 200MB, post-download file size verify); `AnWaveAutoService` hardened (network check + fallback to cached, disk space 300MB, writable checks, post-copy verify, PE signature verify on source DLLs); `UpgradeService` hardened (backup verify before modify, `IsDirectoryWritable` pre-flight in ApplyToAnWave, post-copy size verify, dead private `VerifyDllSignature` removed); `BackupService.VerifyBackup()` added to interface + implementation; `ScanService.VerifyDllIntegrity()` added; AnWave auto-setup integrated into Update All (no separate AnWave button needed); AnWave path persisted to settings after auto-setup; scan auto-detects AnWave in `%APPDATA%\DLSSVersionToolkit\AnWave` and Streamline in Downloads when settings paths are empty or point to non-existent dirs; `SaveAndLoad_CustomSettings_Persisted` test now cleans up after itself. 46 total tests, all passing.
+- **v0.0.17**: `TryParseVersion` (4-component), removed Apply to AnWave buttons, Update All rework (always calls DownloadLatestAsync), Setup reads real DLL versions, direct disk probe fallback
+- **v0.0.16**: `GetCachedSdkVersion()` substring bug fix (prefix length 13→9), `SetupAnWaveAsync()` early-exit when DLL exists, `AutoApplyToAnWaveAsync()` service fallback
+- **v0.0.15**: `ExtractVersionFromUrl()` regex fix, multi-path NGX scanning, `OneClickUpdateAllAsync` AnWave path fallback, "already up to date" messaging
 - **v0.0.12**: Documentation audit and fixes — csproj version aligned to 0.0.11 (was 2.0.0.0); fixed `AutoScanEnabled` test assertion (model defaults `false`, test was asserting `true`); implemented `StartMinimized` in App.xaml.cs (setting existed but was never read on startup); updated winget manifest (version, description, .NET 9 dependency); updated scoop manifest (version, bin→DLSSVersionToolkit.exe, removed stale psmodule reference, added shortcut); README: removed "Upgrade Release" from Advanced Operations (command exists in ViewModel but not wired to UI), fixed Windows 10 version 1908→1903
 - **v0.0.11**: Improved dialog messages — all dialogs now show version numbers, file lists, and actionable "what to do next" guidance
 - **v0.0.10**: Cache management — skip re-download if version already cached; `TrimCache(3)` keeps latest 3 DLSS SDK zips; `TrimGlomCache(2)` keeps latest 2 nvidiaDlssGlom .rars; `GetCacheInfo()` returns count + total bytes; active cached file never deleted during trimming
