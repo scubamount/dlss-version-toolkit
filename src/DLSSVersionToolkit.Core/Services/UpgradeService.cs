@@ -1,6 +1,7 @@
 namespace DLSSVersionToolkit.Core.Services;
 
 using DLSSVersionToolkit.Core.Models;
+using System.Diagnostics;
 
 public interface IUpgradeService
 {
@@ -23,11 +24,12 @@ public class UpgradeService : IUpgradeService
     {
         var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        AllowedPrefixes = new[]
-        {
-            Path.Combine(programData, "NVIDIA", "NGX"),
-            Path.Combine(appData, "NVIDIA", "NGX"),
-        };
+        var paths = new List<string>();
+        if (!string.IsNullOrEmpty(programData))
+            paths.Add(Path.Combine(programData, "NVIDIA", "NGX"));
+        if (!string.IsNullOrEmpty(appData))
+            paths.Add(Path.Combine(appData, "NVIDIA", "NGX"));
+        AllowedPrefixes = paths.ToArray();
     }
 
     public UpgradeService(INgxScanner ngxScanner, IBackupService backupService)
@@ -78,8 +80,8 @@ public class UpgradeService : IUpgradeService
             return operation;
         }
 
-        var latestRelease = releases.OrderByDescending(e => ParseVersion(e.DLSS)).First();
-        var latestStaging = stagings.OrderByDescending(e => ParseVersion(e.DLSS)).First();
+        var latestRelease = releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
+        var latestStaging = stagings.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
 
         if (!IsVersionNewer(latestStaging.DLSS, latestRelease.DLSS))
         {
@@ -96,15 +98,42 @@ public class UpgradeService : IUpgradeService
 
     public UpgradeOperation SyncToNGX(string sourcePath, string sourceType, string ngxBasePath)
     {
-        // Auto-detect default NGX path if not configured
-        if (string.IsNullOrEmpty(ngxBasePath))
+        // Collect NGX candidate paths (explicit path first, then default known paths)
+        var candidates = GetNgxCandidatePaths(ngxBasePath);
+
+        // Find NGX Release across all candidate paths (similar to ScanService.ScanAllAsync)
+        var ngxScanner = new NgxScanner(new NgxConfigParser());
+        List<DLSSVersionEntry>? releases = null;
+        string? foundPath = null;
+
+        foreach (var candidate in candidates)
         {
-            ngxBasePath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "NVIDIA", "NGX");
+            try
+            {
+                var found = ngxScanner.Scan(candidate).Where(e => e.Source == "NGX_Release").ToList();
+                if (found.Count > 0)
+                {
+                    releases = found;
+                    foundPath = candidate;
+                    break;
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                System.Diagnostics.Debug.WriteLine($"SyncToNGX: access denied scanning NGX path: {candidate}");
+            }
         }
 
-        if (!IsPathAllowed(ngxBasePath))
+        if (releases == null || releases.Count == 0)
+        {
+            return new UpgradeOperation
+            {
+                Status = OperationStatus.Failed,
+                ErrorMessage = "No Release version found"
+            };
+        }
+
+        if (!IsPathAllowed(foundPath!))
         {
             return new UpgradeOperation
             {
@@ -117,19 +146,9 @@ public class UpgradeService : IUpgradeService
         {
             SourceType = sourceType,
             TargetType = "NGX_Release",
-            SourcePath = sourcePath
+            SourcePath = sourcePath,
+            TargetPath = releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First().Path
         };
-
-        var releases = _ngxScanner.Scan(ngxBasePath).Where(e => e.Source == "NGX_Release").ToList();
-        if (releases.Count == 0)
-        {
-            operation.Status = OperationStatus.Failed;
-            operation.ErrorMessage = "No Release version found";
-            return operation;
-        }
-
-        var latestRelease = releases.OrderByDescending(e => ParseVersion(e.DLSS)).First();
-        operation.TargetPath = latestRelease.Path;
 
         var sourceVersions = ReadSourceVersions(sourcePath, sourceType);
         if (sourceVersions == null)
@@ -139,14 +158,14 @@ public class UpgradeService : IUpgradeService
             return operation;
         }
 
-        if (!IsVersionNewer(sourceVersions.DLSS, latestRelease.DLSS))
+        if (!IsVersionNewer(sourceVersions.DLSS, releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First().DLSS))
         {
             operation.Status = OperationStatus.Completed;
-            operation.ErrorMessage = $"Source is not newer than NGX Release";
+            operation.ErrorMessage = "Source is not newer than NGX Release";
             return operation;
         }
 
-        return PerformSync(operation, ngxBasePath, sourceVersions);
+        return PerformSync(operation, foundPath!, sourceVersions);
     }
 
     public UpgradeOperation SyncFromDlssSDK(string zipPath, string ngxBasePath)
@@ -198,8 +217,37 @@ public class UpgradeService : IUpgradeService
         }
         finally
         {
-            try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { }
+            try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
+            catch (Exception ex) { Debug.WriteLine($"SyncFromDlssSDK: temp dir cleanup failed: {ex.Message}"); }
         }
+    }
+
+    private static List<string> GetNgxCandidatePaths(string? ngxBasePath)
+    {
+        var candidates = new List<string>();
+
+        // 1. Explicitly configured path (settings or parameter)
+        if (!string.IsNullOrEmpty(ngxBasePath))
+            candidates.Add(ngxBasePath);
+
+        // 2. Default known paths, matching ScanService.ScanAllAsync behavior
+        var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        if (!string.IsNullOrEmpty(programData))
+        {
+            var programDataPath = Path.Combine(programData, "NVIDIA", "NGX");
+            if (!candidates.Contains(programDataPath, StringComparer.OrdinalIgnoreCase))
+                candidates.Add(programDataPath);
+        }
+
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (!string.IsNullOrEmpty(appData))
+        {
+            var appDataPath = Path.Combine(appData, "NVIDIA", "NGX");
+            if (!candidates.Contains(appDataPath, StringComparer.OrdinalIgnoreCase))
+                candidates.Add(appDataPath);
+        }
+
+        return candidates;
     }
 
     private static string? FindDllFolder(string rootDir)
@@ -243,14 +291,24 @@ public class UpgradeService : IUpgradeService
             };
         }
 
-        if (!Directory.Exists(anWavePath))
-        {
-            return new UpgradeOperation
-            {
-                Status = OperationStatus.Failed,
-                ErrorMessage = $"AnWave folder not found: {anWavePath}"
-            };
-        }
+	if (!Directory.Exists(anWavePath))
+	{
+		return new UpgradeOperation
+		{
+			Status = OperationStatus.Failed,
+			ErrorMessage = $"AnWave folder not found: {anWavePath}"
+		};
+	}
+
+	// Pre-flight: check AnWave directory is writable
+	if (!OperationGuard.IsDirectoryWritable(anWavePath))
+	{
+		return new UpgradeOperation
+		{
+			Status = OperationStatus.Failed,
+			ErrorMessage = $"AnWave directory is not writable: {anWavePath}"
+		};
+	}
 
         var operation = new UpgradeOperation
         {
@@ -268,7 +326,7 @@ public class UpgradeService : IUpgradeService
             return operation;
         }
 
-        var latestRelease = releases.OrderByDescending(e => ParseVersion(e.DLSS)).First();
+        var latestRelease = releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
         operation.TargetPath = anWavePath;
 
         // Find DLLs in NGX Release folder
@@ -297,14 +355,20 @@ public class UpgradeService : IUpgradeService
 
             foreach (var (dllName, destPath) in dllsToCopy)
             {
-                var srcDll = FindDll(ngxFolder, dllName);
-                if (srcDll != null && File.Exists(srcDll))
-                {
-                    if (!VerifyDllSignature(srcDll))
-                        throw new InvalidOperationException($"DLL {dllName} failed signature verification");
+		var srcDll = FindDll(ngxFolder, dllName);
+		if (srcDll != null && File.Exists(srcDll))
+		{
+			if (!OperationGuard.VerifyDllSignature(srcDll))
+				throw new InvalidOperationException($"DLL {dllName} failed signature verification");
 
-                    File.Copy(srcDll, destPath, true);
-                    operation.FilesCopied.Add(dllName);
+			var srcSize = new FileInfo(srcDll).Length;
+			File.Copy(srcDll, destPath, true);
+
+			// Post-copy verification: check file size matches
+			if (!OperationGuard.VerifyFile(destPath, srcSize))
+				throw new InvalidOperationException($"Post-copy verification failed for {dllName}");
+
+			operation.FilesCopied.Add(dllName);
                 }
             }
 
@@ -333,15 +397,23 @@ public class UpgradeService : IUpgradeService
         operation.Status = OperationStatus.InProgress;
         var releaseVersionsPath = Path.Combine(ngxBasePath, ReleaseSubPath);
 
-        var backupPath = _backupService.CreateBackup(operation.TargetPath, releaseVersionsPath);
-        if (backupPath == null)
-        {
-            operation.Status = OperationStatus.Failed;
-            operation.ErrorMessage = "Failed to create backup";
-            return operation;
-        }
-        operation.BackupPath = backupPath;
+	var backupPath = _backupService.CreateBackup(operation.TargetPath, releaseVersionsPath);
+	if (backupPath == null)
+	{
+		operation.Status = OperationStatus.Failed;
+		operation.ErrorMessage = "Failed to create backup";
+		return operation;
+	}
 
+	// Verify backup was created successfully
+	if (!_backupService.VerifyBackup(backupPath))
+	{
+		operation.Status = OperationStatus.Failed;
+		operation.ErrorMessage = "Backup verification failed — backup directory is empty or invalid.";
+		return operation;
+	}
+
+	operation.BackupPath = backupPath;
         try
         {
             foreach (var dll in NgxDllNames)
@@ -350,10 +422,10 @@ public class UpgradeService : IUpgradeService
                 var destDll = FindDll(operation.TargetPath, dll);
                 if (srcDll != null && destDll != null)
                 {
-                    if (!VerifyDllSignature(srcDll))
-                    {
-                        throw new InvalidOperationException($"DLL {dll} failed signature verification");
-                    }
+			if (!OperationGuard.VerifyDllSignature(srcDll))
+			{
+				throw new InvalidOperationException($"DLL {dll} failed signature verification");
+			}
                     File.Copy(srcDll, destDll, true);
                     operation.FilesCopied.Add(dll);
                 }
@@ -393,15 +465,23 @@ public class UpgradeService : IUpgradeService
         operation.Status = OperationStatus.InProgress;
         var releaseVersionsPath = Path.Combine(ngxBasePath, ReleaseSubPath);
 
-        var backupPath = _backupService.CreateBackup(operation.TargetPath, releaseVersionsPath);
-        if (backupPath == null)
-        {
-            operation.Status = OperationStatus.Failed;
-            operation.ErrorMessage = "Failed to create backup";
-            return operation;
-        }
-        operation.BackupPath = backupPath;
+	var backupPath = _backupService.CreateBackup(operation.TargetPath, releaseVersionsPath);
+	if (backupPath == null)
+	{
+		operation.Status = OperationStatus.Failed;
+		operation.ErrorMessage = "Failed to create backup";
+		return operation;
+	}
 
+	// Verify backup was created successfully
+	if (!_backupService.VerifyBackup(backupPath))
+	{
+		operation.Status = OperationStatus.Failed;
+		operation.ErrorMessage = "Backup verification failed — backup directory is empty or invalid.";
+		return operation;
+	}
+
+	operation.BackupPath = backupPath;
         try
         {
             var binPath = operation.SourceType == "StreamlineSDK"
@@ -414,10 +494,10 @@ public class UpgradeService : IUpgradeService
                 var destDll = FindDll(operation.TargetPath, dll);
                 if (File.Exists(srcDll) && destDll != null)
                 {
-                    if (!VerifyDllSignature(srcDll))
-                    {
-                        throw new InvalidOperationException($"DLL {dll} failed signature verification");
-                    }
+			if (!OperationGuard.VerifyDllSignature(srcDll))
+			{
+				throw new InvalidOperationException($"DLL {dll} failed signature verification");
+			}
                     File.Copy(srcDll, destDll, true);
                     operation.FilesCopied.Add(dll);
                 }
@@ -458,22 +538,6 @@ public class UpgradeService : IUpgradeService
         var normalized = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         return AllowedPrefixes.Any(prefix =>
             normalized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool VerifyDllSignature(string dllPath)
-    {
-        try
-        {
-            var fi = new FileInfo(dllPath);
-            if (!fi.Exists || fi.Length < 1024) return false;
-#pragma warning disable CA2022
-            using var fs = new FileStream(dllPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            var header = new byte[2];
-            _ = fs.Read(header, 0, 2);
-#pragma warning restore CA2022
-            return header[0] == 'M' && header[1] == 'Z';
-        }
-        catch { return false; }
     }
 
     private static bool VerifyCopiedFiles(string srcFolder, string destFolder)
@@ -556,16 +620,18 @@ public class UpgradeService : IUpgradeService
         catch { return false; }
     }
 
-    private static double ParseVersion(string version)
+    private static Version? TryParseVersion(string version)
     {
         try
         {
             var parts = NormalizeVersion(version).Split('.');
             var major = int.TryParse(parts.ElementAtOrDefault(0), out var m) ? m : 0;
             var minor = int.TryParse(parts.ElementAtOrDefault(1), out var n) ? n : 0;
-            return major * 1000 + minor;
+            var build = int.TryParse(parts.ElementAtOrDefault(2), out var b) ? b : 0;
+            var rev = int.TryParse(parts.ElementAtOrDefault(3), out var r) ? r : 0;
+            return new Version(major, minor, build, rev);
         }
-        catch { return 0; }
+        catch { return null; }
     }
 
     private static string NormalizeVersion(string version)

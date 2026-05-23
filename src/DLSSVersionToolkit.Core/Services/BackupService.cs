@@ -5,9 +5,11 @@ using DLSSVersionToolkit.Core.Models;
 
 public interface IBackupService
 {
-    string? CreateBackup(string releaseFolderPath, string versionsParentPath);
-    bool RestoreBackup(string backupPath, string releaseFolderPath);
-    void CleanupOldBackups(string versionsParentPath, int keepCount = 10);
+	string? CreateBackup(string releaseFolderPath, string versionsParentPath);
+	bool RestoreBackup(string backupPath, string releaseFolderPath);
+	void CleanupOldBackups(string versionsParentPath, int keepCount = 10);
+	/// <summary>Verifies that a backup directory exists, contains files, and optionally matches expected file count.</summary>
+	bool VerifyBackup(string backupPath, int expectedFileCount = -1);
 }
 
 public class BackupService : IBackupService
@@ -26,8 +28,12 @@ public class BackupService : IBackupService
         var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         var normalizedParent = Path.GetFullPath(versionsParentPath);
-        if (!normalizedParent.StartsWith(Path.Combine(programData, "NVIDIA"), StringComparison.OrdinalIgnoreCase) &&
-            !normalizedParent.StartsWith(Path.Combine(appData, "NVIDIA"), StringComparison.OrdinalIgnoreCase))
+
+        bool isUnderProgramData = !string.IsNullOrEmpty(programData) &&
+            normalizedParent.StartsWith(Path.Combine(programData, "NVIDIA"), StringComparison.OrdinalIgnoreCase);
+        bool isUnderAppData = !string.IsNullOrEmpty(appData) &&
+            normalizedParent.StartsWith(Path.Combine(appData, "NVIDIA"), StringComparison.OrdinalIgnoreCase);
+        if (!isUnderProgramData && !isUnderAppData)
         {
             return null;
         }
@@ -53,15 +59,18 @@ public class BackupService : IBackupService
             var backupFileCount = CountFiles(backupPath);
             if (backupFileCount != sourceFileCount)
             {
-                try { Directory.Delete(backupPath, true); } catch { }
+                try { Directory.Delete(backupPath, true); }
+                catch (Exception ex_c) { Debug.WriteLine($"CreateBackup: cleanup failed ({ex_c.Message})"); }
                 return null;
             }
 
             return backupPath;
         }
-        catch
+        catch (Exception ex)
         {
-            try { Directory.Delete(backupPath, true); } catch { }
+            Debug.WriteLine($"CreateBackup: error: {ex.Message}");
+            try { Directory.Delete(backupPath, true); }
+            catch (Exception ex_c) { Debug.WriteLine($"CreateBackup: cleanup after error failed ({ex_c.Message})"); }
             return null;
         }
     }
@@ -80,11 +89,13 @@ public class BackupService : IBackupService
             {
                 foreach (var file in Directory.GetFiles(releaseFolderPath, "*", SearchOption.AllDirectories))
                 {
-                    try { File.Delete(file); } catch { }
+                    try { File.Delete(file); }
+                    catch (Exception ex_f) { Debug.WriteLine($"RestoreBackup: file delete failed: {ex_f.Message}"); }
                 }
                 foreach (var dir in Directory.GetDirectories(releaseFolderPath, "*", SearchOption.AllDirectories))
                 {
-                    try { Directory.Delete(dir, true); } catch { }
+                    try { Directory.Delete(dir, true); }
+                    catch (Exception ex_d) { Debug.WriteLine($"RestoreBackup: dir delete failed: {ex_d.Message}"); }
                 }
             }
 
@@ -96,8 +107,9 @@ public class BackupService : IBackupService
             var restoredFileCount = CountFiles(releaseFolderPath);
             return restoredFileCount > 0;
         }
-        catch
+        catch (Exception ex)
         {
+            Debug.WriteLine($"RestoreBackup: error: {ex.Message}");
             return false;
         }
     }
@@ -116,10 +128,11 @@ public class BackupService : IBackupService
 
             foreach (var backup in backups)
             {
-                try { Directory.Delete(backup, true); } catch { }
+                try { Directory.Delete(backup, true); }
+                catch (Exception ex_b) { Debug.WriteLine($"CleanupOldBackups: delete failed: {ex_b.Message}"); }
             }
         }
-        catch { }
+        catch (Exception ex) { Debug.WriteLine($"CleanupOldBackups: error: {ex.Message}"); }
     }
 
     private static int CountFiles(string path)
@@ -128,11 +141,13 @@ public class BackupService : IBackupService
         {
             return Directory.GetFiles(path, "*", SearchOption.AllDirectories).Length;
         }
-        catch { return 0; }
+        catch (Exception ex) { Debug.WriteLine($"CountFiles: error: {ex.Message}"); return 0; }
     }
 
     private static string EnsureLongPathSupport(string path)
     {
+        if (path.StartsWith(@"\\?\", StringComparison.Ordinal))
+            return path;
         if (path.Length >= 240)
             return @"\\?\" + path;
         return path;
@@ -155,4 +170,8 @@ public class BackupService : IBackupService
             CopyDirectory(dir, destDir);
         }
     }
+	public bool VerifyBackup(string backupPath, int expectedFileCount = -1)
+	{
+		return OperationGuard.VerifyBackupDirectory(backupPath, expectedFileCount);
+	}
 }
