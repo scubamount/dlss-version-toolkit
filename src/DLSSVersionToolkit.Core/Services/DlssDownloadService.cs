@@ -115,23 +115,36 @@ public class DlssDownloadService : IDlssDownloadService
 
     public async Task<string?> DownloadLatestAsync(IProgress<int>? progress = null, CancellationToken ct = default)
     {
-        var releases = await GetAvailableReleasesAsync(ct);
-        var latest = releases.FirstOrDefault();
-        if (latest == null || string.IsNullOrEmpty(latest.DownloadUrl))
-            return null;
+	// Pre-flight: network check before GitHub API call
+	if (!OperationGuard.IsNetworkAvailable())
+	{
+		Console.Error.WriteLine("No network available for GitHub API call.");
+		return null;
+	}
 
-        if (!Directory.Exists(CacheDir))
-            Directory.CreateDirectory(CacheDir);
+	var releases = await GetAvailableReleasesAsync(ct);
+	var latest = releases.FirstOrDefault();
+	if (latest == null || string.IsNullOrEmpty(latest.DownloadUrl))
+		return null;
 
-        // Check if we already have this exact version cached
-        var fileName = $"dlss-sdk-{latest.Version}.zip";
-        var destPath = Path.Combine(CacheDir, fileName);
-        if (File.Exists(destPath))
-        {
-            _cachedDownloadPath = destPath;
-            return destPath;
-        }
+	if (!Directory.Exists(CacheDir))
+		Directory.CreateDirectory(CacheDir);
 
+	// Check if we already have this exact version cached
+	var fileName = $"dlss-sdk-{latest.Version}.zip";
+	var destPath = Path.Combine(CacheDir, fileName);
+	if (File.Exists(destPath))
+	{
+		_cachedDownloadPath = destPath;
+		return destPath;
+	}
+
+	// Pre-flight: disk space check before download (need ~200 MB for DLSS SDK zip)
+	if (!OperationGuard.HasDiskSpace(CacheDir, 200 * 1024 * 1024))
+	{
+		Console.Error.WriteLine("Insufficient disk space for DLSS SDK download.");
+		return null;
+	}
         try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, latest.DownloadUrl);
@@ -168,17 +181,25 @@ public class DlssDownloadService : IDlssDownloadService
                 fileStream.Close();
                 contentStream.Close();
 
-                // Use Copy + Delete instead of Move (Move can fail across drives or with file locks)
-                File.Copy(filePath, destPath, true);
-                File.Delete(filePath);
+		// Use Copy + Delete instead of Move (Move can fail across drives or with file locks)
+		File.Copy(filePath, destPath, true);
+		File.Delete(filePath);
 
-                _cachedDownloadPath = destPath;
-                System.Console.Error.WriteLine($"Download complete: {destPath} ({totalRead} bytes)");
+		// Post-download verification: check file size matches
+		if (!OperationGuard.VerifyFile(destPath, totalRead))
+		{
+			Console.Error.WriteLine($"Downloaded file verification failed: {destPath} (expected {totalRead} bytes)");
+			try { if (File.Exists(destPath)) File.Delete(destPath); } catch { }
+			return null;
+		}
 
-                // Housekeeping: trim old versions, keep only latest 3
-                TrimCache(3);
+		_cachedDownloadPath = destPath;
+		Console.Error.WriteLine($"Download complete: {destPath} ({totalRead} bytes)");
 
-                return destPath;
+		// Housekeeping: trim old versions, keep only latest 3
+		TrimCache(3);
+
+		return destPath;
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -209,7 +230,8 @@ public class DlssDownloadService : IDlssDownloadService
             var fileName = Path.GetFileName(_cachedDownloadPath); // e.g. "dlss-sdk-310.6.0.zip"
             if (fileName.StartsWith("dlss-sdk-") && fileName.EndsWith(".zip"))
             {
-                return fileName.Substring(9, fileName.Length - 13 - 4); // "310.6.0"
+                // Prefix "dlss-sdk-" is 9 chars, suffix ".zip" is 4 chars
+                return fileName.Substring(9, fileName.Length - 9 - 4);
             }
         }
         return null;
