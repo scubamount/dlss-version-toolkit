@@ -9,6 +9,7 @@ public class ScanResult
     public TimeSpan Duration { get; set; }
     public List<string> Warnings { get; set; } = new();
     public List<string> Errors { get; set; } = new();
+    public List<string> NgxPathsChecked { get; set; } = new();
 
     public bool HasErrors => Errors.Count > 0;
     public bool HasWarnings => Warnings.Count > 0;

@@ -1,6 +1,7 @@
 namespace DLSSVersionToolkit.Core.Services;
 
 using DLSSVersionToolkit.Core.Models;
+using System.Diagnostics;
 
 public interface INgxScanner
 {
@@ -66,13 +67,13 @@ public class NgxScanner : INgxScanner
                 results.Add(entry);
             }
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
-            // Access denied — skip
+            Debug.WriteLine($"NgxScanner.ScanFolder: access denied to {basePath}: {ex.Message}");
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Other errors — skip
+            Debug.WriteLine($"NgxScanner.ScanFolder: error scanning {basePath}: {ex.Message}");
         }
 
         return results;
