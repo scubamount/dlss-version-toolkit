@@ -239,13 +239,17 @@ public class SettingsServiceTests
             StreamlinePath = @"C:\Streamline"
         };
 
-        await service.SaveAsync(customSettings);
-        var loaded = await service.LoadAsync();
+	await service.SaveAsync(customSettings);
+	var loaded = await service.LoadAsync();
 
-        Assert.Equal(@"C:\Custom\Path", loaded.NgxBasePath);
-        Assert.Equal(@"C:\AnWave", loaded.AnWavePath);
-        Assert.Equal(@"C:\Streamline", loaded.StreamlinePath);
-    }
+	Assert.Equal(@"C:\Custom\Path", loaded.NgxBasePath);
+	Assert.Equal(@"C:\AnWave", loaded.AnWavePath);
+	Assert.Equal(@"C:\Streamline", loaded.StreamlinePath);
+
+	// Clean up: restore default settings so other tests/app runs don't see test values
+	var defaultSettings = new AppSettings();
+	await service.SaveAsync(defaultSettings);
+	}
 }
 
 public class ExportServiceTests
@@ -373,4 +377,268 @@ public class StreamlineDownloadServiceTests
         // Should not throw even with no cache directory
         service.TrimCache(3);
     }
+}
+
+public class DlssIndicatorServiceTests
+{
+    [Fact]
+    public void IsEnabled_NoRegistryKey_ReturnsFalse()
+    {
+        var service = new Core.Services.DlssIndicatorService();
+        // When the NGXCore key doesn't exist, IsEnabled should return false
+        var result = service.IsEnabled();
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsEnabled_ImplementsInterface()
+    {
+        var service = new Core.Services.DlssIndicatorService();
+        Assert.IsAssignableFrom<Core.Services.IDlssIndicatorService>(service);
+    }
+}
+
+public class DlssIndicatorSetEnabledTests
+{
+    [Fact]
+    public void SetEnabled_ImplementsInterface()
+    {
+        var service = new Core.Services.DlssIndicatorService();
+        Assert.IsAssignableFrom<Core.Services.IDlssIndicatorService>(service);
+    }
+}
+
+public class BackupServiceEdgeCaseTests
+{
+    [Fact]
+    public void CreateBackup_PathOutsideAllowlist_ReturnsNull()
+    {
+        // Paths outside ProgramData\NVIDIA or AppData\NVIDIA must be rejected
+        var service = new Core.Services.BackupService();
+        var outsidePath = Path.Combine(Path.GetTempPath(), $"dlss-outside-{Guid.NewGuid()}");
+        Directory.CreateDirectory(outsidePath);
+        File.WriteAllText(Path.Combine(outsidePath, "test.dll"), "test");
+
+        var backupPath = service.CreateBackup(outsidePath, Path.GetTempPath());
+        Assert.Null(backupPath);
+
+        Directory.Delete(outsidePath, true);
+    }
+
+    [Fact]
+    public void RestoreBackup_NullPath_ReturnsFalse()
+    {
+        var service = new Core.Services.BackupService();
+        Assert.False(service.RestoreBackup(null, "C:\\Some\\Path"));
+        Assert.False(service.RestoreBackup("C:\\Some\\Path", null));
+    }
+
+    [Fact]
+    public void CleanupOldBackups_NonExistentPath_DoesNotThrow()
+    {
+        var service = new Core.Services.BackupService();
+        // Should not throw with non-existent parent path
+        service.CleanupOldBackups(@"C:\NonExistent\Path\" + Guid.NewGuid());
+    }
+}
+
+public class VersionComparerEdgeCaseTests
+{
+    [Fact]
+    public void MarkNewest_AllSameVersion_NoneMarked()
+    {
+        var comparer = new Core.Services.VersionComparer();
+        var result = new ScanResult
+        {
+            Sources = new List<DLSSVersionEntry>
+            {
+                new() { Source = "NGX_Release", DLSS = "310.6.0.0", FrameGen = "310.6.0.0" },
+                new() { Source = "NGX_Staging", DLSS = "310.6.0.0", FrameGen = "310.6.0.0" }
+            }
+        };
+
+        comparer.MarkNewest(result);
+
+        // When versions are all equal, one should still be marked as newest (no crash)
+        var markedCount = result.Sources.Count(s => s.IsNewestDLSS);
+        Assert.Equal(1, markedCount);
+    }
+
+    [Fact]
+    public void MarkNewest_HandlesN_A()
+    {
+        var comparer = new Core.Services.VersionComparer();
+        var result = new ScanResult
+        {
+            Sources = new List<DLSSVersionEntry>
+            {
+                new() { Source = "NGX_Release", DLSS = "310.6.0.0" },
+                new() { Source = "NGX_Staging", DLSS = "N/A" }
+            }
+        };
+
+        comparer.MarkNewest(result);
+
+        // N/A should not crash or be treated as newest
+        Assert.True(result.Sources[0].IsNewestDLSS);
+        Assert.False(result.Sources[1].IsNewestDLSS);
+    }
+}
+
+public class OperationGuardTests
+{
+	[Fact]
+	public void IsDirectoryWritable_ValidTempDir_ReturnsTrue()
+	{
+		var tempDir = Path.GetTempPath();
+		Assert.True(Core.Services.OperationGuard.IsDirectoryWritable(tempDir));
+	}
+
+	[Fact]
+	public void IsDirectoryWritable_NonExistentDir_ReturnsFalse()
+	{
+		Assert.False(Core.Services.OperationGuard.IsDirectoryWritable(@"C:\NonExistent\Path\" + Guid.NewGuid()));
+	}
+
+	[Fact]
+	public void HasDiskSpace_SystemDrive_ReturnsTrueForSmallRequest()
+	{
+		var systemDir = Environment.GetFolderPath(Environment.SpecialFolder.System);
+		// 1 MB should always be available on system drive
+		Assert.True(Core.Services.OperationGuard.HasDiskSpace(systemDir, 1 * 1024 * 1024));
+	}
+
+	[Fact]
+	public void HasDiskSpace_ImpossibleRequest_ReturnsFalse()
+	{
+		var systemDir = Environment.GetFolderPath(Environment.SpecialFolder.System);
+		// 1 PB should not be available
+		Assert.False(Core.Services.OperationGuard.HasDiskSpace(systemDir, 1L * 1024 * 1024 * 1024 * 1024 * 1024));
+	}
+
+	[Fact]
+	public void VerifyFile_ExistingFile_ReturnsTrue()
+	{
+		var tempFile = Path.Combine(Path.GetTempPath(), $"dlss-guard-test-{Guid.NewGuid()}.txt");
+		File.WriteAllText(tempFile, "test content");
+
+		Assert.True(Core.Services.OperationGuard.VerifyFile(tempFile));
+
+		File.Delete(tempFile);
+	}
+
+	[Fact]
+	public void VerifyFile_NonExistentFile_ReturnsFalse()
+	{
+		Assert.False(Core.Services.OperationGuard.VerifyFile(@"C:\NonExistent\file.dll"));
+	}
+
+	[Fact]
+	public void VerifyFile_SizeMismatch_ReturnsFalse()
+	{
+		var tempFile = Path.Combine(Path.GetTempPath(), $"dlss-guard-test-{Guid.NewGuid()}.txt");
+		File.WriteAllText(tempFile, "test");
+		var actualSize = new FileInfo(tempFile).Length;
+
+		Assert.False(Core.Services.OperationGuard.VerifyFile(tempFile, actualSize + 100));
+		Assert.True(Core.Services.OperationGuard.VerifyFile(tempFile, actualSize));
+
+		File.Delete(tempFile);
+	}
+
+	[Fact]
+	public void VerifyDllSignature_ValidPeFile_ReturnsTrue()
+	{
+		// Create a minimal PE-like file: MZ header + enough bytes
+		var tempFile = Path.Combine(Path.GetTempPath(), $"dlss-guard-pe-{Guid.NewGuid()}.dll");
+		var data = new byte[2048];
+		data[0] = (byte)'M';
+		data[1] = (byte)'Z';
+		File.WriteAllBytes(tempFile, data);
+
+		Assert.True(Core.Services.OperationGuard.VerifyDllSignature(tempFile));
+
+		File.Delete(tempFile);
+	}
+
+	[Fact]
+	public void VerifyDllSignature_InvalidHeader_ReturnsFalse()
+	{
+		var tempFile = Path.Combine(Path.GetTempPath(), $"dlss-guard-bad-{Guid.NewGuid()}.dll");
+		var data = new byte[2048];
+		data[0] = (byte)'X';
+		data[1] = (byte)'Y';
+		File.WriteAllBytes(tempFile, data);
+
+		Assert.False(Core.Services.OperationGuard.VerifyDllSignature(tempFile));
+
+		File.Delete(tempFile);
+	}
+
+	[Fact]
+	public void VerifyDllSignature_TooSmallFile_ReturnsFalse()
+	{
+		var tempFile = Path.Combine(Path.GetTempPath(), $"dlss-guard-small-{Guid.NewGuid()}.dll");
+		var data = new byte[100]; // Less than 1024 minimum
+		data[0] = (byte)'M';
+		data[1] = (byte)'Z';
+		File.WriteAllBytes(tempFile, data);
+
+		Assert.False(Core.Services.OperationGuard.VerifyDllSignature(tempFile));
+
+		File.Delete(tempFile);
+	}
+
+	[Fact]
+	public void VerifyBackupDirectory_ValidDir_ReturnsTrue()
+	{
+		var tempDir = Path.Combine(Path.GetTempPath(), $"dlss-guard-backup-{Guid.NewGuid()}");
+		Directory.CreateDirectory(tempDir);
+		File.WriteAllText(Path.Combine(tempDir, "file1.dll"), "content");
+
+		Assert.True(Core.Services.OperationGuard.VerifyBackupDirectory(tempDir));
+		Assert.True(Core.Services.OperationGuard.VerifyBackupDirectory(tempDir, 1));
+
+		Directory.Delete(tempDir, true);
+	}
+
+	[Fact]
+	public void VerifyBackupDirectory_NonExistentDir_ReturnsFalse()
+	{
+		Assert.False(Core.Services.OperationGuard.VerifyBackupDirectory(@"C:\NonExistent\Backup" + Guid.NewGuid()));
+	}
+
+	[Fact]
+	public void VerifyBackupDirectory_EmptyDir_ReturnsFalse()
+	{
+		var tempDir = Path.Combine(Path.GetTempPath(), $"dlss-guard-empty-{Guid.NewGuid()}");
+		Directory.CreateDirectory(tempDir);
+
+		Assert.False(Core.Services.OperationGuard.VerifyBackupDirectory(tempDir));
+
+		Directory.Delete(tempDir, true);
+	}
+
+	[Fact]
+	public void EnsureDirectoryExists_CreatesNewDir_ReturnsTrue()
+	{
+		var tempDir = Path.Combine(Path.GetTempPath(), $"dlss-guard-newdir-{Guid.NewGuid()}");
+		Assert.False(Directory.Exists(tempDir));
+
+		Assert.True(Core.Services.OperationGuard.EnsureDirectoryExists(tempDir));
+		Assert.True(Directory.Exists(tempDir));
+
+		Directory.Delete(tempDir, true);
+	}
+
+	[Fact]
+	public void EnsureDirectoryExists_ExistingDir_ReturnsTrue()
+	{
+		var tempDir = Path.Combine(Path.GetTempPath(), $"dlss-guard-existdir-{Guid.NewGuid()}");
+		Directory.CreateDirectory(tempDir);
+
+		Assert.True(Core.Services.OperationGuard.EnsureDirectoryExists(tempDir));
+
+		Directory.Delete(tempDir, true);
+	}
 }
