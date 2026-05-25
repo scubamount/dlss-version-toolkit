@@ -192,26 +192,26 @@ progress?.Report(30);
 
     private async Task<AnWaveSetupResult> ExtractGlomFromCacheAsync(string glomPath, IProgress<int>? progress, CancellationToken ct)
     {
-        // Extract .rar using SharpCompress — extract to temp dir first to avoid file locks
-        try
-        {
+	string? glomTmpDir = null;
+	try
+{
             // Clean up previous exe if any
             foreach (var oldExe in Directory.GetFiles(InstallDir, "nvidiaDlssGlom*.exe"))
             {
                 try { File.Delete(oldExe); } catch { }
             }
 
-            var tmpExtract = Path.Combine(Path.GetTempPath(), $"DLSSVT_glom_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tmpExtract);
+			glomTmpDir = Path.Combine(Path.GetTempPath(), $"DLSSVT_glom_{Guid.NewGuid():N}");
+			Directory.CreateDirectory(glomTmpDir);
 
             using var archive = ArchiveFactory.OpenArchive(glomPath);
             foreach (var entry in archive.Entries.Where(e => !e.IsDirectory))
             {
-                entry.WriteToDirectory(tmpExtract, new ExtractionOptions { Overwrite = true });
+				entry.WriteToDirectory(glomTmpDir, new ExtractionOptions { Overwrite = true });
             }
 
 		// Move extracted files to install dir
-		foreach (var file in Directory.GetFiles(tmpExtract))
+		foreach (var file in Directory.GetFiles(glomTmpDir, "*", SearchOption.AllDirectories))
 		{
 			var srcInfo = new FileInfo(file);
 			var dest = Path.Combine(InstallDir, Path.GetFileName(file));
@@ -223,16 +223,19 @@ progress?.Report(30);
 		}
 
 		// Verify nvidiaDlssGlom.exe exists after extraction
-		var glomExe = Directory.GetFiles(InstallDir, "nvidiaDlssGlom*.exe").FirstOrDefault();
+		var glomExe = Directory.GetFiles(InstallDir, "nvidiaDlssGlom*.exe", SearchOption.AllDirectories).FirstOrDefault();
 		if (glomExe == null || !File.Exists(glomExe))
 			return new AnWaveSetupResult { Success = false, ErrorMessage = "nvidiaDlssGlom.exe not found after extraction." };
 
-		// Clean up temp
-        }
-        catch (Exception ex)
-        {
-            return new AnWaveSetupResult { Success = false, ErrorMessage = $"Failed to extract nvidiaDlssGlom: {ex.Message}" };
-        }
+	}
+	catch (Exception ex)
+	{
+		return new AnWaveSetupResult { Success = false, ErrorMessage = $"Failed to extract nvidiaDlssGlom: {ex.Message}" };
+	}
+	finally
+	{
+		if (glomTmpDir != null) try { Directory.Delete(glomTmpDir, recursive: true); } catch { }
+	}
 
         progress?.Report(55);
 
@@ -258,15 +261,15 @@ progress?.Report(30);
 
         progress?.Report(80);
 
-        // Extract DLLs using built-in ZipFile to a unique temp dir (avoids all file lock issues)
-        try
-        {
-            var tmpExtract = Path.Combine(Path.GetTempPath(), $"DLSSVT_dlls_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tmpExtract);
-            System.IO.Compression.ZipFile.ExtractToDirectory(ngxZipPath, tmpExtract, true);
+		string? dllTmpDir = null;
+		try
+		{
+			dllTmpDir = Path.Combine(Path.GetTempPath(), $"DLSSVT_dlls_{Guid.NewGuid():N}");
+			Directory.CreateDirectory(dllTmpDir);
+			System.IO.Compression.ZipFile.ExtractToDirectory(ngxZipPath, dllTmpDir, true);
 
 		// Copy nvngx DLLs + config to install dir with verification
-		foreach (var dll in Directory.GetFiles(tmpExtract, "nvngx_*.dll"))
+		foreach (var dll in Directory.GetFiles(dllTmpDir, "nvngx_*.dll", SearchOption.AllDirectories))
 		{
 			try
 			{
@@ -280,7 +283,7 @@ progress?.Report(30);
 			}
 			catch (Exception ex_dll) { System.Diagnostics.Debug.WriteLine($"ExtractGlomFromCache: DLL copy failed: {ex_dll.Message}"); }
 		}
-		var cfg = Directory.GetFiles(tmpExtract, "nvngx_package_config.txt").FirstOrDefault();
+		var cfg = Directory.GetFiles(dllTmpDir, "nvngx_package_config.txt", SearchOption.AllDirectories).FirstOrDefault();
 		if (cfg != null)
 		{
 			try { File.Copy(cfg, Path.Combine(InstallDir, "nvngx_package_config.txt"), true); } catch { }
@@ -292,11 +295,15 @@ progress?.Report(30);
 			return new AnWaveSetupResult { Success = false, ErrorMessage = "Downloaded nvngx_dlss.dll failed PE signature verification." };
 
 		// Clean up
-        }
-        catch (Exception ex)
-        {
-            return new AnWaveSetupResult { Success = false, ErrorMessage = $"Failed to extract DLSS DLLs: {ex.Message}" };
-        }
+	}
+	catch (Exception ex)
+	{
+		return new AnWaveSetupResult { Success = false, ErrorMessage = $"Failed to extract DLSS DLLs: {ex.Message}" };
+	}
+	finally
+	{
+		if (dllTmpDir != null) try { Directory.Delete(dllTmpDir, recursive: true); } catch { }
+	}
 
         progress?.Report(90);
 
