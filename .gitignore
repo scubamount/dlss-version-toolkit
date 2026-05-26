@@ -47,6 +47,7 @@ tests/**/obj/
 PATHFINDER-2026-04-29/
 autoresearch/
 .sisyphus/
+.omo/
 
 # OS
 .DS_Store

@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-05-22
+Auto-generated from all feature plans. Last updated: 2026-05-26
 
 ## Active Technologies
 
@@ -45,7 +45,7 @@ dotnet test
 
 ## Recent Changes
 
-- **v0.0.18**: Operation hardening + scan auto-detect — New `OperationGuard` static class with `IsNetworkAvailable`, `IsDirectoryWritable`, `HasDiskSpace`, `VerifyDllSignature`, `VerifyFile`, `VerifyBackupDirectory`, `EnsureDirectoryExists`; pre-flight checks in `OneClickUpdateAllAsync` (network, 500MB disk, writable); `DlssDownloadService` hardened (network check, disk space 200MB, post-download file size verify); `AnWaveAutoService` hardened (network check + fallback to cached, disk space 300MB, writable checks, post-copy verify, PE signature verify on source DLLs); `UpgradeService` hardened (backup verify before modify, `IsDirectoryWritable` pre-flight in ApplyToAnWave, post-copy size verify, dead private `VerifyDllSignature` removed); `BackupService.VerifyBackup()` added to interface + implementation; `ScanService.VerifyDllIntegrity()` added; AnWave auto-setup integrated into Update All (no separate AnWave button needed); AnWave path persisted to settings after auto-setup; scan auto-detects AnWave in `%APPDATA%\DLSSVersionToolkit\AnWave` and Streamline in Downloads when settings paths are empty or point to non-existent dirs; `SaveAndLoad_CustomSettings_Persisted` test now cleans up after itself. 46 total tests, all passing.
+- **v0.0.19**: DLSS Preset Override UI — replaced "Override Version" dropdown (cached version strings) with "Override Preset" dropdown (DlssPreset enum: Default, J, K, L, M, Latest); new `PresetOverrideService` using NvAPIWrapper DRS API to read/write NVIDIA global DLSS-SR render preset; `DlssPreset` enum + `DlssPresetDisplay` helper + `DlssPresetSettingIds` constants in Core/Models; `DlssPresetDescriptionConverter` for XAML binding; `PresetOverrideResult` record with Success/CurrentPreset/ErrorMessage/PermissionIssue; `ApplyPresetAsync` checks admin privileges via PermissionIssue; whitelist `IsApplicable` flag (N/A when NVIDIA app not installed); NvAPIWrapper.Net 0.8.1.101 dependency added to Core; 46 tests passing
 - **v0.0.17**: `TryParseVersion` (4-component), removed Apply to AnWave buttons, Update All rework (always calls DownloadLatestAsync), Setup reads real DLL versions, direct disk probe fallback
 - **v0.0.16**: `GetCachedSdkVersion()` substring bug fix (prefix length 13→9), `SetupAnWaveAsync()` early-exit when DLL exists, `AutoApplyToAnWaveAsync()` service fallback
 - **v0.0.15**: `ExtractVersionFromUrl()` regex fix, multi-path NGX scanning, `OneClickUpdateAllAsync` AnWave path fallback, "already up to date" messaging
