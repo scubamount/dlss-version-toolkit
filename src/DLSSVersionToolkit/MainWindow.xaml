@@ -155,18 +155,32 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Current NGX: " Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding CurrentDlssVersion, FallbackValue='—'}" Foreground="{StaticResource NvidiaGreenBrush}"
-                                   FontFamily="Consolas" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
-                        <TextBlock Text="   |   Available: " Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/>
-                        <TextBlock Text="{Binding AvailableDlssVersion, FallbackValue='—'}" Foreground="#4CAF50"
-                                   FontFamily="Consolas" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
-                        <TextBlock Text="   |   " Foreground="#555555" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/>
-                        <TextBlock Text="{Binding VersionStatusMessage, FallbackValue=''}" Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </StackPanel>
+<StackPanel Grid.Column="0" VerticalAlignment="Center">
+ <StackPanel Orientation="Horizontal">
+ <TextBlock Text="Current NGX: " Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center"/>
+ <TextBlock Text="{Binding CurrentDlssVersion, FallbackValue='—'}" Foreground="{StaticResource NvidiaGreenBrush}"
+ FontFamily="Consolas" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+ <TextBlock Text=" | Available: " Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/>
+ <TextBlock Text="{Binding AvailableDlssVersion, FallbackValue='—'}" Foreground="#4CAF50"
+ FontFamily="Consolas" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+ <TextBlock Text=" | " Foreground="#555555" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/>
+ <TextBlock Text="{Binding VersionStatusMessage, FallbackValue=''}" Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center"/>
+ </StackPanel>
+ <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+ <TextBlock Text="Override Version: " Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center"/>
+ <ComboBox ItemsSource="{Binding AvailableDlssVersions}"
+ SelectedItem="{Binding SelectedDlssVersion}"
+ MinWidth="120" MaxWidth="200"
+ FontFamily="Consolas" FontSize="11"
+ Background="#2D2D2D" Foreground="#76B900"
+ BorderBrush="#3D3D3D" Padding="6,3"
+ VerticalAlignment="Center"/>
+ <Button Content="Apply" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
+ Command="{Binding ApplyGlobalVersionCommand}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+ <TextBlock Text=" | Whitelist: " Foreground="#555555" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0"/>
+ <TextBlock Text="{Binding WhitelistStatus, FallbackValue=''}" Foreground="#888888" FontSize="11" VerticalAlignment="Center"/>
+ </StackPanel>
+ </StackPanel>
 
                 <!-- AnWave status -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">

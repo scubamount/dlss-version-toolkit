@@ -20,8 +20,9 @@ public partial class MainViewModel : ObservableObject
     private readonly IDlssDownloadService _dlssDownloadService;
     private readonly IStreamlineDownloadService _streamlineDownloadService;
     private readonly IAnWaveAutoService _anWaveAutoService;
-    private readonly IDlssIndicatorService _dlssIndicatorService;
-    private ScanResult? _lastScanResult;
+ private readonly IDlssIndicatorService _dlssIndicatorService;
+ private readonly IWhitelistService _whitelistService;
+ private ScanResult? _lastScanResult;
     private bool _shownNgxNotFoundDialog;
 
     [ObservableProperty]
@@ -104,32 +105,135 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _versionStatusMessage = "";
 
-    [ObservableProperty]
-    private bool _updateAvailable;
-    public MainViewModel(
-        IScanService scanService,
-        IUpgradeService upgradeService,
-        IExportService exportService,
-        ISettingsService settingsService,
-        IBackupService backupService,
-        IDlssDownloadService dlssDownloadService,
-        IStreamlineDownloadService streamlineDownloadService,
-        IAnWaveAutoService anWaveAutoService,
-        IDlssIndicatorService dlssIndicatorService)
-    {
-        _scanService = scanService;
-        _upgradeService = upgradeService;
-        _exportService = exportService;
-        _settingsService = settingsService;
-        _backupService = backupService;
-        _dlssDownloadService = dlssDownloadService;
-        _streamlineDownloadService = streamlineDownloadService;
-        _anWaveAutoService = anWaveAutoService;
-        _dlssIndicatorService = dlssIndicatorService;
-        IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
-    }
+[ObservableProperty]
+private bool _updateAvailable;
 
-    [RelayCommand]
+[ObservableProperty]
+private ObservableCollection<string> _availableDlssVersions = new();
+
+[ObservableProperty]
+private string? _selectedDlssVersion;
+
+[ObservableProperty]
+private bool _isWhitelistApplied;
+
+[ObservableProperty]
+private string _whitelistStatus = "Not applied";
+public MainViewModel(
+ IScanService scanService,
+ IUpgradeService upgradeService,
+ IExportService exportService,
+ ISettingsService settingsService,
+ IBackupService backupService,
+ IDlssDownloadService dlssDownloadService,
+ IStreamlineDownloadService streamlineDownloadService,
+ IAnWaveAutoService anWaveAutoService,
+ IDlssIndicatorService dlssIndicatorService,
+ IWhitelistService whitelistService)
+{
+ _scanService = scanService;
+ _upgradeService = upgradeService;
+ _exportService = exportService;
+ _settingsService = settingsService;
+ _backupService = backupService;
+ _dlssDownloadService = dlssDownloadService;
+ _streamlineDownloadService = streamlineDownloadService;
+ _anWaveAutoService = anWaveAutoService;
+ _dlssIndicatorService = dlssIndicatorService;
+ _whitelistService = whitelistService;
+ IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
+ LoadCachedVersions();
+}
+
+private void LoadCachedVersions()
+{
+ try
+ {
+ var versions = _dlssDownloadService.GetCachedVersions();
+ AvailableDlssVersions = new ObservableCollection<string>(versions);
+ if (versions.Count > 0 && SelectedDlssVersion == null)
+ SelectedDlssVersion = versions[0];
+ }
+ catch (Exception ex)
+ {
+ Debug.WriteLine($"LoadCachedVersions failed: {ex.Message}");
+ }
+}
+
+[RelayCommand]
+private async Task ApplyGlobalVersionAsync()
+{
+ if (string.IsNullOrEmpty(SelectedDlssVersion)) return;
+
+ try
+ {
+ // Step 0: Apply whitelist to bypass NVIDIA override blocking
+ DownloadStatus = "Applying whitelist...";
+ var whitelistResult = await _whitelistService.ApplyWhitelistAsync();
+ if (whitelistResult.Success && whitelistResult.GamesModified > 0)
+ {
+ WhitelistStatus = $"{whitelistResult.GamesModified} games whitelisted";
+ IsWhitelistApplied = true;
+
+ // Restart NVIDIA services to pick up changes
+ var restartResult = await _whitelistService.RestartNvidiaServicesAsync();
+ if (!restartResult.Success)
+ {
+ MessageBox.Show(
+ $"Whitelist applied but NVIDIA services could not be restarted.\n\n" +
+ $"Error: {restartResult.ErrorMessage}\n\n" +
+ "What to do: Restart your computer or manually restart NVIDIA services.",
+ "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+ }
+ }
+ else if (whitelistResult.Success)
+ {
+ WhitelistStatus = "Already applied";
+ IsWhitelistApplied = true;
+ }
+
+ // Re-write nvngx_config with selected version
+ DownloadStatus = $"Applying v{SelectedDlssVersion}...";
+ var anWavePath = _anWaveAutoService.GetInstalledPath();
+ if (!string.IsNullOrEmpty(anWavePath) && Directory.Exists(anWavePath))
+ {
+ // Use AnWaveAutoService to apply the selected version
+ var settings = await _settingsService.LoadAsync();
+ var result = await _anWaveAutoService.AutoApplyAsync(anWavePath, settings.NgxBasePath);
+ if (result.Success)
+ {
+ MessageBox.Show(
+ $"DLSS Override set to v{SelectedDlssVersion}.\n\n" +
+ $"Files applied: {result.FilesCopied.Count}\n" +
+ "Games using DLSS will now use this version.",
+ "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+ }
+ else
+ {
+ MessageBox.Show(
+ $"Failed to apply DLSS v{SelectedDlssVersion}.\n\n" +
+ $"Error: {result.ErrorMessage}\n\n" +
+ "What to do: Try 'Update All' instead.",
+ "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+ }
+ }
+ else
+ {
+ MessageBox.Show(
+ "AnWave is not set up. Run 'Update All' first to set up AnWave.\n\n" +
+ "What to do: Click 'Update All' to complete initial setup.",
+ "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+ }
+
+ await ScanAsync();
+ }
+ catch (Exception ex)
+ {
+ MessageBox.Show($"Apply version failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+ }
+}
+
+[RelayCommand]
     private void ToggleDlssIndicator()
     {
         try
@@ -202,7 +306,36 @@ public partial class MainViewModel : ObservableObject
 			return;
 		}
 
-		// Step 1: Download latest DLSS SDK from NVIDIA (skips if already cached)
+ // Step 0: Apply whitelist to bypass NVIDIA override blocking
+ DownloadStatus = "Applying whitelist...";
+ try
+ {
+ var whitelistResult = await _whitelistService.ApplyWhitelistAsync();
+ if (whitelistResult.Success && whitelistResult.GamesModified > 0)
+ {
+ WhitelistStatus = $"{whitelistResult.GamesModified} games whitelisted";
+ IsWhitelistApplied = true;
+
+ // Restart NVIDIA services to pick up changes
+ var restartResult = await _whitelistService.RestartNvidiaServicesAsync();
+ if (!restartResult.Success)
+ {
+ Debug.WriteLine($"OneClickUpdateAll: NVIDIA services restart failed: {restartResult.ErrorMessage}");
+ }
+ }
+ else if (whitelistResult.Success)
+ {
+ WhitelistStatus = "Already applied";
+ IsWhitelistApplied = true;
+ }
+ }
+ catch (Exception ex)
+ {
+ Debug.WriteLine($"OneClickUpdateAll: whitelist step failed: {ex.Message}");
+ // Non-fatal — continue with update even if whitelist fails
+ }
+
+ // Step 1: Download latest DLSS SDK from NVIDIA (skips if already cached)
 		DownloadStatus = "Checking for latest DLSS SDK...";
 		var downloadPath = await _dlssDownloadService.DownloadLatestAsync(null);
 

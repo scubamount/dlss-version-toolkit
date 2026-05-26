@@ -308,7 +308,7 @@ progress?.Report(30);
         progress?.Report(90);
 
         // Step 3: Write nvngx_config.txt to NGX to activate override
-        WriteNgXConfig();
+ WriteNgXConfig(_dllVersion);
 
         progress?.Report(100);
 
@@ -439,7 +439,7 @@ progress?.Report(30);
         progress?.Report(70);
 
         // Write nvngx_config.txt to activate override
-        WriteNgXConfig();
+ WriteNgXConfig(result.AppliedVersion);
 
         progress?.Report(100);
 
@@ -476,22 +476,42 @@ progress?.Report(30);
 
         return candidates;
     }
+    private string GetDlssVersionString()
+    {
+        var configPath = Path.Combine(InstallDir, "nvngx_package_config.txt");
+        if (File.Exists(configPath))
+        {
+            try
+            {
+                var content = File.ReadAllText(configPath);
+                var match = Regex.Match(content, @"dlss,\s+([\d.]+)", RegexOptions.IgnoreCase);
+                if (match.Success)
+                    return match.Groups[1].Value;
+            }
+            catch { }
+        }
+        if (!string.IsNullOrEmpty(_dllVersion))
+            return _dllVersion;
+        return "310.6.0";
+    }
 
-    private void WriteNgXConfig()
+
+    private void WriteNgXConfig(string? versionOverride = null)
     {
         try
         {
+            var version = versionOverride ?? GetDlssVersionString();
             var ngxDir = Path.GetDirectoryName(ConfigFilePath);
             if (ngxDir != null && !Directory.Exists(ngxDir))
                 Directory.CreateDirectory(ngxDir);
 
-            var config = @"[dlss_override]
+            var config = $@"[dlss_override]
 app_E658700_force = 1
-app_E658700 = 535
+app_E658700 = {version}
 
 [streamline_override]
 app_E658703_force = 1
-app_E658703 = 535
+app_E658703 = {version}
 ";
             File.WriteAllText(ConfigFilePath, config);
         }

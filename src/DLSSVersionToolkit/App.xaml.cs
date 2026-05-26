@@ -52,9 +52,10 @@ public partial class App : Application
         var dlssDownloadService = new DlssDownloadService();
         var streamlineDownloadService = new StreamlineDownloadService();
         var dlssIndicatorService = new DlssIndicatorService();
-        var anWaveAutoService = new AnWaveAutoService();
+var anWaveAutoService = new AnWaveAutoService();
+var whitelistService = new WhitelistService();
 
-        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService);
+_mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService, whitelistService);
 
         SetupTrayIcon();
 
