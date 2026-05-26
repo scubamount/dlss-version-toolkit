@@ -54,8 +54,9 @@ public partial class App : Application
         var dlssIndicatorService = new DlssIndicatorService();
 var anWaveAutoService = new AnWaveAutoService();
 var whitelistService = new WhitelistService();
+var presetOverrideService = new PresetOverrideService();
 
-_mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService, whitelistService);
+_mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService, whitelistService, presetOverrideService);
 
         SetupTrayIcon();
 

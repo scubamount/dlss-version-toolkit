@@ -5,12 +5,11 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:DLSSVersionToolkit"
         xmlns:vm="clr-namespace:DLSSVersionToolkit.ViewModels"
-        mc:Ignorable="d"
+        xmlns:converters="clr-namespace:DLSSVersionToolkit.Converters"
         Title="DLSS Version Toolkit" Height="680" Width="960"
         MinHeight="580" MinWidth="880"
         Background="{StaticResource DarkBackgroundBrush}"
         WindowStartupLocation="CenterScreen">
-
     <Window.Resources>
         <Style x:Key="NewestCellStyle" TargetType="DataGridCell">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
@@ -37,6 +36,7 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        <converters:DlssPresetDescriptionConverter x:Key="DlssPresetDescriptionConverter"/>
     </Window.Resources>
 
     <Grid>
@@ -166,20 +166,29 @@
  <TextBlock Text=" | " Foreground="#555555" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/>
  <TextBlock Text="{Binding VersionStatusMessage, FallbackValue=''}" Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center"/>
  </StackPanel>
- <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
- <TextBlock Text="Override Version: " Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center"/>
- <ComboBox ItemsSource="{Binding AvailableDlssVersions}"
- SelectedItem="{Binding SelectedDlssVersion}"
- MinWidth="120" MaxWidth="200"
- FontFamily="Consolas" FontSize="11"
- Background="#2D2D2D" Foreground="#76B900"
- BorderBrush="#3D3D3D" Padding="6,3"
- VerticalAlignment="Center"/>
- <Button Content="Apply" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
- Command="{Binding ApplyGlobalVersionCommand}" Margin="8,0,0,0" VerticalAlignment="Center"/>
- <TextBlock Text=" | Whitelist: " Foreground="#555555" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0"/>
- <TextBlock Text="{Binding WhitelistStatus, FallbackValue=''}" Foreground="#888888" FontSize="11" VerticalAlignment="Center"/>
- </StackPanel>
+<StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+  <TextBlock Text="Override Preset: " Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center"/>
+  <ComboBox ItemsSource="{Binding AvailablePresets}"
+            SelectedItem="{Binding SelectedPreset}"
+            MinWidth="140" MaxWidth="220"
+            FontSize="11"
+            Background="#2D2D2D" Foreground="#76B900"
+            BorderBrush="#3D3D3D" Padding="6,3"
+            VerticalAlignment="Center">
+    <ComboBox.ItemTemplate>
+      <DataTemplate>
+        <TextBlock Text="{Binding Converter={StaticResource DlssPresetDescriptionConverter}}"
+                   FontSize="11"/>
+      </DataTemplate>
+    </ComboBox.ItemTemplate>
+  </ComboBox>
+  <Button Content="Apply" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
+          Command="{Binding ApplyPresetCommand}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+  <TextBlock Text=" | " Foreground="#555555" FontSize="11" VerticalAlignment="Center" Margin="8,0,0,0"/>
+  <TextBlock Text="{Binding CurrentPresetStatus, FallbackValue=''}" Foreground="#888888" FontSize="11" VerticalAlignment="Center" Margin="0,0,12,0"/>
+  <TextBlock Text="Whitelist: " Foreground="#555555" FontSize="11" VerticalAlignment="Center"/>
+  <TextBlock Text="{Binding WhitelistStatus, FallbackValue=''}" Foreground="#888888" FontSize="11" VerticalAlignment="Center"/>
+</StackPanel>
  </StackPanel>
 
                 <!-- AnWave status -->
