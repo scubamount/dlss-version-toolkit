@@ -10,7 +10,8 @@ public sealed record WhitelistResult(
     bool Success,
     int GamesModified,
     string? ErrorMessage,
-    List<string> ModifiedFiles);
+    List<string> ModifiedFiles,
+    bool IsApplicable = true);
 
 public interface IWhitelistService
 {
@@ -39,57 +40,63 @@ public sealed class WhitelistService : IWhitelistService
         "Disable_SR_Model_Override"
     };
 
-    public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = default)
+public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = default)
+{
+    var modifiedFiles = new List<string>();
+    int gamesModified = 0;
+    string? errorMessage = null;
+    bool isApplicable = true;
+
+    // Step 1: Modify ApplicationStorage.json
+    try
     {
-        var modifiedFiles = new List<string>();
-        int gamesModified = 0;
-        string? errorMessage = null;
+        var jsonResult = await ModifyApplicationStorageJsonAsync(ct);
+        if (!jsonResult.Success && !string.IsNullOrEmpty(jsonResult.ErrorMessage))
+        {
+            errorMessage = jsonResult.ErrorMessage;
+        }
+        gamesModified += jsonResult.GamesModified;
+        modifiedFiles.AddRange(jsonResult.ModifiedFiles);
+        isApplicable = jsonResult.IsApplicable; // Not applicable if file missing
+    }
+    catch (Exception ex)
+    {
+        Debug.WriteLine($"ApplyWhitelistAsync: ApplicationStorage.json error: {ex.Message}");
+        errorMessage = $"Failed to process ApplicationStorage.json: {ex.Message}";
+    }
 
-        // Step 1: Modify ApplicationStorage.json
-        try
+    // Step 2: Modify fingerprint.db files
+    try
+    {
+        var xmlResult = ModifyFingerprintDatabases();
+        if (!xmlResult.Success && !string.IsNullOrEmpty(xmlResult.ErrorMessage))
         {
-            var jsonResult = await ModifyApplicationStorageJsonAsync(ct);
-            if (!jsonResult.Success && !string.IsNullOrEmpty(jsonResult.ErrorMessage))
-            {
-                errorMessage = jsonResult.ErrorMessage;
-            }
-            gamesModified += jsonResult.GamesModified;
-            modifiedFiles.AddRange(jsonResult.ModifiedFiles);
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"ApplyWhitelistAsync: ApplicationStorage.json error: {ex.Message}");
-            errorMessage = $"Failed to process ApplicationStorage.json: {ex.Message}";
-        }
-
-        // Step 2: Modify fingerprint.db files
-        try
-        {
-            var xmlResult = ModifyFingerprintDatabases();
-            if (!xmlResult.Success && !string.IsNullOrEmpty(xmlResult.ErrorMessage))
-            {
-                if (!string.IsNullOrEmpty(errorMessage))
-                    errorMessage += "; " + xmlResult.ErrorMessage;
-                else
-                    errorMessage = xmlResult.ErrorMessage;
-            }
-            gamesModified += xmlResult.GamesModified;
-            modifiedFiles.AddRange(xmlResult.ModifiedFiles);
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"ApplyWhitelistAsync: fingerprint.db error: {ex.Message}");
             if (!string.IsNullOrEmpty(errorMessage))
-                errorMessage += "; " + ex.Message;
+                errorMessage += "; " + xmlResult.ErrorMessage;
             else
-                errorMessage = $"Failed to process fingerprint.db: {ex.Message}";
+                errorMessage = xmlResult.ErrorMessage;
         }
+        gamesModified += xmlResult.GamesModified;
+        modifiedFiles.AddRange(xmlResult.ModifiedFiles);
+        // If fingerprint.dbs were found, the NVIDIA app is installed even if ApplicationStorage.json is missing
+        if (xmlResult.IsApplicable)
+            isApplicable = true;
+    }
+    catch (Exception ex)
+    {
+        Debug.WriteLine($"ApplyWhitelistAsync: fingerprint.db error: {ex.Message}");
+        if (!string.IsNullOrEmpty(errorMessage))
+            errorMessage += "; " + ex.Message;
+        else
+            errorMessage = $"Failed to process fingerprint.db: {ex.Message}";
+    }
 
-        return new WhitelistResult(
-            Success: string.IsNullOrEmpty(errorMessage),
-            GamesModified: gamesModified,
-            ErrorMessage: string.IsNullOrEmpty(errorMessage) ? null : errorMessage,
-            ModifiedFiles: modifiedFiles);
+    return new WhitelistResult(
+        Success: string.IsNullOrEmpty(errorMessage),
+        GamesModified: gamesModified,
+        ErrorMessage: string.IsNullOrEmpty(errorMessage) ? null : errorMessage,
+        ModifiedFiles: modifiedFiles,
+        IsApplicable: isApplicable);
     }
 
     public async Task<(bool Success, string? ErrorMessage)> RestartNvidiaServicesAsync(CancellationToken ct = default)
@@ -142,14 +149,14 @@ public sealed class WhitelistService : IWhitelistService
         return (false, string.Join(" ", errors));
     }
 
-    private async Task<(bool Success, int GamesModified, string? ErrorMessage, List<string> ModifiedFiles)> ModifyApplicationStorageJsonAsync(CancellationToken ct)
+    private async Task<(bool Success, int GamesModified, string? ErrorMessage, List<string> ModifiedFiles, bool IsApplicable)> ModifyApplicationStorageJsonAsync(CancellationToken ct)
     {
         var modifiedFiles = new List<string>();
         int gamesModified = 0;
 
         if (!File.Exists(ApplicationStoragePath))
         {
-            return (false, 0, $"ApplicationStorage.json not found at: {ApplicationStoragePath}", modifiedFiles);
+            return (false, 0, $"ApplicationStorage.json not found at: {ApplicationStoragePath}", modifiedFiles, false);
         }
 
         string jsonContent;
@@ -159,12 +166,12 @@ public sealed class WhitelistService : IWhitelistService
         }
         catch (Exception ex)
         {
-            return (false, 0, $"Could not read ApplicationStorage.json: {ex.Message}", modifiedFiles);
+            return (false, 0, $"Could not read ApplicationStorage.json: {ex.Message}", modifiedFiles, true);
         }
 
         if (string.IsNullOrWhiteSpace(jsonContent))
         {
-            return (false, 0, "ApplicationStorage.json is empty.", modifiedFiles);
+            return (false, 0, "ApplicationStorage.json is empty.", modifiedFiles, true);
         }
 
         try
@@ -172,7 +179,7 @@ public sealed class WhitelistService : IWhitelistService
             using var document = JsonDocument.Parse(jsonContent);
             if (document.RootElement.ValueKind != JsonValueKind.Array)
             {
-                return (false, 0, "ApplicationStorage.json root is not an array.", modifiedFiles);
+                return (false, 0, "ApplicationStorage.json root is not an array.", modifiedFiles, true);
             }
 
             // Check if any overrides need changing
@@ -197,12 +204,12 @@ public sealed class WhitelistService : IWhitelistService
             if (!anyNeedChange)
             {
                 Debug.WriteLine("ModifyApplicationStorageJsonAsync: all override flags already false");
-                return (true, 0, null, modifiedFiles);
+            return (true, 0, null, modifiedFiles, true);
             }
         }
         catch (JsonException ex)
         {
-            return (false, 0, $"Failed to parse ApplicationStorage.json: {ex.Message}", modifiedFiles);
+            return (false, 0, $"Failed to parse ApplicationStorage.json: {ex.Message}", modifiedFiles, true);
         }
 
         // Re-parse for modification
@@ -255,19 +262,19 @@ public sealed class WhitelistService : IWhitelistService
 
             modifiedFiles.Add(ApplicationStoragePath);
             Debug.WriteLine($"ModifyApplicationStorageJsonAsync: modified {gamesModified} game entries");
-            return (true, gamesModified, null, modifiedFiles);
+        return (true, gamesModified, null, modifiedFiles, true);
         }
         catch (JsonException ex)
         {
-            return (false, 0, $"Failed to re-serialize ApplicationStorage.json: {ex.Message}", modifiedFiles);
+            return (false, 0, $"Failed to re-serialize ApplicationStorage.json: {ex.Message}", modifiedFiles, true);
         }
         catch (Exception ex)
         {
-            return (false, 0, $"Failed to write ApplicationStorage.json: {ex.Message}", modifiedFiles);
+            return (false, 0, $"Failed to write ApplicationStorage.json: {ex.Message}", modifiedFiles, true);
         }
     }
 
-    private (bool Success, int GamesModified, string? ErrorMessage, List<string> ModifiedFiles) ModifyFingerprintDatabases()
+    private (bool Success, int GamesModified, string? ErrorMessage, List<string> ModifiedFiles, bool IsApplicable) ModifyFingerprintDatabases()
     {
         var modifiedFiles = new List<string>();
         int gamesModified = 0;
@@ -300,7 +307,7 @@ public sealed class WhitelistService : IWhitelistService
         if (fpdbPaths.Count == 0)
         {
             Debug.WriteLine("ModifyFingerprintDatabases: no fingerprint.db files found");
-            return (true, 0, null, modifiedFiles);
+            return (true, 0, null, modifiedFiles, false);
         }
 
         foreach (var fpdbPath in fpdbPaths)
@@ -326,7 +333,7 @@ public sealed class WhitelistService : IWhitelistService
             }
         }
 
-        return (string.IsNullOrEmpty(errorMessage), gamesModified, errorMessage, modifiedFiles);
+        return (string.IsNullOrEmpty(errorMessage), gamesModified, errorMessage, modifiedFiles, true);
     }
 
     private static (bool Modified, string? ErrorMessage) ModifySingleFingerprintDb(string fpdbPath)
