@@ -206,4 +206,4 @@ dlss-version-toolkit/
 
 ## License
 
-MIT
+[Apache License 2.0](LICENSE). See the [NOTICE](NOTICE) file for attribution requirements.

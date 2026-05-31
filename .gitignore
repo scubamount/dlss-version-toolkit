@@ -54,3 +54,8 @@ autoresearch/
 
 # graphify analysis cache (local tooling, not part of the project)
 graphify-out/
+
+# Agent / tooling working dirs (not part of the shipped toolkit)
+.omo/
+.opencode/
+.specify/

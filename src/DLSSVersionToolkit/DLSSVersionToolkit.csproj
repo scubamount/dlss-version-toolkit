@@ -22,12 +22,14 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <AssemblyName>DLSSVersionToolkit</AssemblyName>
-    <AssemblyVersion>0.0.29.0</AssemblyVersion>
-    <FileVersion>0.0.29.0</FileVersion>
-    <Version>0.0.29</Version>
+    <AssemblyVersion>0.0.30.0</AssemblyVersion>
+    <FileVersion>0.0.30.0</FileVersion>
+    <Version>0.0.30</Version>
     <Authors>scubamount</Authors>
     <Product>DLSS Version Toolkit</Product>
     <Description>WPF GUI for checking and upgrading NVIDIA DLSS versions</Description>
+    <Copyright>Copyright 2026 scubamount</Copyright>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Allow managed catch blocks to handle corrupted-state exceptions (AccessViolation,
          SEHException) raised by native P/Invoke into nvapi64.dll. Without this a native
