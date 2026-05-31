@@ -6,20 +6,22 @@
         xmlns:local="clr-namespace:DLSSVersionToolkit"
         xmlns:vm="clr-namespace:DLSSVersionToolkit.ViewModels"
         xmlns:converters="clr-namespace:DLSSVersionToolkit.Converters"
-        Title="DLSS Version Toolkit" Height="680" Width="960"
-        MinHeight="580" MinWidth="880"
-        Background="{StaticResource DarkBackgroundBrush}"
+        Title="DLSS Version Toolkit — by scubamount" Height="700" Width="980"
+        MinHeight="600" MinWidth="900"
+        Background="{StaticResource CanvasBrush}"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
+        <converters:DlssPresetDescriptionConverter x:Key="DlssPresetDescriptionConverter"/>
+
+        <!-- DataGrid cell that turns green for the newest DLSS build -->
         <Style x:Key="NewestCellStyle" TargetType="DataGridCell">
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Padding" Value="8,4"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="DataGridCell">
-                        <Border Background="{TemplateBinding Background}"
-                                Padding="{TemplateBinding Padding}">
+                        <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
                             <ContentPresenter VerticalAlignment="Center"/>
                         </Border>
                     </ControlTemplate>
@@ -27,348 +29,352 @@
             </Setter>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsNewestDLSS}" Value="True">
-                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+                    <Setter Property="Foreground" Value="{StaticResource NvidiaGreenBrush}"/>
                     <Setter Property="FontWeight" Value="SemiBold"/>
                 </DataTrigger>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                    <Setter Property="Background" Value="{StaticResource Panel2Brush}"/>
+                    <Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
-        <converters:DlssPresetDescriptionConverter x:Key="DlssPresetDescriptionConverter"/>
+
+        <!-- Reusable column-cell text style (mono) -->
+        <Style x:Key="MonoCellStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="8,4"/>
+        </Style>
+
+        <!-- Sidebar group label -->
+        <Style x:Key="NavGroupLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text3Brush}"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="18,14,18,5"/>
+        </Style>
     </Window.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="50"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="30"/>
+            <RowDefinition Height="Auto"/>   <!-- branded header -->
+            <RowDefinition Height="*"/>      <!-- sidebar + main -->
+            <RowDefinition Height="28"/>     <!-- status bar -->
         </Grid.RowDefinitions>
 
-        <!-- Toolbar -->
-        <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="10,0">
+        <!-- ===== BRANDED HEADER (maker attribution) ===== -->
+        <Border Grid.Row="0" Background="#050505" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="16,10">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- Logo -->
-                <TextBlock Grid.Column="0" Text="DLSS Toolkit" FontSize="14" FontWeight="Bold"
-                           Foreground="{StaticResource NvidiaGreenBrush}"
-                           VerticalAlignment="Center" Margin="0,0,16,0"/>
-
-                <!-- Scan -->
-                <Button Grid.Column="1" Content="Scan" Style="{StaticResource DarkButtonStyle}"
-                        Command="{Binding ScanCommand}" Padding="16,6" Margin="0,0,6,0"
-                        IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBoolConverter}}"/>
-
-                <!-- Update All — main action button -->
-                <Button Grid.Column="2" Command="{Binding OneClickUpdateAllCommand}" Padding="20,6" Margin="0,0,6,0"
-                        ToolTip="One click does everything: applies the whitelist, downloads the latest DLSS SDK, syncs it to NGX Release, and sets up + applies AnWave automatically. You do not need to run Scan or Setup AnWave first.">
-                    <Button.Style>
-                        <Style TargetType="Button" BasedOn="{StaticResource DarkButtonStyle}">
-                            <Setter Property="Background" Value="#2D7D2D"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
-                                    <Setter Property="Background" Value="#4CAF50"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding IsUpdatingAll}" Value="True">
-                                    <Setter Property="Background" Value="#2D7D2D"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                    <Button.Content>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="Update All" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                            <TextBlock Text=" | " Foreground="#AAAAAA" VerticalAlignment="Center" Margin="6,0"/>
-                            <TextBlock VerticalAlignment="Center" FontFamily="Consolas" FontSize="11">
-                                <TextBlock.Text>
-                                    <MultiBinding StringFormat="{}{0} → {1}">
-                                        <Binding Path="CurrentDlssVersion" FallbackValue="—"/>
-                                        <Binding Path="AvailableDlssVersion" FallbackValue="—"/>
-                                    </MultiBinding>
-                                </TextBlock.Text>
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="#CCCCCC"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
-                                                <Setter Property="Foreground" Value="#FFFFFF"/>
-                                                <Setter Property="FontWeight" Value="SemiBold"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </StackPanel>
-                    </Button.Content>
-                </Button>
-
-                <!-- Advanced dropdown -->
-                <Menu Grid.Column="3" Background="Transparent" VerticalAlignment="Center" HorizontalAlignment="Left">
-                    <MenuItem Header="Advanced ▾" Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextSecondaryBrush}" Padding="12,6" FontSize="11">
-                        <!-- Download SDKs submenu -->
-                        <MenuItem Header="Download SDKs" Foreground="{StaticResource TextPrimaryBrush}">
-                            <MenuItem Header="DLSS SDK" Command="{Binding DownloadLatestCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                            <MenuItem Header="Streamline SDK" Command="{Binding DownloadStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                        </MenuItem>
-                        <!-- Sync to NGX submenu -->
-                        <MenuItem Header="Sync to NGX" Foreground="{StaticResource TextPrimaryBrush}">
-                            <MenuItem Header="From DLSS SDK" Command="{Binding SyncFromDlssSdkCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                            <MenuItem Header="From Streamline SDK" Command="{Binding SyncFromStreamlineCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                            <MenuItem Header="From AnWave" Command="{Binding SyncFromAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                        </MenuItem>
-                        <Separator/>
-                        <!-- AnWave submenu -->
-                        <MenuItem Header="AnWave" Foreground="{StaticResource TextPrimaryBrush}">
-                            <MenuItem Header="Setup AnWave" Command="{Binding SetupAnWaveCommand}" Foreground="{StaticResource TextPrimaryBrush}" IsEnabled="{Binding IsSettingUpAnWave, Converter={StaticResource InverseBoolConverter}}"/>
-                        </MenuItem>
-                        <Separator/>
-                        <!-- DLSS Indicator toggle -->
-                        <MenuItem Header="{Binding DlssIndicatorStatus}" Command="{Binding ToggleDlssIndicatorCommand}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                    </MenuItem>
-                </Menu>
-
-                <!-- Settings -->
-                <Button Grid.Column="5" Content="Settings" Style="{StaticResource DarkButtonStyle}"
-                        Command="{Binding OpenSettingsCommand}" Padding="12,6" Margin="6,0,0,0"/>
-
-                <!-- Export -->
-                <Button Grid.Column="6" Content="Export" Style="{StaticResource DarkButtonStyle}"
-                        Command="{Binding ExportCommand}" Padding="12,6"/>
-            </Grid>
-        </Border>
-
-        <!-- Version Banner -->
-        <Border Grid.Row="1" Background="#1A3A1A" BorderBrush="#2D5A2D" BorderThickness="0,0,0,1" Padding="16,10" Margin="0">
-            <Grid>
-                <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-<StackPanel Grid.Column="0" VerticalAlignment="Center">
- <StackPanel Orientation="Horizontal">
- <TextBlock Text="Current NGX: " Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center"/>
- <TextBlock Text="{Binding CurrentDlssVersion, FallbackValue='—'}" Foreground="{StaticResource NvidiaGreenBrush}"
- FontFamily="Consolas" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
- <TextBlock Text=" | Available: " Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/>
- <TextBlock Text="{Binding AvailableDlssVersion, FallbackValue='—'}" Foreground="#4CAF50"
- FontFamily="Consolas" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
- <TextBlock Text=" | " Foreground="#555555" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/>
- <TextBlock Text="{Binding VersionStatusMessage, FallbackValue=''}" Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center"/>
- </StackPanel>
-<StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-  <TextBlock Text="Override Preset: " Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center"/>
-  <ComboBox ItemsSource="{Binding AvailablePresets}"
-            SelectedItem="{Binding SelectedPreset}"
-            MinWidth="140" MaxWidth="220"
-            FontSize="11"
-            Background="#2D2D2D" Foreground="#76B900"
-            BorderBrush="#3D3D3D" Padding="6,3"
-            VerticalAlignment="Center">
-    <ComboBox.ItemTemplate>
-      <DataTemplate>
-        <TextBlock Text="{Binding Converter={StaticResource DlssPresetDescriptionConverter}}"
-                   FontSize="11"/>
-      </DataTemplate>
-    </ComboBox.ItemTemplate>
-  </ComboBox>
-  <Button Content="Apply" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
-          Command="{Binding ApplyPresetCommand}" Margin="8,0,0,0" VerticalAlignment="Center"
-          IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
-          ToolTip="Enables the DLSS override (&quot;Custom&quot;) and applies this preset to every game profile. Takes a few seconds; fully restart the game afterward."/>
-  <TextBlock Text=" | " Foreground="#555555" FontSize="11" VerticalAlignment="Center" Margin="8,0,0,0"/>
-  <TextBlock Text="{Binding CurrentPresetStatus, FallbackValue=''}" Foreground="#888888" FontSize="11" VerticalAlignment="Center" Margin="0,0,12,0"/>
-  <TextBlock Text="Whitelist: " Foreground="#555555" FontSize="11" VerticalAlignment="Center"/>
-  <TextBlock Text="{Binding WhitelistStatus, FallbackValue=''}" Foreground="#888888" FontSize="11" VerticalAlignment="Center"/>
-  <Button Content="Apply" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
-          Command="{Binding ApplyWhitelistCommand}" Margin="8,0,0,0" VerticalAlignment="Center"
-          ToolTip="Remove NVIDIA App's DLSS4 override restrictions so you can enable DLSS overrides for more games, then restart NVIDIA services."/>
-</StackPanel>
- </StackPanel>
+                <TextBlock Grid.Column="0" Text="⬢ DLSS TOOLKIT" FontSize="15" FontWeight="Bold"
+                           Foreground="{StaticResource NvidiaGreenBrush}" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Text="by scubamount" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" Margin="12,0,0,0"/>
 
-                <!-- AnWave status -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="#888888"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsAnWaveInstalled}" Value="True">
-                                        <Setter Property="Foreground" Value="#4CAF50"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                        <Run Text="AnWave: "/>
-                        <Run Text="{Binding AnWaveDllVersion, Mode=OneWay, TargetNullValue='not set', FallbackValue='not set'}"/>
-                    </TextBlock>
-                    <Button Content="Setup" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
-                            Command="{Binding SetupAnWaveCommand}" Margin="0,0,0,0"
-                            Visibility="{Binding IsAnWaveInstalled, Converter={StaticResource InverseBoolToVisibilityConverter}}"/>
+                <!-- right: version + indicator toggle -->
+                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding DlssIndicatorStatus}" Foreground="{StaticResource Text3Brush}"
+                               FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"
+                               ToolTip="Toggle the on-screen DLSS overlay (appears bottom-left of supported games after a full restart)."/>
+                    <Button Content="Toggle Indicator" Style="{StaticResource DarkButtonStyle}" Padding="10,4" FontSize="11"
+                            Command="{Binding ToggleDlssIndicatorCommand}"/>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Main Content — Version Table -->
-        <Grid Grid.Row="2" Margin="16,12">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
+        <!-- ===== BODY: SIDEBAR + MAIN ===== -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="212"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-            <TextBlock Grid.Row="0" Text="Installed Versions"
-                       Foreground="{StaticResource TextPrimaryBrush}"
-                       FontSize="12" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <!-- SIDEBAR -->
+            <Border Grid.Column="0" Background="{StaticResource Panel1Brush}" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,1,0">
+                <DockPanel>
+                    <!-- status card pinned to bottom -->
+                    <Border DockPanel.Dock="Bottom" Margin="14,10" Padding="10"
+                            Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                <Ellipse Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center">
+                                    <Ellipse.Style>
+                                        <Style TargetType="Ellipse">
+                                            <Setter Property="Fill" Value="{StaticResource SuccessBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ScanStatus}" Value="Error">
+                                                    <Setter Property="Fill" Value="{StaticResource ErrorBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
+                                <TextBlock Text="{Binding ScanStatus}" Foreground="{StaticResource Text2Brush}" FontSize="11" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                <Ellipse Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center">
+                                    <Ellipse.Style>
+                                        <Style TargetType="Ellipse">
+                                            <Setter Property="Fill" Value="{StaticResource AmberBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsAnWaveInstalled}" Value="True">
+                                                    <Setter Property="Fill" Value="{StaticResource SuccessBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
+                                <TextBlock Foreground="{StaticResource Text2Brush}" FontSize="11" VerticalAlignment="Center">
+                                    <Run Text="AnWave: "/><Run Text="{Binding AnWaveDllVersion, Mode=OneWay, TargetNullValue='not set', FallbackValue='not set'}"/>
+                                </TextBlock>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center" Fill="{StaticResource NvidiaGreenBrush}"/>
+                                <TextBlock Foreground="{StaticResource Text2Brush}" FontSize="11" VerticalAlignment="Center">
+                                    <Run Text="Whitelist: "/><Run Text="{Binding WhitelistStatus, Mode=OneWay}"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
 
-            <DataGrid Grid.Row="1" ItemsSource="{Binding Versions}"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True"
-                      SelectionMode="Single"
-                      GridLinesVisibility="Horizontal"
-                      HeadersVisibility="Column"
-                      CanUserAddRows="False"
-                      CanUserDeleteRows="False"
-                      CanUserResizeRows="False"
-                      Background="{StaticResource DarkBackgroundBrush}"
-                      Foreground="{StaticResource TextPrimaryBrush}"
-                      BorderBrush="{StaticResource BorderBrush}"
-                      BorderThickness="1"
-                      RowBackground="{StaticResource DarkBackgroundBrush}"
-                      AlternatingRowBackground="{StaticResource SurfaceBrush}"
-                      HorizontalGridLinesBrush="{StaticResource BorderBrush}"
-                      VerticalGridLinesBrush="{StaticResource BorderBrush}"
-                      RowHeight="30"
-                      ColumnHeaderHeight="34">
-                <DataGrid.ColumnHeaderStyle>
-                    <Style TargetType="DataGridColumnHeader">
-                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
-                        <Setter Property="FontWeight" Value="SemiBold"/>
-                        <Setter Property="Padding" Value="8,4"/>
-                        <Setter Property="BorderThickness" Value="0,0,1,1"/>
-                        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
-                    </Style>
-                </DataGrid.ColumnHeaderStyle>
-                <DataGrid.CellStyle>
-                    <Style TargetType="DataGridCell">
-                        <Setter Property="BorderThickness" Value="0"/>
-                        <Setter Property="Padding" Value="8,4"/>
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="DataGridCell">
-                                    <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                        <Style.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </DataGrid.CellStyle>
+                    <!-- nav items -->
+                    <StackPanel DockPanel.Dock="Top">
+                        <TextBlock Text="OVERVIEW" Style="{StaticResource NavGroupLabel}"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Tag="active" Command="{Binding ShowDashboardCommand}" Content="▦   Dashboard"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ScanCommand}"
+                                IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBoolConverter}}" Content="⟲   Rescan"/>
 
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Source" Binding="{Binding DisplaySource}" Width="130">
-                        <DataGridTextColumn.ElementStyle>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{StaticResource NvidiaGreenBrush}"/>
+                        <TextBlock Text="CONFIGURE" Style="{StaticResource NavGroupLabel}"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ApplyWhitelistCommand}" Content="✓   Apply Whitelist"
+                                ToolTip="Remove NVIDIA App's DLSS4 override restrictions and restart NVIDIA services."/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SetupAnWaveCommand}"
+                                IsEnabled="{Binding IsSettingUpAnWave, Converter={StaticResource InverseBoolConverter}}" Content="⬡   Setup AnWave"/>
+
+                        <TextBlock Text="TOOLS" Style="{StaticResource NavGroupLabel}"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadLatestCommand}" Content="⤓   Download DLSS SDK"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadStreamlineCommand}" Content="⤓   Download Streamline"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromDlssSdkCommand}" Content="⟳   Sync NGX from DLSS"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromAnWaveCommand}" Content="⟳   Sync NGX from AnWave"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding OpenSettingsCommand}" Content="⚙   Settings"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ExportCommand}" Content="⤴   Export Report"/>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- MAIN CONTENT -->
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" Background="{StaticResource CanvasBrush}">
+                <StackPanel Margin="0,0,0,20">
+                    <!-- Page head -->
+                    <Grid Margin="28,20,28,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Dashboard" FontSize="22" FontWeight="Bold" Foreground="{StaticResource Text1Brush}"/>
+                            <TextBlock Text="{Binding VersionStatusMessage, FallbackValue='Scan to check your DLSS versions and presets.'}"
+                                       FontSize="13" Foreground="{StaticResource Text3Brush}" Margin="0,3,0,0"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Hero version strip -->
+                    <Border Margin="28,18,28,0" Padding="20,18" Background="{StaticResource Panel1Brush}"
+                            BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1,1,1,1">
+                        <Border.Resources>
+                            <Style TargetType="TextBlock" x:Key="HeroKey">
+                                <Setter Property="Foreground" Value="{StaticResource Text3Brush}"/>
+                                <Setter Property="FontSize" Value="10"/>
                                 <Setter Property="FontWeight" Value="SemiBold"/>
-                                <Setter Property="VerticalAlignment" Value="Center"/>
-                                <Setter Property="Padding" Value="8,4"/>
                             </Style>
-                        </DataGridTextColumn.ElementStyle>
-                    </DataGridTextColumn>
-                    <DataGridTextColumn Header="Build ID" Binding="{Binding BuildID}" Width="110">
-                        <DataGridTextColumn.ElementStyle>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                <Setter Property="FontFamily" Value="Consolas"/>
-                                <Setter Property="VerticalAlignment" Value="Center"/>
-                                <Setter Property="Padding" Value="8,4"/>
-                            </Style>
-                        </DataGridTextColumn.ElementStyle>
-                    </DataGridTextColumn>
-                    <DataGridTextColumn Header="DLSS" Binding="{Binding DLSS}" Width="110">
-                        <DataGridTextColumn.ElementStyle>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                <Setter Property="FontFamily" Value="Consolas"/>
-                                <Setter Property="VerticalAlignment" Value="Center"/>
-                                <Setter Property="Padding" Value="8,4"/>
-                            </Style>
-                        </DataGridTextColumn.ElementStyle>
-                    </DataGridTextColumn>
-                    <DataGridTextColumn Header="Frame Gen" Binding="{Binding FrameGen}" Width="110">
-                        <DataGridTextColumn.ElementStyle>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                <Setter Property="FontFamily" Value="Consolas"/>
-                                <Setter Property="VerticalAlignment" Value="Center"/>
-                                <Setter Property="Padding" Value="8,4"/>
-                            </Style>
-                        </DataGridTextColumn.ElementStyle>
-                    </DataGridTextColumn>
-                    <DataGridTextColumn Header="DLSSD" Binding="{Binding DLSSD}" Width="110">
-                        <DataGridTextColumn.ElementStyle>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                <Setter Property="FontFamily" Value="Consolas"/>
-                                <Setter Property="VerticalAlignment" Value="Center"/>
-                                <Setter Property="Padding" Value="8,4"/>
-                            </Style>
-                        </DataGridTextColumn.ElementStyle>
-                    </DataGridTextColumn>
-                    <DataGridTextColumn Header="DeepDVC" Binding="{Binding DeepDVC}" Width="110">
-                        <DataGridTextColumn.ElementStyle>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                <Setter Property="FontFamily" Value="Consolas"/>
-                                <Setter Property="VerticalAlignment" Value="Center"/>
-                                <Setter Property="Padding" Value="8,4"/>
-                            </Style>
-                        </DataGridTextColumn.ElementStyle>
-                    </DataGridTextColumn>
-                    <DataGridTextColumn Header="Streamline" Binding="{Binding Streamline}" Width="*">
-                        <DataGridTextColumn.ElementStyle>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                <Setter Property="FontFamily" Value="Consolas"/>
-                                <Setter Property="VerticalAlignment" Value="Center"/>
-                                <Setter Property="Padding" Value="8,4"/>
-                            </Style>
-                        </DataGridTextColumn.ElementStyle>
-                    </DataGridTextColumn>
-                </DataGrid.Columns>
-            </DataGrid>
+                        </Border.Resources>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <!-- green left accent bar -->
+                            <Border Grid.Column="0" Width="2" Background="{StaticResource NvidiaGreenBrush}" Margin="0,0,18,0"/>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="CURRENT NGX" Style="{StaticResource HeroKey}"/>
+                                <TextBlock Text="{Binding CurrentDlssVersion, FallbackValue='—'}" FontFamily="Consolas"
+                                           FontSize="20" FontWeight="Bold" Foreground="{StaticResource NvidiaGreenBrush}" Margin="0,3,0,0"/>
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Text="→" Foreground="{StaticResource Text3Brush}" FontSize="18"
+                                       VerticalAlignment="Center" Margin="24,0"/>
+                            <StackPanel Grid.Column="3">
+                                <TextBlock Text="LATEST AVAILABLE" Style="{StaticResource HeroKey}"/>
+                                <TextBlock Text="{Binding AvailableDlssVersion, FallbackValue='—'}" FontFamily="Consolas"
+                                           FontSize="20" FontWeight="Bold" Foreground="{StaticResource Text1Brush}" Margin="0,3,0,0"/>
+                            </StackPanel>
+                            <!-- status pill -->
+                            <Border Grid.Column="5" VerticalAlignment="Center" CornerRadius="2" Padding="10,4"
+                                    BorderThickness="1" BorderBrush="{StaticResource NvidiaGreenBrush}">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
+                                                <Setter Property="BorderBrush" Value="{StaticResource AmberBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock FontSize="11" FontWeight="SemiBold">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="UP TO DATE"/>
+                                            <Setter Property="Foreground" Value="{StaticResource NvidiaGreenBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
+                                                    <Setter Property="Text" Value="UPDATE AVAILABLE"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource AmberBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <!-- Primary action row -->
+                    <Grid Margin="28,16,28,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Update All -->
+                        <Button Grid.Column="0" Style="{StaticResource PrimaryButtonStyle}" VerticalAlignment="Bottom"
+                                Command="{Binding OneClickUpdateAllCommand}"
+                                ToolTip="One click: applies the whitelist, pushes the selected preset to every game, downloads the latest DLSS SDK and syncs it to NGX, and sets up AnWave.">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="⟳  Update All" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Override preset picker -->
+                        <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                            <TextBlock Text="OVERRIDE PRESET" Foreground="{StaticResource Text3Brush}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <StackPanel Orientation="Horizontal">
+                                <ComboBox ItemsSource="{Binding AvailablePresets}" SelectedItem="{Binding SelectedPreset}"
+                                          MinWidth="220" FontSize="12"
+                                          Background="{StaticResource Panel2Brush}" Foreground="{StaticResource NvidiaGreenBrush}"
+                                          BorderBrush="{StaticResource HairlineStrongBrush}" Padding="8,5" VerticalAlignment="Center"
+                                          IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Converter={StaticResource DlssPresetDescriptionConverter}}" FontSize="12"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Button Content="Apply to all games" Style="{StaticResource SolidGreenButtonStyle}" Margin="8,0,0,0"
+                                        Command="{Binding ApplyPresetCommand}"
+                                        IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
+                                        ToolTip="Enables the DLSS override (&quot;Custom&quot;) and applies this preset to every game profile. Takes a few seconds; fully restart the game afterward."/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Current preset status line -->
+                    <TextBlock Margin="28,8,28,0" FontSize="11" Foreground="{StaticResource Text3Brush}"
+                               Text="{Binding CurrentPresetStatus, FallbackValue=''}"/>
+
+                    <!-- Installed Versions -->
+                    <TextBlock Text="INSTALLED VERSIONS" Margin="28,22,28,8" FontSize="12" FontWeight="SemiBold"
+                               Foreground="{StaticResource Text2Brush}"/>
+
+                    <Border Margin="28,0,28,0" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1" CornerRadius="2">
+                        <DataGrid ItemsSource="{Binding Versions}"
+                                  AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single"
+                                  GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                                  CanUserAddRows="False" CanUserDeleteRows="False" CanUserResizeRows="False"
+                                  Background="{StaticResource CanvasBrush}" Foreground="{StaticResource Text1Brush}"
+                                  BorderThickness="0"
+                                  RowBackground="{StaticResource CanvasBrush}" AlternatingRowBackground="{StaticResource Panel1Brush}"
+                                  HorizontalGridLinesBrush="{StaticResource HairlineBrush}"
+                                  VerticalGridLinesBrush="{StaticResource HairlineBrush}"
+                                  RowHeight="32" ColumnHeaderHeight="34">
+                            <DataGrid.ColumnHeaderStyle>
+                                <Style TargetType="DataGridColumnHeader">
+                                    <Setter Property="Background" Value="{StaticResource Panel2Brush}"/>
+                                    <Setter Property="Foreground" Value="{StaticResource Text2Brush}"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter Property="FontSize" Value="11"/>
+                                    <Setter Property="Padding" Value="10,5"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}"/>
+                                </Style>
+                            </DataGrid.ColumnHeaderStyle>
+                            <DataGrid.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="BorderThickness" Value="0"/>
+                                    <Setter Property="Padding" Value="10,4"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="DataGridCell">
+                                                <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter VerticalAlignment="Center"/>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter Property="Background" Value="{StaticResource Panel2Brush}"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.CellStyle>
+
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Source" Binding="{Binding DisplaySource}" Width="140">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{StaticResource NvidiaGreenBrush}"/>
+                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Padding" Value="10,4"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+                                <DataGridTextColumn Header="Build ID" Binding="{Binding BuildID}" Width="120" ElementStyle="{StaticResource MonoCellStyle}"/>
+                                <DataGridTextColumn Header="DLSS" Binding="{Binding DLSS}" Width="110" ElementStyle="{StaticResource MonoCellStyle}"/>
+                                <DataGridTextColumn Header="Frame Gen" Binding="{Binding FrameGen}" Width="110" ElementStyle="{StaticResource MonoCellStyle}"/>
+                                <DataGridTextColumn Header="DLSSD" Binding="{Binding DLSSD}" Width="110" ElementStyle="{StaticResource MonoCellStyle}"/>
+                                <DataGridTextColumn Header="DeepDVC" Binding="{Binding DeepDVC}" Width="110" ElementStyle="{StaticResource MonoCellStyle}"/>
+                                <DataGridTextColumn Header="Streamline" Binding="{Binding Streamline}" Width="*" ElementStyle="{StaticResource MonoCellStyle}"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
 
-        <!-- Status Bar -->
-        <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="12,0">
+        <!-- ===== STATUS BAR ===== -->
+        <Border Grid.Row="2" Background="{StaticResource Panel1Brush}" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,1,0,0" Padding="14,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Status indicator -->
+                <!-- left: scan status + last scan -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Ellipse Width="7" Height="7" Margin="0,0,6,0">
+                    <Ellipse Width="6" Height="6" Margin="0,0,6,0">
                         <Ellipse.Style>
                             <Style TargetType="Ellipse">
                                 <Setter Property="Fill" Value="{StaticResource SuccessBrush}"/>
@@ -382,16 +388,19 @@
                                     <DataTrigger Binding="{Binding IsUpdatingAll}" Value="True">
                                         <Setter Property="Fill" Value="{StaticResource NvidiaGreenBrush}"/>
                                     </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsApplyingPreset}" Value="True">
+                                        <Setter Property="Fill" Value="{StaticResource NvidiaGreenBrush}"/>
+                                    </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </Ellipse.Style>
                     </Ellipse>
-                    <TextBlock Text="{Binding ScanStatus}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" VerticalAlignment="Center"/>
-                    <TextBlock Text=" | Last: " Foreground="#555555" FontSize="10" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                    <TextBlock Text="{Binding LastScanTime, Mode=OneWay}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding ScanStatus}" Foreground="{StaticResource Text2Brush}" FontSize="10" VerticalAlignment="Center"/>
+                    <TextBlock Text=" | Last: " Foreground="{StaticResource Text3Brush}" FontSize="10" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    <TextBlock Text="{Binding LastScanTime, Mode=OneWay}" Foreground="{StaticResource Text2Brush}" FontSize="10" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Progress during update or preset apply -->
+                <!-- center: progress during update OR preset apply -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
                     <StackPanel.Style>
                         <Style TargetType="StackPanel">
@@ -406,19 +415,14 @@
                             </Style.Triggers>
                         </Style>
                     </StackPanel.Style>
-                    <ProgressBar IsIndeterminate="True" Width="100" Height="6"
-                                 Foreground="{StaticResource NvidiaGreenBrush}" Background="{StaticResource DarkBackgroundBrush}"/>
+                    <ProgressBar IsIndeterminate="True" Width="120" Height="6"
+                                 Foreground="{StaticResource NvidiaGreenBrush}" Background="{StaticResource Panel3Brush}"/>
                     <TextBlock Text="{Binding DownloadStatus}" Foreground="{StaticResource NvidiaGreenBrush}" FontSize="10" Margin="8,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Warning / error message -->
+                <!-- right: warning / error message -->
                 <TextBlock Grid.Column="2" Text="{Binding StatusMessage}" Foreground="{StaticResource WarningBrush}"
-                           FontSize="10" VerticalAlignment="Center" MaxWidth="280" TextTrimming="CharacterEllipsis"/>
-
-                <!-- Version status message -->
-                <TextBlock Grid.Column="3" Text="{Binding VersionStatusMessage}" Foreground="{StaticResource NvidiaGreenBrush}"
-                           FontSize="10" VerticalAlignment="Center" Margin="12,0,0,0"
-                           Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                           FontSize="10" VerticalAlignment="Center" MaxWidth="320" TextTrimming="CharacterEllipsis"/>
             </Grid>
         </Border>
     </Grid>

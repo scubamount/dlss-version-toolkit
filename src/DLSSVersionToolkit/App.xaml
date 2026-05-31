@@ -33,6 +33,128 @@
             <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}"/>
             <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}"/>
 
+            <!-- v0.0.29 redesign tokens (NVIDIA-leaning sidebar dashboard).
+                 Additive: existing keys above are preserved so Settings/other windows keep working. -->
+            <Color x:Key="CanvasColor">#000000</Color>          <!-- true-black canvas -->
+            <Color x:Key="Panel1Color">#0E0E0E</Color>          <!-- sidebar / panels -->
+            <Color x:Key="Panel2Color">#171717</Color>          <!-- elevated cards / table header -->
+            <Color x:Key="Panel3Color">#1F1F1F</Color>          <!-- hover -->
+            <Color x:Key="HairlineColor">#2A2A2A</Color>        <!-- subtle border -->
+            <Color x:Key="HairlineStrongColor">#3A3A3A</Color>
+            <Color x:Key="Text1Color">#F2F2F2</Color>
+            <Color x:Key="Text2Color">#A7A7A7</Color>
+            <Color x:Key="Text3Color">#757575</Color>
+            <Color x:Key="GreenDimColor">#3F8500</Color>
+            <Color x:Key="AmberColor">#EF9100</Color>
+
+            <SolidColorBrush x:Key="CanvasBrush" Color="{StaticResource CanvasColor}"/>
+            <SolidColorBrush x:Key="Panel1Brush" Color="{StaticResource Panel1Color}"/>
+            <SolidColorBrush x:Key="Panel2Brush" Color="{StaticResource Panel2Color}"/>
+            <SolidColorBrush x:Key="Panel3Brush" Color="{StaticResource Panel3Color}"/>
+            <SolidColorBrush x:Key="HairlineBrush" Color="{StaticResource HairlineColor}"/>
+            <SolidColorBrush x:Key="HairlineStrongBrush" Color="{StaticResource HairlineStrongColor}"/>
+            <SolidColorBrush x:Key="Text1Brush" Color="{StaticResource Text1Color}"/>
+            <SolidColorBrush x:Key="Text2Brush" Color="{StaticResource Text2Color}"/>
+            <SolidColorBrush x:Key="Text3Brush" Color="{StaticResource Text3Color}"/>
+            <SolidColorBrush x:Key="GreenDimBrush" Color="{StaticResource GreenDimColor}"/>
+            <SolidColorBrush x:Key="AmberBrush" Color="{StaticResource AmberColor}"/>
+
+            <!-- Sidebar nav button: flat, left-accent on hover; IsActive via Tag="active" -->
+            <Style x:Key="NavButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{StaticResource Text2Brush}"/>
+                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                <Setter Property="Padding" Value="16,9"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="Medium"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                    BorderBrush="Transparent" BorderThickness="2,0,0,0"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Panel2Brush}"/>
+                                    <Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
+                                </Trigger>
+                                <Trigger Property="Tag" Value="active">
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Panel2Brush}"/>
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource NvidiaGreenBrush}"/>
+                                    <Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.45"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Primary action: transparent w/ green border, fills green on hover (NVIDIA pattern) -->
+            <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+                <Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Padding" Value="18,9"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                    BorderBrush="{StaticResource NvidiaGreenBrush}" BorderThickness="2"
+                                    CornerRadius="2" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource NvidiaGreenBrush}"/>
+                                    <Setter Property="Foreground" Value="#000000"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Solid green action ("Apply to all games") -->
+            <Style x:Key="SolidGreenButtonStyle" TargetType="Button">
+                <Setter Property="Foreground" Value="#FFFFFF"/>
+                <Setter Property="Background" Value="{StaticResource GreenDimBrush}"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Padding" Value="16,9"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                    BorderBrush="{StaticResource NvidiaGreenBrush}" BorderThickness="1"
+                                    CornerRadius="2" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource NvidiaGreenBrush}"/>
+                                    <Setter Property="Foreground" Value="#000000"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- Button Style -->
             <Style x:Key="DarkButtonStyle" TargetType="Button">
                 <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
