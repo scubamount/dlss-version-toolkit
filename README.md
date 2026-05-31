@@ -1,6 +1,6 @@
 # DLSS Version Toolkit
 
-> A Windows GUI for checking, upgrading, and syncing NVIDIA DLSS versions across all sources. Built by Scubamount.
+> A Windows GUI for checking, upgrading, and syncing NVIDIA DLSS versions across all sources — built and maintained by scubamount.
 
 ![DLSS Version Toolkit](docs/main-window.png)
 
@@ -77,7 +77,7 @@ dotnet publish src/DLSSVersionToolkit/DLSSVersionToolkit.csproj --configuration 
 
 On first launch, the app scans all known DLSS sources automatically. The dashboard shows your current DLSS versions and whether an update is available.
 
-If AnWave is not installed, the status panel shows "Not installed" — click **Setup AnWave** in the Advanced section to install it automatically.
+If AnWave is not installed, the status card in the sidebar shows "not set" — click **Setup AnWave** in the sidebar *Configure* group to install it automatically.
 
 ### The Dashboard
 
@@ -99,9 +99,9 @@ Green text in the table indicates the newest version for that component across a
 
 Each step shows a dialog with the version applied, files copied, and what to do next. If AnWave setup fails, NGX is still updated — try Setup AnWave separately from the Advanced menu.
 
-### Advanced Operations
+### Individual Operations
 
-Expand the **Advanced** section for individual operations:
+All operations are accessible from the sidebar at any time. Use **Update All** (the primary button) for the full workflow, or trigger any operation individually:
 
 - **Sync from Streamline SDK** — copy DLLs from a Streamline SDK installation to NGX Release
 - **Sync from AnWave** — copy DLLs from AnWave to NGX Release
