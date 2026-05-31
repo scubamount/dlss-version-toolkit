@@ -71,7 +71,8 @@
                         IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBoolConverter}}"/>
 
                 <!-- Update All — main action button -->
-                <Button Grid.Column="2" Command="{Binding OneClickUpdateAllCommand}" Padding="20,6" Margin="0,0,6,0">
+                <Button Grid.Column="2" Command="{Binding OneClickUpdateAllCommand}" Padding="20,6" Margin="0,0,6,0"
+                        ToolTip="One click does everything: applies the whitelist, downloads the latest DLSS SDK, syncs it to NGX Release, and sets up + applies AnWave automatically. You do not need to run Scan or Setup AnWave first.">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource DarkButtonStyle}">
                             <Setter Property="Background" Value="#2D7D2D"/>
@@ -188,6 +189,9 @@
   <TextBlock Text="{Binding CurrentPresetStatus, FallbackValue=''}" Foreground="#888888" FontSize="11" VerticalAlignment="Center" Margin="0,0,12,0"/>
   <TextBlock Text="Whitelist: " Foreground="#555555" FontSize="11" VerticalAlignment="Center"/>
   <TextBlock Text="{Binding WhitelistStatus, FallbackValue=''}" Foreground="#888888" FontSize="11" VerticalAlignment="Center"/>
+  <Button Content="Apply" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
+          Command="{Binding ApplyWhitelistCommand}" Margin="8,0,0,0" VerticalAlignment="Center"
+          ToolTip="Remove NVIDIA App's DLSS4 override restrictions so you can enable DLSS overrides for more games, then restart NVIDIA services."/>
 </StackPanel>
  </StackPanel>
 

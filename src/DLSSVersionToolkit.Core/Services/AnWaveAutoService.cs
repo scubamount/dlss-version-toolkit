@@ -353,15 +353,22 @@ progress?.Report(30);
         // Collect NGX candidate paths (explicit path first, then default known paths)
         var candidates = GetNgxCandidatePaths(ngxBasePath);
 
-        // Find the NGX Release version folder across all candidate paths
+        // Find the NGX Release version folder across all candidate paths.
+        // Prefer NGX_Release; fall back to NGX_Staging so a freshly-synced SDK that
+        // landed in Staging still applies instead of failing outright.
         var ngxScanner = new NgxScanner(new NgxConfigParser());
         List<DLSSVersionEntry>? releases = null;
+        var scannedPaths = new List<string>();
 
         foreach (var candidate in candidates)
         {
+            scannedPaths.Add(candidate);
             try
             {
-                var found = ngxScanner.Scan(candidate).Where(e => e.Source == "NGX_Release").ToList();
+                var scanned = ngxScanner.Scan(candidate);
+                var found = scanned.Where(e => e.Source == "NGX_Release").ToList();
+                if (found.Count == 0)
+                    found = scanned.Where(e => e.Source == "NGX_Staging").ToList();
                 if (found.Count > 0)
                 {
                     releases = found;
@@ -376,7 +383,8 @@ progress?.Report(30);
 
         if (releases == null || releases.Count == 0)
         {
-            result.ErrorMessage = "No NGX Release version found";
+            result.ErrorMessage = "No NGX Release version found. Searched: " +
+                (scannedPaths.Count > 0 ? string.Join("; ", scannedPaths) : "(no candidate paths)");
             return result;
         }
 
@@ -390,7 +398,7 @@ progress?.Report(30);
 
         if (ngxFolder == null || !Directory.Exists(ngxFolder))
         {
-            result.ErrorMessage = "Could not locate NGX Release DLL folder";
+            result.ErrorMessage = $"Could not locate NGX Release DLL folder under: {latestRelease.Path}";
             return result;
         }
 
