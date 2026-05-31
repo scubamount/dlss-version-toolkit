@@ -51,3 +51,6 @@ autoresearch/
 
 # OS
 .DS_Store
+
+# graphify analysis cache (local tooling, not part of the project)
+graphify-out/

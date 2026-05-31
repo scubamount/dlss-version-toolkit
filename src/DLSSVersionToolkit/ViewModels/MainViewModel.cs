@@ -238,32 +238,7 @@ private async Task ApplyPresetAsync()
 	{
 		// Step 0: Apply whitelist to bypass NVIDIA override blocking
 		DownloadStatus = "Applying whitelist...";
-		var whitelistResult = await _whitelistService.ApplyWhitelistAsync();
-		if (whitelistResult.Success && whitelistResult.GamesModified > 0 && whitelistResult.IsApplicable)
-		{
-			WhitelistStatus = $"{whitelistResult.GamesModified} games whitelisted";
-			IsWhitelistApplied = true;
-
-			var restartResult = await _whitelistService.RestartNvidiaServicesAsync();
-			if (!restartResult.Success)
-			{
-				MessageBox.Show(
-					$"Whitelist applied but NVIDIA services could not be restarted.\n\n" +
-					$"Error: {restartResult.ErrorMessage}\n\n" +
-					"What to do: Restart your computer or manually restart NVIDIA services.",
-					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-			}
-		}
-		else if (whitelistResult.Success && whitelistResult.IsApplicable)
-		{
-			WhitelistStatus = "Already applied";
-			IsWhitelistApplied = true;
-		}
-		else if (!whitelistResult.IsApplicable)
-		{
-			WhitelistStatus = "N/A (NVIDIA app not installed)";
-			IsWhitelistApplied = false;
-		}
+		await ApplyWhitelistInternalAsync(restartServices: true, showRestartWarning: true);
 
 		// Step 1: Apply the selected DLSS preset via NVIDIA driver settings
 		DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}...";
@@ -294,6 +269,122 @@ private async Task ApplyPresetAsync()
 	catch (Exception ex)
 	{
 		MessageBox.Show($"Apply preset failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+	}
+}
+
+/// <summary>
+/// Standalone "Apply Whitelist" action. Removes NVIDIA App's DLSS4 override
+/// restrictions (ApplicationStorage.json + fingerprint.db) and restarts the NVIDIA
+/// services so the change takes effect — the same operation as the PowerShell
+/// whitelist workaround, exposed as a first-class button next to Override Preset.
+/// </summary>
+[RelayCommand]
+private async Task ApplyWhitelistAsync()
+{
+	try
+	{
+		DownloadStatus = "Applying whitelist...";
+		var applied = await ApplyWhitelistInternalAsync(restartServices: true, showRestartWarning: true);
+
+		switch (applied)
+		{
+			case WhitelistOutcome.Applied:
+				MessageBox.Show(
+					$"Whitelist applied — {WhitelistStatus}.\n\n" +
+					"NVIDIA App's DLSS4 override restrictions have been removed and the NVIDIA " +
+					"services were restarted. You can now enable DLSS overrides for more games.",
+					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+				break;
+			case WhitelistOutcome.AlreadyApplied:
+				MessageBox.Show(
+					"Whitelist is already applied — no changes were needed.",
+					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+				break;
+			case WhitelistOutcome.NotApplicable:
+				MessageBox.Show(
+					"The NVIDIA App does not appear to be installed, so there is nothing to whitelist.\n\n" +
+					"What to do: Install the NVIDIA App if you want to manage DLSS overrides through it.",
+					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+				break;
+			case WhitelistOutcome.Failed:
+				MessageBox.Show(
+					$"Could not apply the whitelist.\n\nDetails: {WhitelistStatus}\n\n" +
+					"What to do: Try running the app as Administrator and try again.",
+					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+				break;
+		}
+	}
+	catch (Exception ex)
+	{
+		MessageBox.Show($"Apply whitelist failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+	}
+	finally
+	{
+		DownloadStatus = "";
+	}
+}
+
+private enum WhitelistOutcome { Applied, AlreadyApplied, NotApplicable, Failed }
+
+/// <summary>
+/// Shared whitelist logic used by ApplyPreset, ApplyWhitelist, and Update All.
+/// Updates WhitelistStatus / IsWhitelistApplied and optionally restarts NVIDIA services.
+/// Never throws — failures are reflected in the returned outcome and WhitelistStatus.
+/// </summary>
+private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartServices, bool showRestartWarning)
+{
+	try
+	{
+		var result = await _whitelistService.ApplyWhitelistAsync();
+
+		if (result.Success && result.GamesModified > 0 && result.IsApplicable)
+		{
+			WhitelistStatus = $"{result.GamesModified} games whitelisted";
+			IsWhitelistApplied = true;
+
+			if (restartServices)
+			{
+				var restart = await _whitelistService.RestartNvidiaServicesAsync();
+				if (!restart.Success)
+				{
+					Debug.WriteLine($"ApplyWhitelistInternal: service restart failed: {restart.ErrorMessage}");
+					if (showRestartWarning)
+					{
+						MessageBox.Show(
+							$"Whitelist applied but NVIDIA services could not be restarted.\n\n" +
+							$"Error: {restart.ErrorMessage}\n\n" +
+							"What to do: Restart your computer or manually restart NVIDIA services.",
+							"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+					}
+				}
+			}
+			return WhitelistOutcome.Applied;
+		}
+
+		if (result.Success && result.IsApplicable)
+		{
+			WhitelistStatus = "Already applied";
+			IsWhitelistApplied = true;
+			return WhitelistOutcome.AlreadyApplied;
+		}
+
+		if (!result.IsApplicable)
+		{
+			WhitelistStatus = "N/A (NVIDIA app not installed)";
+			IsWhitelistApplied = false;
+			return WhitelistOutcome.NotApplicable;
+		}
+
+		WhitelistStatus = result.ErrorMessage ?? "Failed";
+		IsWhitelistApplied = false;
+		return WhitelistOutcome.Failed;
+	}
+	catch (Exception ex)
+	{
+		Debug.WriteLine($"ApplyWhitelistInternal failed: {ex.Message}");
+		WhitelistStatus = "Failed";
+		IsWhitelistApplied = false;
+		return WhitelistOutcome.Failed;
 	}
 }
 
@@ -370,39 +461,9 @@ private async Task ApplyPresetAsync()
 			return;
 		}
 
-        // Step 0: Apply whitelist to bypass NVIDIA override blocking
+        // Step 0: Apply whitelist to bypass NVIDIA override blocking (non-fatal)
         DownloadStatus = "Applying whitelist...";
-        try
-        {
-            var whitelistResult = await _whitelistService.ApplyWhitelistAsync();
-            if (whitelistResult.Success && whitelistResult.GamesModified > 0 && whitelistResult.IsApplicable)
-            {
-                WhitelistStatus = $"{whitelistResult.GamesModified} games whitelisted";
-                IsWhitelistApplied = true;
-
-                // Restart NVIDIA services to pick up changes
-                var restartResult = await _whitelistService.RestartNvidiaServicesAsync();
-                if (!restartResult.Success)
-                {
-                    Debug.WriteLine($"OneClickUpdateAll: NVIDIA services restart failed: {restartResult.ErrorMessage}");
-                }
-            }
-            else if (whitelistResult.Success && whitelistResult.IsApplicable)
-            {
-                WhitelistStatus = "Already applied";
-                IsWhitelistApplied = true;
-            }
-            else if (!whitelistResult.IsApplicable)
-            {
-			WhitelistStatus = "N/A (NVIDIA app not installed)";
-                IsWhitelistApplied = false;
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"OneClickUpdateAll: whitelist step failed: {ex.Message}");
-            // Non-fatal — continue with update even if whitelist fails
-        }
+        await ApplyWhitelistInternalAsync(restartServices: true, showRestartWarning: false);
 
  // Step 1: Download latest DLSS SDK from NVIDIA (skips if already cached)
 		DownloadStatus = "Checking for latest DLSS SDK...";
@@ -472,7 +533,15 @@ private async Task ApplyPresetAsync()
 
             if (!string.IsNullOrEmpty(anWaveTarget) && Directory.Exists(anWaveTarget))
             {
-                var anWaveOp = await _anWaveAutoService.AutoApplyAsync(anWaveTarget, settings.NgxBasePath, null);
+                // Use the SAME NGX base that Step 2 synced into. SyncFromCachedSdkAsync always
+                // writes to %ProgramData%\NVIDIA\NGX (ngxBase below), so a custom-but-stale
+                // settings.NgxBasePath would point AnWave at a folder with no freshly-synced
+                // NGX_Release versions -> "Could not locate NGX Release DLL folder". Prefer the
+                // configured path only when it actually exists, otherwise fall back to ngxBase.
+                var anWaveNgxSource = (!string.IsNullOrEmpty(settings.NgxBasePath) && Directory.Exists(settings.NgxBasePath))
+                    ? settings.NgxBasePath
+                    : ngxBase;
+                var anWaveOp = await _anWaveAutoService.AutoApplyAsync(anWaveTarget, anWaveNgxSource, null);
                 if (!anWaveOp.Success)
                 {
                     var ngxFiles = ngxOp.FilesCopied.Count > 0
@@ -544,8 +613,11 @@ private async Task ApplyPresetAsync()
 				// Re-resolve AnWave path after setup
 				anWaveTarget = setupResult.InstalledPath;
 
-				// Apply NGX DLLs to AnWave folder
-				var anWaveOp = await _anWaveAutoService.AutoApplyAsync(anWaveTarget!, settings.NgxBasePath, null);
+				// Apply NGX DLLs to AnWave folder — use the same NGX base Step 2 synced into.
+				var anWaveNgxSource = (!string.IsNullOrEmpty(settings.NgxBasePath) && Directory.Exists(settings.NgxBasePath))
+					? settings.NgxBasePath
+					: ngxBase;
+				var anWaveOp = await _anWaveAutoService.AutoApplyAsync(anWaveTarget!, anWaveNgxSource, null);
 
 				var ngxFiles = ngxOp.FilesCopied.Count > 0
 					? string.Join("\n • ", ngxOp.FilesCopied)
