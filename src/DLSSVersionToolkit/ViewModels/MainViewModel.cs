@@ -248,8 +248,13 @@ private async Task ApplyPresetAsync()
 			CurrentPresetStatus = $"Current: {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}";
 			MessageBox.Show(
 				$"DLSS Override Preset set to {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}.\n\n" +
-				"This tells the NVIDIA driver which DLSS model to use globally.\n" +
-				"Games using DLSS will now use the selected preset.",
+				"The DLSS Super Resolution override has been ENABLED (set to \"Custom\") and the " +
+				"render preset applied in the NVIDIA driver's global profile — this is what makes " +
+				"the preset actually take effect, equivalent to setting the override to \"Custom\" " +
+				"in NVIDIA App / Profile Inspector instead of \"Use global default\".\n\n" +
+				"Note: if a specific game still shows the old preset, that game has its own " +
+				"per-game override set to something other than \"Use global default\". " +
+				"Fully restart the game; the on-screen DLSS indicator should then show the new preset.",
 				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
 		}
 		else

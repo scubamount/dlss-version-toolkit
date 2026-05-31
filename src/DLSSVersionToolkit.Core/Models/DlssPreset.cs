@@ -27,13 +27,38 @@ public enum DlssPreset
 
 /// <summary>
 /// DRS setting IDs for DLSS preset overrides.
+/// Values are from NVIDIA's official NvApiDriverSettings.h.
 /// </summary>
 public static class DlssPresetSettingIds
 {
-    /// <summary>DLSS-SR (Super Resolution) preset override setting ID.</summary>
+    // --- Override ENABLE flags ---
+    // Setting just the render-preset selection is NOT enough: the driver ignores the
+    // preset unless the matching *_OVERRIDE flag is turned ON (value 1). In NVIDIA App /
+    // NVIDIA Profile Inspector terms, this is the difference between the override mode
+    // being "Custom" (on) versus "Use global default" / "Use 3D app setting" /
+    // "Recommended" (off). 0 = off (use default), 1 = on (custom override active).
+
+    /// <summary>NGX_DLSS_SR_OVERRIDE_ID — enable the DLSS Super Resolution override.</summary>
+    public const uint SR_OVERRIDE_ENABLE = 0x10E41E01;
+
+    /// <summary>NGX_DLSS_RR_OVERRIDE_ID — enable the DLSS Ray Reconstruction override.</summary>
+    public const uint RR_OVERRIDE_ENABLE = 0x10E41E02;
+
+    /// <summary>NGX_DLSS_FG_OVERRIDE_ID — enable the DLSS Frame Generation override.</summary>
+    public const uint FG_OVERRIDE_ENABLE = 0x10E41E03;
+
+    /// <summary>Value that turns an override on ("Custom").</summary>
+    public const uint OVERRIDE_ON = 1;
+
+    /// <summary>Value that turns an override off ("use default").</summary>
+    public const uint OVERRIDE_OFF = 0;
+
+    // --- Render preset SELECTION ---
+
+    /// <summary>NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION_ID — DLSS-SR preset selection.</summary>
     public const uint SR_RENDER_PRESET = 0x10E41DF3;
 
-    /// <summary>DLSS-RR (Ray Reconstruction) preset override setting ID.</summary>
+    /// <summary>NGX_DLSS_RR_OVERRIDE_RENDER_PRESET_SELECTION_ID — DLSS-RR preset selection.</summary>
     public const uint RR_RENDER_PRESET = 0x10E41DF7;
 }
 
