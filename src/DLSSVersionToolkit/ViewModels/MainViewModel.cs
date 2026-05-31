@@ -248,13 +248,15 @@ private async Task ApplyPresetAsync()
 			CurrentPresetStatus = $"Current: {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}";
 			MessageBox.Show(
 				$"DLSS Override Preset set to {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}.\n\n" +
-				"The DLSS Super Resolution override has been ENABLED (set to \"Custom\") and the " +
-				"render preset applied in the NVIDIA driver's global profile — this is what makes " +
-				"the preset actually take effect, equivalent to setting the override to \"Custom\" " +
-				"in NVIDIA App / Profile Inspector instead of \"Use global default\".\n\n" +
-				"Note: if a specific game still shows the old preset, that game has its own " +
-				"per-game override set to something other than \"Use global default\". " +
-				"Fully restart the game; the on-screen DLSS indicator should then show the new preset.",
+				$"Applied to {presetResult.ProfilesUpdated} driver profile(s), including " +
+				$"{presetResult.GameProfilesUpdated} game profile(s).\n\n" +
+				"For every affected game the DLSS Super Resolution override was ENABLED " +
+				"(\"Custom\") and the render preset set, plus the Ray Reconstruction and " +
+				"Frame Generation DLL overrides enabled. This sets each game directly rather " +
+				"than relying on the global default, which is what makes the preset actually " +
+				"take effect in-game.\n\n" +
+				"Fully restart the game; the on-screen DLSS indicator (bottom-left) should then " +
+				"show the new preset and DLL version.",
 				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
 		}
 		else
@@ -424,7 +426,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     "DLSS Indicator ENABLED.\n\n" +
                     $"Registry: HKLM\\SOFTWARE\\NVIDIA Corporation\\Global\\NGXCore\\ShowDlssIndicator = {raw} (0x{raw:X}).\n\n" +
                     "The on-screen overlay (DLSS DLL version, preset, render resolution) appears in the " +
-                    "top-left of supported games. You must fully restart the game for it to show — " +
+                    "bottom-left of supported games. You must fully restart the game for it to show — " +
                     "it will not appear on the desktop or in already-running games.",
                     "DLSS Indicator", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
             }
@@ -505,6 +507,27 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         // Step 0: Apply whitelist to bypass NVIDIA override blocking (non-fatal)
         DownloadStatus = "Applying whitelist...";
         await ApplyWhitelistInternalAsync(restartServices: true, showRestartWarning: false);
+
+        // Step 0b: Push the selected DLSS preset to every game profile (enables the
+        // SR/RR/FG overrides as "Custom"). Without this the games keep their own
+        // per-profile defaults and ignore the global preset. Non-fatal.
+        if (SelectedPreset is { } presetToApply && presetToApply != DlssPreset.Default
+            && _presetOverrideService.IsAvailable)
+        {
+            try
+            {
+                DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(presetToApply)} to all games...";
+                var pr = await _presetOverrideService.ApplyPresetAsync(presetToApply);
+                if (pr.Success)
+                    Debug.WriteLine($"OneClickUpdateAll: preset applied to {pr.GameProfilesUpdated} game profile(s)");
+                else
+                    Debug.WriteLine($"OneClickUpdateAll: preset apply non-fatal failure: {pr.ErrorMessage}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"OneClickUpdateAll: preset apply threw (non-fatal): {ex.Message}");
+            }
+        }
 
  // Step 1: Download latest DLSS SDK from NVIDIA (skips if already cached)
 		DownloadStatus = "Checking for latest DLSS SDK...";

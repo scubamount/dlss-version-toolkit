@@ -446,6 +446,28 @@ public class DlssPresetSettingIdsTests
     }
 }
 
+public class PresetApplyOptionsTests
+{
+    [Fact]
+    public void Defaults_EnableSrRrFg_AndAllGameProfiles()
+    {
+        // Comprehensive-by-default: SR + RR (NR) + FG overrides on, sweep all game profiles.
+        var o = new Core.Services.PresetApplyOptions();
+        Assert.True(o.EnableSuperResolution);
+        Assert.True(o.EnableRayReconstruction);
+        Assert.True(o.EnableFrameGeneration);
+        Assert.True(o.ApplyToAllGameProfiles);
+    }
+
+    [Fact]
+    public void Result_CarriesProfileCounts()
+    {
+        var r = new Core.Services.PresetOverrideResult(true, Core.Models.DlssPreset.L, null, false, 7, 5);
+        Assert.Equal(7, r.ProfilesUpdated);
+        Assert.Equal(5, r.GameProfilesUpdated);
+    }
+}
+
 public class WhitelistFlagFlipTests
 {
     [Fact]
