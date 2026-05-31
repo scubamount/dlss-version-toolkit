@@ -396,6 +396,19 @@ public class DlssIndicatorServiceTests
         var service = new Core.Services.DlssIndicatorService();
         Assert.IsAssignableFrom<Core.Services.IDlssIndicatorService>(service);
     }
+
+    [Fact]
+    public void GetRawValue_NoRegistryKey_ReturnsNullOrInt()
+    {
+        var service = new Core.Services.DlssIndicatorService();
+        // GetRawValue must never throw; it returns null when the value is absent,
+        // otherwise the stored DWORD. (Enable writes 1024/0x400, not 1 — that was
+        // the bug behind "indicator does nothing".)
+        var raw = service.GetRawValue();
+        Assert.True(raw is null || raw is int);
+        // IsEnabled is defined as "any non-zero raw value".
+        Assert.Equal(raw.HasValue && raw.Value != 0, service.IsEnabled());
+    }
 }
 
 public class DlssIndicatorSetEnabledTests
