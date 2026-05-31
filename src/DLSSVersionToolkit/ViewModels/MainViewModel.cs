@@ -87,6 +87,9 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     private bool _isUpdatingAll;
 
     [ObservableProperty]
+    private bool _isApplyingPreset;
+
+    [ObservableProperty]
     private string _cachedStreamlineVersion = "";
 
     [ObservableProperty]
@@ -234,14 +237,17 @@ private async Task ApplyPresetAsync()
 {
 	if (SelectedPreset == null) return;
 
+	IsApplyingPreset = true;
 	try
 	{
 		// Step 0: Apply whitelist to bypass NVIDIA override blocking
 		DownloadStatus = "Applying whitelist...";
 		await ApplyWhitelistInternalAsync(restartServices: true, showRestartWarning: true);
 
-		// Step 1: Apply the selected DLSS preset via NVIDIA driver settings
-		DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}...";
+		// Step 1: Apply the selected DLSS preset via NVIDIA driver settings.
+		// This iterates every game profile, so it can take several seconds — the
+		// status-bar progress indicator (bound to IsApplyingPreset) covers the wait.
+		DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(SelectedPreset.Value)} to all game profiles...";
 		var presetResult = await _presetOverrideService.ApplyPresetAsync(SelectedPreset.Value);
 		if (presetResult.Success)
 		{
@@ -276,6 +282,10 @@ private async Task ApplyPresetAsync()
 	catch (Exception ex)
 	{
 		MessageBox.Show($"Apply preset failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+	}
+	finally
+	{
+		IsApplyingPreset = false;
 	}
 }
 
