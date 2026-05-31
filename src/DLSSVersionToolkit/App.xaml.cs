@@ -259,7 +259,13 @@ public partial class App : Application
     {
         _scanTimer?.Stop();
         _trayIcon?.Dispose();
-        _mutex?.ReleaseMutex();
+        // NOTE: do NOT call _mutex.ReleaseMutex() here. The mutex is created with
+        // initiallyOwned:false and is never acquired via WaitOne — we only use the
+        // `createdNew` out-parameter for single-instance detection. Calling
+        // ReleaseMutex() on a mutex this thread does not own throws
+        // ApplicationException ("Object synchronization method was called from an
+        // unsynchronized block of code"), which surfaced as an error dialog on every
+        // clean shutdown. Dispose() alone releases the OS handle and the named mutex.
         _mutex?.Dispose();
     }
 
