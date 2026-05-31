@@ -7,6 +7,8 @@ public interface IDlssIndicatorService
 {
     bool IsEnabled();
     void SetEnabled(bool enabled);
+    /// <summary>Raw DWORD currently stored, or null if the value/key is absent.</summary>
+    int? GetRawValue();
 }
 
 [SupportedOSPlatform("windows")]
@@ -15,19 +17,33 @@ public class DlssIndicatorService : IDlssIndicatorService
     private const string RegSubKey = @"SOFTWARE\NVIDIA Corporation\Global\NGXCore";
     private const string RegValueName = "ShowDlssIndicator";
 
-    public bool IsEnabled()
+    // The DLSS on-screen indicator overlay (DLL version / preset / render res) is activated
+    // by NGXCore!ShowDlssIndicator = 0x400 (1024 decimal), NOT 1. NVIDIA's own Streamline
+    // sample historically wrote 1, which does not light up the overlay on current DLSS
+    // runtimes — this is the most commonly reported "indicator does nothing" cause.
+    // We write 1024 to enable; any non-zero value is treated as enabled on read so a legacy
+    // 1 (or a hand-edited value) still registers as "on".
+    private const int EnabledValue = 1024; // 0x400
+    private const int DisabledValue = 0;
+
+    public int? GetRawValue()
     {
         try
         {
             using var key = Registry.LocalMachine.OpenSubKey(RegSubKey);
-            if (key == null) return false;
-            var value = key.GetValue(RegValueName, 0);
-            return value is int intValue && intValue != 0;
+            var value = key?.GetValue(RegValueName, null);
+            return value is int i ? i : (int?)null;
         }
         catch
         {
-            return false;
+            return null;
         }
+    }
+
+    public bool IsEnabled()
+    {
+        var raw = GetRawValue();
+        return raw.HasValue && raw.Value != 0;
     }
 
     public void SetEnabled(bool enabled)
@@ -36,7 +52,7 @@ public class DlssIndicatorService : IDlssIndicatorService
         {
             using var key = Registry.LocalMachine.CreateSubKey(RegSubKey, writable: true)
                 ?? throw new InvalidOperationException("Failed to open NGXCore registry key.");
-            key.SetValue(RegValueName, enabled ? 1 : 0, RegistryValueKind.DWord);
+            key.SetValue(RegValueName, enabled ? EnabledValue : DisabledValue, RegistryValueKind.DWord);
         }
         catch (UnauthorizedAccessException)
         {

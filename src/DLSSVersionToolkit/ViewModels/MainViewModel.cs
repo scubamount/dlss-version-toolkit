@@ -391,17 +391,53 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 [RelayCommand]
     private void ToggleDlssIndicator()
     {
+        var targetState = !IsDlssIndicatorEnabled;
         try
         {
-            var newState = !IsDlssIndicatorEnabled;
-            _dlssIndicatorService.SetEnabled(newState);
-            IsDlssIndicatorEnabled = newState;
+            _dlssIndicatorService.SetEnabled(targetState);
+
+            // Read back from the registry to confirm the write actually landed
+            // (a silent failure here is the whole reason the indicator "did nothing").
+            var raw = _dlssIndicatorService.GetRawValue();
+            var actuallyEnabled = _dlssIndicatorService.IsEnabled();
+            IsDlssIndicatorEnabled = actuallyEnabled;
+
+            if (actuallyEnabled != targetState)
+            {
+                System.Windows.MessageBox.Show(
+                    $"The DLSS Indicator registry value did not change as expected.\n\n" +
+                    $"Requested: {(targetState ? "On" : "Off")}\n" +
+                    $"Registry now reads: {(raw.HasValue ? raw.Value.ToString() : "(not set)")}\n\n" +
+                    "Make sure the app is running as Administrator and try again.",
+                    "DLSS Indicator", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            if (actuallyEnabled)
+            {
+                System.Windows.MessageBox.Show(
+                    "DLSS Indicator ENABLED.\n\n" +
+                    $"Registry: HKLM\\SOFTWARE\\NVIDIA Corporation\\Global\\NGXCore\\ShowDlssIndicator = {raw} (0x{raw:X}).\n\n" +
+                    "The on-screen overlay (DLSS DLL version, preset, render resolution) appears in the " +
+                    "top-left of supported games. You must fully restart the game for it to show — " +
+                    "it will not appear on the desktop or in already-running games.",
+                    "DLSS Indicator", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            }
+            else
+            {
+                System.Windows.MessageBox.Show(
+                    "DLSS Indicator DISABLED.\n\n" +
+                    "The on-screen overlay is turned off. Restart any running game for the change to take effect.",
+                    "DLSS Indicator", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            }
         }
         catch (Exception ex)
         {
+            // Keep the toggle state in sync with whatever the registry really says.
+            try { IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled(); } catch { /* ignore */ }
             System.Windows.MessageBox.Show(
                 ex.Message,
-                "DLSS Version Toolkit", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                "DLSS Indicator", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
         }
     }
 
