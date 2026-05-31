@@ -184,7 +184,9 @@
     </ComboBox.ItemTemplate>
   </ComboBox>
   <Button Content="Apply" Style="{StaticResource DarkButtonStyle}" Padding="8,3" FontSize="10"
-          Command="{Binding ApplyPresetCommand}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+          Command="{Binding ApplyPresetCommand}" Margin="8,0,0,0" VerticalAlignment="Center"
+          IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
+          ToolTip="Enables the DLSS override (&quot;Custom&quot;) and applies this preset to every game profile. Takes a few seconds; fully restart the game afterward."/>
   <TextBlock Text=" | " Foreground="#555555" FontSize="11" VerticalAlignment="Center" Margin="8,0,0,0"/>
   <TextBlock Text="{Binding CurrentPresetStatus, FallbackValue=''}" Foreground="#888888" FontSize="11" VerticalAlignment="Center" Margin="0,0,12,0"/>
   <TextBlock Text="Whitelist: " Foreground="#555555" FontSize="11" VerticalAlignment="Center"/>
@@ -389,9 +391,21 @@
                     <TextBlock Text="{Binding LastScanTime, Mode=OneWay}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Progress during update -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center"
-                            Visibility="{Binding IsUpdatingAll, Converter={StaticResource BoolToVisibilityConverter}}">
+                <!-- Progress during update or preset apply -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsUpdatingAll}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsApplyingPreset}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
                     <ProgressBar IsIndeterminate="True" Width="100" Height="6"
                                  Foreground="{StaticResource NvidiaGreenBrush}" Background="{StaticResource DarkBackgroundBrush}"/>
                     <TextBlock Text="{Binding DownloadStatus}" Foreground="{StaticResource NvidiaGreenBrush}" FontSize="10" Margin="8,0,0,0" VerticalAlignment="Center"/>
