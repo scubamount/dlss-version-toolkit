@@ -20,7 +20,30 @@ public sealed record PresetOverrideResult(
     bool Success,
     DlssPreset? CurrentPreset,
     string? ErrorMessage,
-    bool PermissionIssue = false);
+    bool PermissionIssue = false,
+    int ProfilesUpdated = 0,
+    int GameProfilesUpdated = 0);
+
+/// <summary>
+/// Options controlling which DLSS feature overrides are enabled when applying a preset.
+/// </summary>
+public sealed record PresetApplyOptions
+{
+    /// <summary>Enable the DLSS-SR (Super Resolution) override and set its render preset. Always true in practice.</summary>
+    public bool EnableSuperResolution { get; init; } = true;
+
+    /// <summary>Also enable the DLSS-RR (Ray Reconstruction / "NR" denoiser) DLL override.</summary>
+    public bool EnableRayReconstruction { get; init; } = true;
+
+    /// <summary>Also enable the DLSS-FG (Frame Generation) DLL override.</summary>
+    public bool EnableFrameGeneration { get; init; } = true;
+
+    /// <summary>
+    /// Apply to every game profile (not just the global/base profile). This is what
+    /// actually changes in-game behavior for games that have their own DRS profile.
+    /// </summary>
+    public bool ApplyToAllGameProfiles { get; init; } = true;
+}
 
 /// <summary>
 /// Reads and writes DLSS render preset overrides via the NVIDIA DRS (Driver Registry Settings) API.
@@ -36,10 +59,11 @@ public interface IPresetOverrideService
     Task<PresetOverrideResult> GetCurrentPresetAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Applies a DLSS-SR preset override to the global NVIDIA driver profile.
-    /// Requires admin privileges.
+    /// Applies a DLSS preset override across the global profile and (by default) every
+    /// game profile, enabling the SR override ("Custom") plus optionally RR and FG
+    /// overrides. Requires admin privileges.
     /// </summary>
-    Task<PresetOverrideResult> ApplyPresetAsync(DlssPreset preset, CancellationToken ct = default);
+    Task<PresetOverrideResult> ApplyPresetAsync(DlssPreset preset, PresetApplyOptions? options = null, CancellationToken ct = default);
 
     /// <summary>
     /// Checks whether the NVIDIA DRS API is available (i.e., NVIDIA drivers are installed).
@@ -110,43 +134,64 @@ public sealed class PresetOverrideService : IPresetOverrideService
         }, ct);
     }
 
-    public async Task<PresetOverrideResult> ApplyPresetAsync(DlssPreset preset, CancellationToken ct = default)
+    public async Task<PresetOverrideResult> ApplyPresetAsync(DlssPreset preset, PresetApplyOptions? options = null, CancellationToken ct = default)
     {
+        options ??= new PresetApplyOptions();
         return await Task.Run(() =>
         {
             try
             {
                 EnsureInitialized();
                 using var session = DriverSettingsSession.CreateAndLoad();
-                var profile = session.CurrentGlobalProfile;
-                if (profile is null)
-                {
-                    return new PresetOverrideResult(false, null, "Could not get global profile.");
-                }
 
                 var presetValue = (uint)preset;
+                bool enable = preset != DlssPreset.Default;
+                int profilesUpdated = 0;
+                int gameProfilesUpdated = 0;
 
-                if (preset == DlssPreset.Default)
+                // 1) Base profile = the global default inherited by profiles that don't
+                //    override these settings themselves.
+                var baseProfile = session.BaseProfile;
+                if (baseProfile is not null)
                 {
-                    // "Default" means remove our override entirely: turn the SR override
-                    // flag OFF so the driver/app falls back to its own default behavior.
-                    profile.SetSetting(DlssPresetSettingIds.SR_OVERRIDE_ENABLE, DRSSettingType.Integer, DlssPresetSettingIds.OVERRIDE_OFF);
-                    profile.SetSetting(DlssPresetSettingIds.SR_RENDER_PRESET, DRSSettingType.Integer, presetValue);
+                    ApplyToProfile(baseProfile, presetValue, enable, options);
+                    profilesUpdated++;
                 }
-                else
+
+                // 2) Every game profile. This is the key fix: games with their own DRS
+                //    profile do NOT inherit the base setting, so the preset only takes
+                //    effect in-game when we set it on each game's own profile. Iterate
+                //    all non-predefined profiles that have at least one application.
+                if (options.ApplyToAllGameProfiles)
                 {
-                    // Critical: the driver IGNORES the render-preset selection unless the
-                    // SR override is ENABLED (= "Custom" mode in NVIDIA App / Profile
-                    // Inspector, as opposed to "use global default" / "recommended").
-                    // Set the enable flag FIRST, then the preset selection.
-                    profile.SetSetting(DlssPresetSettingIds.SR_OVERRIDE_ENABLE, DRSSettingType.Integer, DlssPresetSettingIds.OVERRIDE_ON);
-                    profile.SetSetting(DlssPresetSettingIds.SR_RENDER_PRESET, DRSSettingType.Integer, presetValue);
+                    foreach (var profile in session.Profiles)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        try
+                        {
+                            if (profile is null || !profile.IsValid)
+                                continue;
+                            // Skip the base/global profile (already done) and profiles with
+                            // no applications (nothing to affect).
+                            if (profile.NumberOfApplications <= 0)
+                                continue;
+
+                            ApplyToProfile(profile, presetValue, enable, options);
+                            profilesUpdated++;
+                            gameProfilesUpdated++;
+                        }
+                        catch (NVIDIAApiException pex)
+                        {
+                            // Don't let one stubborn profile abort the whole sweep.
+                            Debug.WriteLine($"PresetOverrideService: skipped a profile: {pex.Status}");
+                        }
+                    }
                 }
 
                 session.Save();
 
-                Debug.WriteLine($"PresetOverrideService: Applied preset {preset} (0x{presetValue:X}) with SR override {(preset == DlssPreset.Default ? "OFF" : "ON")}");
-                return new PresetOverrideResult(true, preset, null);
+                Debug.WriteLine($"PresetOverrideService: Applied preset {preset} (0x{presetValue:X}) enable={enable} to {profilesUpdated} profile(s) ({gameProfilesUpdated} game).");
+                return new PresetOverrideResult(true, preset, null, false, profilesUpdated, gameProfilesUpdated);
             }
             catch (NVIDIAApiException ex)
             {
@@ -169,6 +214,37 @@ public sealed class PresetOverrideService : IPresetOverrideService
                 return new PresetOverrideResult(false, null, $"Error writing preset: {ex.Message}");
             }
         }, ct);
+    }
+
+    /// <summary>
+    /// Applies the SR override + render preset (and optionally RR/FG override enables) to a
+    /// single DRS profile. When <paramref name="enable"/> is false (preset = Default), the
+    /// overrides are turned OFF so behavior reverts to the driver/app default.
+    /// </summary>
+    private static void ApplyToProfile(DriverSettingsProfile profile, uint presetValue, bool enable, PresetApplyOptions options)
+    {
+        var onOff = enable ? DlssPresetSettingIds.OVERRIDE_ON : DlssPresetSettingIds.OVERRIDE_OFF;
+
+        if (options.EnableSuperResolution)
+        {
+            // Enable flag MUST be set or the preset selection is ignored ("Custom" vs default).
+            profile.SetSetting(DlssPresetSettingIds.SR_OVERRIDE_ENABLE, DRSSettingType.Integer, onOff);
+            profile.SetSetting(DlssPresetSettingIds.SR_RENDER_PRESET, DRSSettingType.Integer, presetValue);
+        }
+
+        if (options.EnableRayReconstruction)
+        {
+            // DLSS-RR ("NR" / Ray Reconstruction denoiser) DLL override.
+            profile.SetSetting(DlssPresetSettingIds.RR_OVERRIDE_ENABLE, DRSSettingType.Integer, onOff);
+            // Mirror the SR preset selection onto RR so RR also honors our chosen preset.
+            profile.SetSetting(DlssPresetSettingIds.RR_RENDER_PRESET, DRSSettingType.Integer, presetValue);
+        }
+
+        if (options.EnableFrameGeneration)
+        {
+            // DLSS-FG (Frame Generation) DLL override. No preset selection for FG.
+            profile.SetSetting(DlssPresetSettingIds.FG_OVERRIDE_ENABLE, DRSSettingType.Integer, onOff);
+        }
     }
 
     private static bool _initialized;
