@@ -146,8 +146,11 @@ public MainViewModel(
  _streamlineDownloadService = streamlineDownloadService;
  _anWaveAutoService = anWaveAutoService;
  _whitelistService = whitelistService;
- _presetOverrideService = presetOverrideService;
+_presetOverrideService = presetOverrideService;
+_dlssIndicatorService = dlssIndicatorService;
+
 IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
+
  LoadPresetDefaults();
 }
 

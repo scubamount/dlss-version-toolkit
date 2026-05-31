@@ -158,12 +158,20 @@ public class UpgradeService : IUpgradeService
             return operation;
         }
 
-        if (!IsVersionNewer(sourceVersions.DLSS, releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First().DLSS))
-        {
-            operation.Status = OperationStatus.Completed;
-            operation.ErrorMessage = "Source is not newer than NGX Release";
-            return operation;
-        }
+	var latestRelease = releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
+
+	if (!IsVersionNewer(sourceVersions.DLSS, latestRelease.DLSS))
+	{
+// Same version — but still sync if target DLLs are missing (incomplete install)
+var targetDllExists = File.Exists(Path.Combine(operation.TargetPath, "nvngx_dlss.dll"));
+		if (targetDllExists)
+		{
+			operation.Status = OperationStatus.Completed;
+			operation.ErrorMessage = "Source is not newer than NGX Release";
+			return operation;
+		}
+		// DLLs missing — fall through to PerformSync to recreate them
+	}
 
         return PerformSync(operation, foundPath!, sourceVersions);
     }
@@ -416,28 +424,30 @@ public class UpgradeService : IUpgradeService
 	operation.BackupPath = backupPath;
         try
         {
-            foreach (var dll in NgxDllNames)
-            {
-                var srcDll = FindDll(staging.Path, dll);
-                var destDll = FindDll(operation.TargetPath, dll);
-                if (srcDll != null && destDll != null)
-                {
+		foreach (var dll in NgxDllNames)
+		{
+			var srcDll = FindDll(staging.Path, dll);
+			if (srcDll == null) continue;
+
+			var destDll = FindDll(operation.TargetPath, dll)
+				?? Path.Combine(operation.TargetPath, dll);
+
 			if (!OperationGuard.VerifyDllSignature(srcDll))
 			{
 				throw new InvalidOperationException($"DLL {dll} failed signature verification");
 			}
-                    File.Copy(srcDll, destDll, true);
-                    operation.FilesCopied.Add(dll);
-                }
-            }
+			File.Copy(srcDll, destDll, true);
+			operation.FilesCopied.Add(dll);
+		}
 
-            var srcConfig = FindConfig(staging.Path);
-            var destConfig = FindConfig(operation.TargetPath);
-            if (srcConfig != null && destConfig != null)
-            {
-                File.Copy(srcConfig, destConfig, true);
-                operation.FilesCopied.Add("nvngx_package_config.txt");
-            }
+		var srcConfig = FindConfig(staging.Path);
+		var destConfig = FindConfig(operation.TargetPath)
+			?? Path.Combine(operation.TargetPath, "nvngx_package_config.txt");
+		if (srcConfig != null)
+		{
+			File.Copy(srcConfig, destConfig, true);
+			operation.FilesCopied.Add("nvngx_package_config.txt");
+		}
 
             if (!VerifyCopiedFiles(staging.Path, operation.TargetPath))
             {
@@ -488,28 +498,30 @@ public class UpgradeService : IUpgradeService
                 ? Path.Combine(operation.SourcePath, "bin", "x64")
                 : operation.SourcePath;
 
-            foreach (var dll in NgxDllNames)
-            {
-                var srcDll = Path.Combine(binPath, dll);
-                var destDll = FindDll(operation.TargetPath, dll);
-                if (File.Exists(srcDll) && destDll != null)
-                {
-			if (!OperationGuard.VerifyDllSignature(srcDll))
+			foreach (var dll in NgxDllNames)
 			{
-				throw new InvalidOperationException($"DLL {dll} failed signature verification");
-			}
-                    File.Copy(srcDll, destDll, true);
-                    operation.FilesCopied.Add(dll);
-                }
-            }
+				var srcDll = Path.Combine(binPath, dll);
+				if (!File.Exists(srcDll)) continue;
 
-            var srcConfig = Path.Combine(binPath, "nvngx_package_config.txt");
-            var destConfig = FindConfig(operation.TargetPath);
-            if (File.Exists(srcConfig) && destConfig != null)
-            {
-                File.Copy(srcConfig, destConfig, true);
-                operation.FilesCopied.Add("nvngx_package_config.txt");
-            }
+				var destDll = FindDll(operation.TargetPath, dll)
+					?? Path.Combine(operation.TargetPath, dll);
+
+				if (!OperationGuard.VerifyDllSignature(srcDll))
+				{
+					throw new InvalidOperationException($"DLL {dll} failed signature verification");
+				}
+				File.Copy(srcDll, destDll, true);
+				operation.FilesCopied.Add(dll);
+			}
+
+		var srcConfig = Path.Combine(binPath, "nvngx_package_config.txt");
+		var destConfig = FindConfig(operation.TargetPath)
+			?? Path.Combine(operation.TargetPath, "nvngx_package_config.txt");
+		if (File.Exists(srcConfig))
+		{
+			File.Copy(srcConfig, destConfig, true);
+			operation.FilesCopied.Add("nvngx_package_config.txt");
+		}
 
             if (!VerifyCopiedFiles(binPath, operation.TargetPath))
             {
@@ -550,8 +562,8 @@ public class UpgradeService : IUpgradeService
             {
                 var srcInfo = new FileInfo(srcDll);
                 var destInfo = new FileInfo(destDll);
-                if (!destInfo.Exists || destInfo.Length != srcInfo.Length)
-                    return false;
+                if (!destInfo.Exists || destInfo.Length == 0 || destInfo.Length != srcInfo.Length)
+return false;
             }
         }
         return true;
@@ -583,7 +595,7 @@ public class UpgradeService : IUpgradeService
     {
         try
         {
-            return Directory.GetFiles(folder, dllName, SearchOption.AllDirectories).FirstOrDefault();
+            return Directory.GetFiles(folder, dllName, SearchOption.TopDirectoryOnly).FirstOrDefault();
         }
         catch { return null; }
     }
@@ -592,7 +604,7 @@ public class UpgradeService : IUpgradeService
     {
         try
         {
-            return Directory.GetFiles(folder, "nvngx_package_config.txt", SearchOption.AllDirectories).FirstOrDefault();
+            return Directory.GetFiles(folder, "nvngx_package_config.txt", SearchOption.TopDirectoryOnly).FirstOrDefault();
         }
         catch { return null; }
     }

@@ -98,19 +98,31 @@
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             </Style>
 
-            <!-- MenuItem Style -->
-            <Style TargetType="MenuItem">
-                <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                <Setter Property="Padding" Value="8,6"/>
-                <Setter Property="FontSize" Value="12"/>
-                <Setter Property="FontFamily" Value="Segoe UI"/>
-                <Style.Triggers>
-                    <Trigger Property="IsHighlighted" Value="True">
-                        <Setter Property="Background" Value="#3D3D3D"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
+	<!-- Override system highlight colors used by default MenuItem template -->
+	<SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3D3D3D"/>
+	<SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#2D2D2D"/>
+	<SolidColorBrush x:Key="{x:Static SystemColors.MenuBarBrushKey}" Color="#2D2D2D"/>
+	<SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#2D2D2D"/>
+	<SolidColorBrush x:Key="{x:Static SystemColors.MenuHighlightBrushKey}" Color="#3D3D3D"/>
+	<SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#FFFFFF"/>
+	<SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#2D2D2D"/>
+	<SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#FFFFFF"/>
+	<SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#FFFFFF"/>
+
+	<!-- MenuItem Style -->
+	<Style TargetType="MenuItem">
+		<Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+		<Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+		<Setter Property="Padding" Value="8,6"/>
+		<Setter Property="FontSize" Value="12"/>
+		<Setter Property="FontFamily" Value="Segoe UI"/>
+		<Style.Triggers>
+			<Trigger Property="IsHighlighted" Value="True">
+				<Setter Property="Background" Value="#3D3D3D"/>
+				<Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+			</Trigger>
+		</Style.Triggers>
+	</Style>
 
             <!-- ContextMenu Style (used for Menu dropdowns) -->
             <Style TargetType="ContextMenu">
@@ -119,6 +131,13 @@
                 <Setter Property="BorderThickness" Value="1"/>
                 <Setter Property="Padding" Value="0,4"/>
             </Style>
+	<!-- Separator Style -->
+	<Style TargetType="Separator">
+		<Setter Property="Background" Value="#3D3D3D"/>
+		<Setter Property="Height" Value="1"/>
+		<Setter Property="Margin" Value="4,2"/>
+	</Style>
+
 
             <!-- Label Style -->
             <Style TargetType="Label">
