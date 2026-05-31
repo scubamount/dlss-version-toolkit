@@ -421,6 +421,42 @@ public class DlssIndicatorSetEnabledTests
     }
 }
 
+public class WhitelistFlagFlipTests
+{
+    [Fact]
+    public void FlipDisableOverrideFlags_ObjectRootedJson_FlipsAllTrueFlags()
+    {
+        // This is the shape that broke the user: NVIDIA App's ApplicationStorage.json
+        // root is an OBJECT (wrapper), not an array. The old code bailed with
+        // "root is not an array" and changed nothing, so the whitelist never applied.
+        var json = """
+        {
+          "Storage": [
+            { "name": "Game A", "Disable_SR_Override": true, "Disable_FG_Override": true },
+            { "name": "Game B", "Disable_RR_Override":true, "Disable_SR_Model_Override" : true }
+          ],
+          "Disable_RR_Model_Override": true
+        }
+        """;
+
+        var result = Core.Services.WhitelistService.FlipDisableOverrideFlags(json, out int flipped);
+
+        Assert.Equal(5, flipped);
+        Assert.DoesNotContain("Override\":true", result.Replace(" ", ""));
+        Assert.DoesNotContain("Override\" :true", result); // whitespace variant gone too
+        Assert.Contains("\"Disable_SR_Override\": false", result);
+    }
+
+    [Fact]
+    public void FlipDisableOverrideFlags_NoTrueFlags_ReturnsZeroAndUnchanged()
+    {
+        var json = "{ \"Storage\": [ { \"Disable_SR_Override\": false } ] }";
+        var result = Core.Services.WhitelistService.FlipDisableOverrideFlags(json, out int flipped);
+        Assert.Equal(0, flipped);
+        Assert.Equal(json, result);
+    }
+}
+
 public class BackupServiceEdgeCaseTests
 {
     [Fact]
