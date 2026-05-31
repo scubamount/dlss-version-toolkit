@@ -421,6 +421,31 @@ public class DlssIndicatorSetEnabledTests
     }
 }
 
+public class DlssPresetSettingIdsTests
+{
+    [Fact]
+    public void OverrideEnableIds_MatchNvidiaHeader()
+    {
+        // Authoritative values from NVIDIA NvApiDriverSettings.h. The ENABLE flags are
+        // what make the preset actually apply ("Custom" vs "use global default").
+        Assert.Equal(0x10E41E01u, Core.Models.DlssPresetSettingIds.SR_OVERRIDE_ENABLE);
+        Assert.Equal(0x10E41E02u, Core.Models.DlssPresetSettingIds.RR_OVERRIDE_ENABLE);
+        Assert.Equal(0x10E41E03u, Core.Models.DlssPresetSettingIds.FG_OVERRIDE_ENABLE);
+        Assert.Equal(0x10E41DF3u, Core.Models.DlssPresetSettingIds.SR_RENDER_PRESET);
+        Assert.Equal(0x10E41DF7u, Core.Models.DlssPresetSettingIds.RR_RENDER_PRESET);
+        Assert.Equal(1u, Core.Models.DlssPresetSettingIds.OVERRIDE_ON);
+        Assert.Equal(0u, Core.Models.DlssPresetSettingIds.OVERRIDE_OFF);
+    }
+
+    [Fact]
+    public void PresetEnumValues_MatchNvidiaPresetSelection()
+    {
+        // NvApiDriverSettings.h: render preset selection A=1..L=12,M=13.
+        Assert.Equal(0x0Cu, (uint)Core.Models.DlssPreset.L); // 12
+        Assert.Equal(0x0Bu, (uint)Core.Models.DlssPreset.K); // 11
+    }
+}
+
 public class WhitelistFlagFlipTests
 {
     [Fact]

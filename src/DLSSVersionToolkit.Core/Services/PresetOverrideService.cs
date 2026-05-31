@@ -125,10 +125,27 @@ public sealed class PresetOverrideService : IPresetOverrideService
                 }
 
                 var presetValue = (uint)preset;
-                profile.SetSetting(DlssPresetSettingIds.SR_RENDER_PRESET, DRSSettingType.Integer, presetValue);
+
+                if (preset == DlssPreset.Default)
+                {
+                    // "Default" means remove our override entirely: turn the SR override
+                    // flag OFF so the driver/app falls back to its own default behavior.
+                    profile.SetSetting(DlssPresetSettingIds.SR_OVERRIDE_ENABLE, DRSSettingType.Integer, DlssPresetSettingIds.OVERRIDE_OFF);
+                    profile.SetSetting(DlssPresetSettingIds.SR_RENDER_PRESET, DRSSettingType.Integer, presetValue);
+                }
+                else
+                {
+                    // Critical: the driver IGNORES the render-preset selection unless the
+                    // SR override is ENABLED (= "Custom" mode in NVIDIA App / Profile
+                    // Inspector, as opposed to "use global default" / "recommended").
+                    // Set the enable flag FIRST, then the preset selection.
+                    profile.SetSetting(DlssPresetSettingIds.SR_OVERRIDE_ENABLE, DRSSettingType.Integer, DlssPresetSettingIds.OVERRIDE_ON);
+                    profile.SetSetting(DlssPresetSettingIds.SR_RENDER_PRESET, DRSSettingType.Integer, presetValue);
+                }
+
                 session.Save();
 
-                Debug.WriteLine($"PresetOverrideService: Applied preset {preset} (0x{presetValue:X})");
+                Debug.WriteLine($"PresetOverrideService: Applied preset {preset} (0x{presetValue:X}) with SR override {(preset == DlssPreset.Default ? "OFF" : "ON")}");
                 return new PresetOverrideResult(true, preset, null);
             }
             catch (NVIDIAApiException ex)
