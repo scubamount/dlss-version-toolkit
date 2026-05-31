@@ -156,30 +156,77 @@ IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
 
 private void LoadPresetDefaults()
 {
+	// Populate the static preset list synchronously — this never touches native NVAPI
+	// and must always succeed so the UI has something to bind to.
 	try
 	{
 		AvailablePresets = new ObservableCollection<DlssPreset>(DlssPresetDisplay.AllPresets);
 		SelectedPreset = AvailablePresets.FirstOrDefault();
+		CurrentPresetStatus = "Detecting…";
+	}
+	catch (Exception ex)
+	{
+		Debug.WriteLine($"LoadPresetDefaults (static list) failed: {ex.Message}");
+		CurrentPresetStatus = "Detection failed";
+		return;
+	}
 
-		if (_presetOverrideService.IsAvailable)
+	// Probe the NVIDIA driver (nvapi64.dll) OFF the UI thread. Touching
+	// IPresetOverrideService.IsAvailable triggers NVIDIA.Initialize(), a P/Invoke into
+	// nvapi64.dll that can block, throw, or even raise a corrupted-state exception
+	// (AccessViolationException / SEHException) when the driver and wrapper disagree.
+	// Doing this synchronously in the constructor (on the WPF startup thread, before the
+	// main window is shown) was the cause of the silent "double-click does nothing"
+	// startup crash in 0.0.20. Defer it, and isolate it in its own task so a native fault
+	// is contained instead of taking down app startup.
+	_ = Task.Run(DetectCurrentPresetSafe);
+}
+
+private void DetectCurrentPresetSafe()
+{
+	try
+	{
+		if (!_presetOverrideService.IsAvailable)
 		{
-			var current = _presetOverrideService.GetCurrentPresetAsync().GetAwaiter().GetResult();
-			if (current.Success && current.CurrentPreset != null)
-			{
-				SelectedPreset = current.CurrentPreset;
-				CurrentPresetStatus = $"Current: {DlssPresetDisplay.GetDescription(current.CurrentPreset.Value)}";
-			}
+			SetPresetStatusOnUi(null, "N/A (NvAPI unavailable)");
+			return;
+		}
+
+		var current = _presetOverrideService.GetCurrentPresetAsync().GetAwaiter().GetResult();
+		if (current.Success && current.CurrentPreset != null)
+		{
+			var preset = current.CurrentPreset.Value;
+			SetPresetStatusOnUi(preset, $"Current: {DlssPresetDisplay.GetDescription(preset)}");
 		}
 		else
 		{
-			CurrentPresetStatus = "N/A (NvAPI unavailable)";
+			SetPresetStatusOnUi(null, current.ErrorMessage ?? "N/A");
 		}
 	}
 	catch (Exception ex)
 	{
-		Debug.WriteLine($"LoadPresetDefaults failed: {ex.Message}");
-		CurrentPresetStatus = "Detection failed";
+		// Covers managed exceptions from the wrapper. Corrupted-state exceptions thrown
+		// by the native driver are contained by the App-level AppDomain handler and the
+		// fact that this runs on a background task, not the startup thread.
+		Debug.WriteLine($"DetectCurrentPresetSafe failed: {ex.Message}");
+		SetPresetStatusOnUi(null, "Detection failed");
 	}
+}
+
+private void SetPresetStatusOnUi(DlssPreset? preset, string status)
+{
+	var dispatcher = System.Windows.Application.Current?.Dispatcher;
+	void Apply()
+	{
+		if (preset != null)
+			SelectedPreset = preset;
+		CurrentPresetStatus = status;
+	}
+
+	if (dispatcher == null || dispatcher.CheckAccess())
+		Apply();
+	else
+		dispatcher.Invoke(Apply);
 }
 
 [RelayCommand]

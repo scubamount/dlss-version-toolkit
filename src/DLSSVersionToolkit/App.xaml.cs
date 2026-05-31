@@ -1,4 +1,5 @@
-﻿using System.Threading;
+﻿using System.IO;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using DLSSVersionToolkit.Core.Services;
@@ -14,7 +15,94 @@ public partial class App : Application
     private MainViewModel? _mainViewModel;
     private ISettingsService? _settingsService;
 
+    private static readonly string CrashLogPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "DLSSVersionToolkit", "startup-crash.log");
+
+    public App()
+    {
+        // Wire global exception handlers as early as possible — before Application_Startup —
+        // so that ANY unhandled fault (managed or from a background task) is logged to disk
+        // and surfaced to the user instead of the process vanishing with no window. The
+        // 0.0.20 "double-click does nothing" reports were a startup exception with no handler.
+        AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+    }
+
+    private static void LogCrash(string source, Exception? ex)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(CrashLogPath);
+            if (dir != null && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            var entry = $"[{DateTime.Now:O}] {source}: {ex}{Environment.NewLine}{Environment.NewLine}";
+            File.AppendAllText(CrashLogPath, entry);
+        }
+        catch
+        {
+            // Never let logging itself crash the handler.
+        }
+    }
+
+    private static void ShowCrashDialog(string source, Exception? ex)
+    {
+        try
+        {
+            MessageBox.Show(
+                $"DLSS Version Toolkit hit an unexpected error and may not work correctly.\n\n" +
+                $"Where: {source}\n" +
+                $"Error: {ex?.Message}\n\n" +
+                $"A log was written to:\n{CrashLogPath}",
+                "DLSS Version Toolkit — Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        catch
+        {
+            // If even the dialog fails (e.g. no desktop), the on-disk log still captured it.
+        }
+    }
+
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        LogCrash("DispatcherUnhandledException", e.Exception);
+        ShowCrashDialog("UI thread", e.Exception);
+        // Mark handled so a recoverable UI-thread fault doesn't silently kill the app.
+        e.Handled = true;
+    }
+
+    private void OnAppDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        LogCrash($"AppDomainUnhandledException (terminating={e.IsTerminating})", e.ExceptionObject as Exception);
+        ShowCrashDialog("Background", e.ExceptionObject as Exception);
+    }
+
+    private void OnUnobservedTaskException(object? sender, System.Threading.Tasks.UnobservedTaskExceptionEventArgs e)
+    {
+        LogCrash("UnobservedTaskException", e.Exception);
+        e.SetObserved();
+    }
+
     private async void Application_Startup(object sender, StartupEventArgs e)
+    {
+        try
+        {
+            await StartupCoreAsync(e);
+        }
+        catch (Exception ex)
+        {
+            // Last line of defence: anything thrown synchronously during startup (service
+            // construction, view-model construction, MainWindow construction) is logged and
+            // shown rather than killing the process before a window appears.
+            LogCrash("Application_Startup", ex);
+            ShowCrashDialog("Startup", ex);
+            Shutdown(1);
+        }
+    }
+
+    private async System.Threading.Tasks.Task StartupCoreAsync(StartupEventArgs e)
     {
         // Single-instance enforcement — Global\ prefix ensures the mutex is visible
         // across all integrity levels, so elevated and non-elevated instances share it.
@@ -52,11 +140,11 @@ public partial class App : Application
         var dlssDownloadService = new DlssDownloadService();
         var streamlineDownloadService = new StreamlineDownloadService();
         var dlssIndicatorService = new DlssIndicatorService();
-var anWaveAutoService = new AnWaveAutoService();
-var whitelistService = new WhitelistService();
-var presetOverrideService = new PresetOverrideService();
+        var anWaveAutoService = new AnWaveAutoService();
+        var whitelistService = new WhitelistService();
+        var presetOverrideService = new PresetOverrideService();
 
-_mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService, whitelistService, presetOverrideService);
+        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService, whitelistService, presetOverrideService);
 
         SetupTrayIcon();
 
