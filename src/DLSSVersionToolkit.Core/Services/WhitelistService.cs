@@ -149,14 +149,49 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
         return (false, string.Join(" ", errors));
     }
 
+    /// <summary>
+    /// Flips every <c>"Disable_*_Override":true</c> to <c>:false</c> in the raw JSON text,
+    /// whitespace-tolerant around the colon. Mirrors the reference PowerShell script's
+    /// plain string replacement and makes NO assumption about the document's root shape
+    /// (NVIDIA App's ApplicationStorage.json root is an object, not an array).
+    /// </summary>
+    public static string FlipDisableOverrideFlags(string json, out int flagsFlipped)
+    {
+        int flipped = 0;
+        var result = json;
+        foreach (var key in DisableOverrideKeys)
+        {
+            var pattern = $"(\"{System.Text.RegularExpressions.Regex.Escape(key)}\"\\s*:\\s*)true";
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result, pattern,
+                m => { flipped++; return m.Groups[1].Value + "false"; },
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+        flagsFlipped = flipped;
+        return result;
+    }
+
     private async Task<(bool Success, int GamesModified, string? ErrorMessage, List<string> ModifiedFiles, bool IsApplicable)> ModifyApplicationStorageJsonAsync(CancellationToken ct)
     {
         var modifiedFiles = new List<string>();
-        int gamesModified = 0;
 
         if (!File.Exists(ApplicationStoragePath))
         {
             return (false, 0, $"ApplicationStorage.json not found at: {ApplicationStoragePath}", modifiedFiles, false);
+        }
+
+        // Clear the ReadOnly attribute NVIDIA App sets on this file, otherwise the
+        // write below throws UnauthorizedAccessException and the whitelist silently
+        // never applies. Mirrors the reference script's Set IsReadOnly = $false.
+        try
+        {
+            var attrs = File.GetAttributes(ApplicationStoragePath);
+            if ((attrs & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(ApplicationStoragePath, attrs & ~FileAttributes.ReadOnly);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ModifyApplicationStorageJsonAsync: could not clear ReadOnly: {ex.Message}");
         }
 
         string jsonContent;
@@ -174,99 +209,40 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
             return (false, 0, "ApplicationStorage.json is empty.", modifiedFiles, true);
         }
 
-        try
+        // Operate on the raw text exactly like the reference PowerShell script
+        // (JPersson77's nVAppApp script): flip every "Disable_X_Override":true to
+        // :false. We do NOT parse/assume a root shape — NVIDIA App's
+        // ApplicationStorage.json root is a JSON OBJECT (a wrapper around the game
+        // list), not an array, so the previous JsonDocument-as-array approach bailed
+        // with "root is not an array" and changed nothing. Whitespace-tolerant so it
+        // matches both compact and pretty-printed variants.
+        var original = jsonContent;
+        var updated = FlipDisableOverrideFlags(jsonContent, out int flagsFlipped);
+
+        if (flagsFlipped == 0)
         {
-            using var document = JsonDocument.Parse(jsonContent);
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
-            {
-                return (false, 0, "ApplicationStorage.json root is not an array.", modifiedFiles, true);
-            }
-
-            // Check if any overrides need changing
-            bool anyNeedChange = false;
-            foreach (var element in document.RootElement.EnumerateArray())
-            {
-                if (element.ValueKind != JsonValueKind.Object)
-                    continue;
-
-                foreach (var key in DisableOverrideKeys)
-                {
-                    if (element.TryGetProperty(key, out var prop) && prop.ValueKind == JsonValueKind.True)
-                    {
-                        anyNeedChange = true;
-                        break;
-                    }
-                }
-                if (anyNeedChange)
-                    break;
-            }
-
-            if (!anyNeedChange)
-            {
-                Debug.WriteLine("ModifyApplicationStorageJsonAsync: all override flags already false");
+            // Nothing was set to true — already whitelisted (or no entries). Not an error.
+            Debug.WriteLine("ModifyApplicationStorageJsonAsync: no Disable_*_Override flags were true");
             return (true, 0, null, modifiedFiles, true);
-            }
-        }
-        catch (JsonException ex)
-        {
-            return (false, 0, $"Failed to parse ApplicationStorage.json: {ex.Message}", modifiedFiles, true);
         }
 
-        // Re-parse for modification
+        if (string.Equals(updated, original, StringComparison.Ordinal))
+        {
+            return (true, 0, null, modifiedFiles, true);
+        }
+
         try
         {
-            using var doc = JsonDocument.Parse(jsonContent);
-            var root = doc.RootElement;
-
-            // Build a mutable representation
-            var gameObjects = new List<Dictionary<string, object?>>();
-
-            foreach (var element in root.EnumerateArray())
-            {
-                var dict = new Dictionary<string, object?>();
-                foreach (var prop in element.EnumerateObject())
-                {
-                    dict[prop.Name] = prop.Value.ValueKind switch
-                    {
-                        JsonValueKind.True => true,
-                        JsonValueKind.False => false,
-                        JsonValueKind.Number => prop.Value.GetDouble(),
-                        JsonValueKind.String => prop.Value.GetString(),
-                        JsonValueKind.Null => null,
-                        _ => prop.Value.Clone()
-                    };
-                }
-                gameObjects.Add(dict);
-            }
-
-            // Modify the flags
-            foreach (var game in gameObjects)
-            {
-                bool modified = false;
-                foreach (var key in DisableOverrideKeys)
-                {
-                    if (game.TryGetValue(key, out var val) && val is true)
-                    {
-                        game[key] = false;
-                        modified = true;
-                    }
-                }
-                if (modified)
-                    gamesModified++;
-            }
-
-            // Serialize back
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var newJson = JsonSerializer.Serialize(gameObjects, options);
-            await File.WriteAllTextAsync(ApplicationStoragePath, newJson, ct);
-
+            await File.WriteAllTextAsync(ApplicationStoragePath, updated, ct);
             modifiedFiles.Add(ApplicationStoragePath);
-            Debug.WriteLine($"ModifyApplicationStorageJsonAsync: modified {gamesModified} game entries");
-        return (true, gamesModified, null, modifiedFiles, true);
+            Debug.WriteLine($"ModifyApplicationStorageJsonAsync: flipped {flagsFlipped} override flag(s) to false");
+            return (true, flagsFlipped, null, modifiedFiles, true);
         }
-        catch (JsonException ex)
+        catch (UnauthorizedAccessException)
         {
-            return (false, 0, $"Failed to re-serialize ApplicationStorage.json: {ex.Message}", modifiedFiles, true);
+            return (false, 0,
+                "Could not write ApplicationStorage.json (access denied). Run the app as Administrator and try again.",
+                modifiedFiles, true);
         }
         catch (Exception ex)
         {
