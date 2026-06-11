@@ -738,3 +738,100 @@ public class OperationGuardTests
 		Directory.Delete(tempDir, true);
 	}
 }
+
+public class AppUpdateServiceTests
+{
+	// --- Tag parsing ---
+
+	[Theory]
+	[InlineData("v0.0.31", "0.0.31")]
+	[InlineData("0.0.31", "0.0.31")]
+	[InlineData("V1.2.3", "1.2.3")]
+	[InlineData("v0.0.31.5", "0.0.31.5")]
+	public void ParseTagVersion_ValidTags_Parses(string tag, string expected)
+	{
+		var v = Core.Services.AppUpdateService.ParseTagVersion(tag);
+		Assert.NotNull(v);
+		Assert.Equal(Version.Parse(expected), v);
+	}
+
+	[Theory]
+	[InlineData(null)]
+	[InlineData("")]
+	[InlineData("   ")]
+	[InlineData("latest")]
+	[InlineData("v1")]
+	[InlineData("not-a-version")]
+	public void ParseTagVersion_InvalidTags_ReturnsNull(string? tag)
+	{
+		Assert.Null(Core.Services.AppUpdateService.ParseTagVersion(tag));
+	}
+
+	// --- Newer-version comparison ---
+
+	[Theory]
+	[InlineData("0.0.32", "0.0.31", true)]   // patch newer
+	[InlineData("0.1.0", "0.0.31", true)]    // minor newer
+	[InlineData("1.0.0", "0.0.31", true)]    // major newer
+	[InlineData("0.0.31", "0.0.31", false)]  // equal
+	[InlineData("0.0.30", "0.0.31", false)]  // older
+	public void IsNewer_ComparesCorrectly(string latest, string current, bool expected)
+	{
+		var result = Core.Services.AppUpdateService.IsNewer(
+			Version.Parse(latest), Version.Parse(current));
+		Assert.Equal(expected, result);
+	}
+
+	[Fact]
+	public void IsNewer_NullLatest_ReturnsFalse()
+	{
+		Assert.False(Core.Services.AppUpdateService.IsNewer(null, Version.Parse("0.0.31")));
+	}
+
+	[Fact]
+	public void IsNewer_NormalizesUndefinedComponents()
+	{
+		// 0.0.31 (revision undefined, -1) vs 0.0.31.0 must compare EQUAL, not older.
+		Assert.False(Core.Services.AppUpdateService.IsNewer(
+			Version.Parse("0.0.31"), Version.Parse("0.0.31.0")));
+		Assert.False(Core.Services.AppUpdateService.IsNewer(
+			Version.Parse("0.0.31.0"), Version.Parse("0.0.31")));
+	}
+
+	// --- AppUpdateInfo defaults ---
+
+	[Fact]
+	public void AppUpdateInfo_Defaults_NoUpdate()
+	{
+		var info = new AppUpdateInfo();
+		Assert.False(info.IsUpdateAvailable);
+		Assert.Equal("", info.DownloadUrl);
+		Assert.Equal(0, info.AssetSize);
+	}
+
+	[Fact]
+	public void AppUpdateResult_FactoryMethods()
+	{
+		var ok = AppUpdateResult.Succeeded(@"C:\apps\DLSSVersionToolkit.exe");
+		Assert.True(ok.Success);
+		Assert.Equal(@"C:\apps\DLSSVersionToolkit.exe", ok.ExePath);
+		Assert.Equal("", ok.ErrorMessage);
+
+		var fail = AppUpdateResult.Failed("boom");
+		Assert.False(fail.Success);
+		Assert.Equal("boom", fail.ErrorMessage);
+	}
+
+	// --- Settings backward compatibility ---
+
+	[Fact]
+	public void AppSettings_NewFields_HaveSafeDefaults()
+	{
+		// Old settings.json files won't contain the new keys; deserialization must fall
+		// back to: update checks ON, quick guide NOT yet seen.
+		var settings = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{}");
+		Assert.NotNull(settings);
+		Assert.True(settings!.CheckForAppUpdates);
+		Assert.False(settings.HasSeenQuickGuide);
+	}
+}

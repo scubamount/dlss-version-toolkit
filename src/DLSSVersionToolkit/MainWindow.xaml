@@ -78,8 +78,21 @@
                 <TextBlock Grid.Column="1" Text="by scubamount" FontSize="12" FontWeight="SemiBold"
                            Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" Margin="12,0,0,0"/>
 
-                <!-- right: version + indicator toggle -->
+                <!-- right: app update pill + version + indicator toggle -->
                 <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- App self-update pill: collapsed unless a newer release exists -->
+                    <Button Command="{Binding ApplyAppUpdateCommand}" Cursor="Hand"
+                            Background="Transparent" BorderThickness="0" Padding="0" Margin="0,0,12,0"
+                            IsEnabled="{Binding IsApplyingAppUpdate, Converter={StaticResource InverseBoolConverter}}"
+                            Visibility="{Binding AppUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
+                            ToolTip="A new version of DLSS Version Toolkit is available. Click to download and install.">
+                        <Border CornerRadius="2" Padding="10,4" BorderThickness="1"
+                                BorderBrush="{StaticResource AmberBrush}" Background="Transparent">
+                            <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource AmberBrush}">
+                                <Run Text="⬆ v"/><Run Text="{Binding AppUpdateVersion, Mode=OneWay}"/><Run Text=" available"/>
+                            </TextBlock>
+                        </Border>
+                    </Button>
                     <TextBlock Text="{Binding DlssIndicatorStatus}" Foreground="{StaticResource Text3Brush}"
                                FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"
                                ToolTip="Toggle the on-screen DLSS overlay (appears bottom-left of supported games after a full restart)."/>
@@ -152,18 +165,24 @@
                                 IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBoolConverter}}" Content="⟲   Rescan"/>
 
                         <TextBlock Text="CONFIGURE" Style="{StaticResource NavGroupLabel}"/>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ApplyWhitelistCommand}" Content="✓   Apply Whitelist"
-                                ToolTip="Remove NVIDIA App's DLSS4 override restrictions and restart NVIDIA services."/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding OpenSettingsCommand}" Content="⚙   Settings"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SetupAnWaveCommand}"
                                 IsEnabled="{Binding IsSettingUpAnWave, Converter={StaticResource InverseBoolConverter}}" Content="⬡   Setup AnWave"/>
 
-                        <TextBlock Text="TOOLS" Style="{StaticResource NavGroupLabel}"/>
+                        <TextBlock Text="ADVANCED" Style="{StaticResource NavGroupLabel}"
+                                   ToolTip="Manual steps — Update All runs all of these for you in the right order."/>
+                        <TextBlock Text="Update All runs these for you" Foreground="{StaticResource Text3Brush}"
+                                   FontSize="10" Margin="16,0,12,4" TextWrapping="Wrap"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ApplyWhitelistCommand}" Content="✓   Apply Whitelist"
+                                ToolTip="Remove NVIDIA App's DLSS4 override restrictions and restart NVIDIA services."/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadLatestCommand}" Content="⤓   Download DLSS SDK"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadStreamlineCommand}" Content="⤓   Download Streamline"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromDlssSdkCommand}" Content="⟳   Sync NGX from DLSS"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromAnWaveCommand}" Content="⟳   Sync NGX from AnWave"/>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding OpenSettingsCommand}" Content="⚙   Settings"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ExportCommand}" Content="⤴   Export Report"/>
+
+                        <TextBlock Text="HELP" Style="{StaticResource NavGroupLabel}"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ShowQuickGuideCommand}" Content="?   Quick Guide"/>
                     </StackPanel>
                 </DockPanel>
             </Border>
@@ -183,6 +202,38 @@
                                        FontSize="13" Foreground="{StaticResource Text3Brush}" Margin="0,3,0,0"/>
                         </StackPanel>
                     </Grid>
+
+                    <!-- Quick guide card (first run, or via HELP > Quick Guide) -->
+                    <Border Margin="28,18,28,0" Padding="18,14"
+                            Background="{StaticResource Panel2Brush}"
+                            BorderBrush="{StaticResource NvidiaGreenBrush}" BorderThickness="1"
+                            Visibility="{Binding IsQuickGuideVisible, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="HOW TO USE THIS APP" FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{StaticResource NvidiaGreenBrush}" Margin="0,0,0,8"/>
+                                <TextBlock Foreground="{StaticResource Text1Brush}" FontSize="13" TextWrapping="Wrap" LineHeight="22">
+                                    <Run Text="1." FontWeight="Bold" Foreground="{StaticResource NvidiaGreenBrush}"/>
+                                    <Run Text="  Pick your preferred "/><Run Text="Override Preset" FontWeight="SemiBold"/><Run Text=" below (e.g. L)."/>
+                                    <LineBreak/>
+                                    <Run Text="2." FontWeight="Bold" Foreground="{StaticResource NvidiaGreenBrush}"/>
+                                    <Run Text="  Click "/><Run Text="Update All" FontWeight="SemiBold"/><Run Text=" — it handles everything: whitelist, latest DLSS download, NGX sync, and applying your preset to every game."/>
+                                    <LineBreak/>
+                                    <Run Text="3." FontWeight="Bold" Foreground="{StaticResource NvidiaGreenBrush}"/>
+                                    <Run Text="  Fully restart your game"/><Run Text=" (not just to the menu) for changes to take effect."/>
+                                </TextBlock>
+                                <TextBlock Foreground="{StaticResource Text3Brush}" FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"
+                                           Text="Tip: turn on the DLSS Indicator (top right) to verify in-game — the overlay appears in the bottom-left corner. Items under ADVANCED are manual steps that Update All already runs for you."/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Got it" Style="{StaticResource SolidGreenButtonStyle}"
+                                    VerticalAlignment="Top" Margin="16,0,0,0"
+                                    Command="{Binding DismissQuickGuideCommand}"/>
+                        </Grid>
+                    </Border>
 
                     <!-- Hero version strip -->
                     <Border Margin="28,18,28,0" Padding="20,18" Background="{StaticResource Panel1Brush}"

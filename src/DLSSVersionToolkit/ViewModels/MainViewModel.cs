@@ -127,6 +127,26 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     [ObservableProperty]
     private string _whitelistStatus = "Not applied";
 
+    // --- App self-update (v0.0.31) ---
+
+    [ObservableProperty]
+    private bool _appUpdateAvailable;
+
+    [ObservableProperty]
+    private string _appUpdateVersion = "";
+
+    [ObservableProperty]
+    private bool _isApplyingAppUpdate;
+
+    private AppUpdateInfo? _pendingAppUpdate;
+
+    // --- First-run quick guide (v0.0.31) ---
+
+    [ObservableProperty]
+    private bool _isQuickGuideVisible;
+
+    private readonly AppUpdateService _appUpdateService = new();
+
 public MainViewModel(
  IScanService scanService,
  IUpgradeService upgradeService,
@@ -155,7 +175,127 @@ _dlssIndicatorService = dlssIndicatorService;
 IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
 
  LoadPresetDefaults();
+
+    // Kick the app self-update check + quick-guide visibility off the UI thread.
+    // Both are best-effort: failures stay silent (Debug log only).
+    _ = Task.Run(InitializeStartupStateAsync);
 }
+
+    /// <summary>
+    /// Background startup work: decide whether to show the first-run quick guide and
+    /// check GitHub for a newer app version. All properties set here are scalars
+    /// (bool/string) — WPF's binding engine marshals INPC notifications for scalar
+    /// properties to the UI thread automatically (collections would NOT be safe).
+    /// </summary>
+    private async Task InitializeStartupStateAsync()
+    {
+        try
+        {
+            var settings = await _settingsService.LoadAsync();
+
+            if (!settings.HasSeenQuickGuide)
+                IsQuickGuideVisible = true;
+
+            if (settings.CheckForAppUpdates)
+            {
+                var info = await _appUpdateService.CheckForUpdateAsync();
+                if (info.IsUpdateAvailable)
+                {
+                    _pendingAppUpdate = info;
+                    AppUpdateVersion = info.LatestVersion;
+                    AppUpdateAvailable = true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"InitializeStartupStateAsync (non-fatal): {ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private async Task DismissQuickGuideAsync()
+    {
+        IsQuickGuideVisible = false;
+        try
+        {
+            var settings = await _settingsService.LoadAsync();
+            if (!settings.HasSeenQuickGuide)
+            {
+                settings.HasSeenQuickGuide = true;
+                await _settingsService.SaveAsync(settings);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"DismissQuickGuide save failed (non-fatal): {ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private void ShowQuickGuide()
+    {
+        // Re-show on demand from the sidebar; does NOT reset the persisted flag.
+        IsQuickGuideVisible = true;
+    }
+
+    [RelayCommand]
+    private async Task ApplyAppUpdateAsync()
+    {
+        if (_pendingAppUpdate is not { } update || IsApplyingAppUpdate) return;
+
+        var sizeMb = update.AssetSize > 0 ? $" (~{update.AssetSize / 1024.0 / 1024.0:F1} MB)" : "";
+        var confirm = MessageBox.Show(
+            $"Update DLSS Version Toolkit from v{update.CurrentVersion} to v{update.LatestVersion}?\n\n" +
+            $"The new version{sizeMb} will be downloaded and the app will restart.\n\n" +
+            "Your settings and cached downloads are kept.",
+            "App Update", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        IsApplyingAppUpdate = true;
+        DownloadStatus = $"Downloading v{update.LatestVersion}...";
+        try
+        {
+            var progress = new Progress<int>(pct =>
+                DownloadStatus = $"Downloading v{update.LatestVersion}... {pct}%");
+            var result = await _appUpdateService.DownloadAndApplyAsync(update, progress);
+
+            if (!result.Success)
+            {
+                MessageBox.Show(result.ErrorMessage, "App Update",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            DownloadStatus = "";
+            var restart = MessageBox.Show(
+                $"v{update.LatestVersion} is installed.\n\nRestart now to finish the update?",
+                "App Update", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (restart == MessageBoxResult.Yes)
+            {
+                AppUpdateService.RestartForUpdate(result.ExePath,
+                    () => Application.Current.Shutdown());
+            }
+            else
+            {
+                // Already swapped on disk; next manual launch runs the new version.
+                AppUpdateAvailable = false;
+                StatusMessage = $"v{update.LatestVersion} will run after the next restart.";
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Update failed: {ex.Message}\n\n" +
+                $"What to do: download the new version manually from {AppUpdateService.ReleasesPageUrl}",
+                "App Update", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsApplyingAppUpdate = false;
+            DownloadStatus = "";
+        }
+    }
 
 private void LoadPresetDefaults()
 {
