@@ -104,6 +104,11 @@ public partial class App : Application
 
     private async System.Threading.Tasks.Task StartupCoreAsync(StartupEventArgs e)
     {
+        // App self-update support: when relaunched by the updater with --wait-for-pid,
+        // block (max 10s) until the old process exits so we don't lose the
+        // single-instance mutex race to the instance we're replacing.
+        AppUpdateService.WaitForPredecessorIfRequested(e.Args);
+
         // Single-instance enforcement — Global\ prefix ensures the mutex is visible
         // across all integrity levels, so elevated and non-elevated instances share it.
         const string mutexName = "Global\\DLSSVersionToolkit_SingleInstance";
@@ -153,6 +158,10 @@ public partial class App : Application
 
         MainWindow = mainWindow;
         mainWindow.Show();
+
+        // Post-update hygiene: remove the previous version's renamed exe (.old) and the
+        // download staging dir. Best-effort, off the UI thread; never blocks startup.
+        _ = System.Threading.Tasks.Task.Run(AppUpdateService.CleanupAfterUpdate);
 
         // Apply StartMinimized setting if configured
         var settings = await _settingsService.LoadAsync();
