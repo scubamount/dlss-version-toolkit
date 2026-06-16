@@ -13,6 +13,9 @@ on:
       - 'feat/**'
       - 'fix/**'
       - 'chore/**'
+      - 'perf/**'
+      - 'refactor/**'
+      - 'docs/**'
   pull_request:
     branches:
       - main
