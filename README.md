@@ -14,17 +14,17 @@
 </p>
 
 <p align="center">
-  <a href="#-tldr">TL;DR</a> ·
-  <a href="#-install">Install</a> ·
-  <a href="#-what-it-does">What It Does</a> ·
-  <a href="#-how-it-works">How It Works</a> ·
-  <a href="#-troubleshooting">Troubleshooting</a> ·
-  <a href="#-security">Security</a>
+  <a href="#tldr">TL;DR</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#what-it-does">What It Does</a> ·
+  <a href="#how-it-works">How It Works</a> ·
+  <a href="#troubleshooting">Troubleshooting</a> ·
+  <a href="#security">Security</a>
 </p>
 
 ---
 
-## ⚡ TL;DR
+## TL;DR
 
 **DLSS Version Toolkit** is a Windows app that keeps your NVIDIA DLSS DLLs up to date and
 forces the render preset you want — across every game — in one click.
@@ -38,7 +38,7 @@ Single self-contained `.exe`. No installer. Your DLLs, your machine.
 
 ---
 
-## 🚀 Install
+## Install
 
 ### Run the .exe (recommended)
 
@@ -47,7 +47,7 @@ Download **`DLSSVersionToolkit.exe`** from the
 No installer — it's a single self-contained executable (needs the
 [.NET 9 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0)).
 
-The app **updates itself**: when a newer release ships, an **⬆ vX.Y.Z available** pill appears
+The app updates itself: when a newer release ships, an **update-available** pill appears
 in the header — click it to download, swap, and restart in place. Toggle off in Settings.
 
 ### Build from source
@@ -65,23 +65,23 @@ DLSS override enabled.
 
 ---
 
-## 🎯 What It Does
+## What It Does
 
 | Action | What happens |
 |---|---|
-| 🟢 **Update All** | The one button: whitelist → apply preset to all games → download latest DLSS SDK → sync to NGX Release → set up AnWave |
-| 🎚️ **Override Preset** | Pick a DLSS render preset (J / K / L / M) and apply it to the base profile **and every game profile** |
-| 🔄 **Auto-scan on launch** | Opens straight to your installed versions, newest-build highlight, and live whitelist / AnWave status — no clicking required |
-| ⬆️ **App auto-update** | Checks this repo on launch and offers a one-click in-place update |
-| 🧩 **AnWave auto-setup** | Downloads + installs nvidiaDlssGlom, fetches the latest DLSS DLLs, activates the global override |
-| 📤 **Export** | Save a snapshot of your DLSS setup as CSV or JSON |
-| 🛟 **Advanced (manual)** | Each step Update All runs is also available on its own for recovery: whitelist, downloads, NGX syncs |
+| **Update All** | The one button: whitelist → apply preset to all games → download latest DLSS SDK → sync to NGX Release → set up AnWave |
+| **Override Preset** | Pick a DLSS render preset (J / K / L / M) and apply it to the base profile **and every game profile** |
+| **Auto-scan on launch** | Opens straight to your installed versions, newest-build highlight, and live whitelist / AnWave status — no clicking required |
+| **App auto-update** | Checks this repo on launch and offers a one-click in-place update |
+| **AnWave auto-setup** | Downloads + installs nvidiaDlssGlom, fetches the latest DLSS DLLs, activates the global override |
+| **Export** | Save a snapshot of your DLSS setup as CSV or JSON |
+| **Advanced (manual)** | Each step Update All runs is also available on its own for recovery: whitelist, downloads, NGX syncs |
 
 **Supported components:** DLSS, Frame Generation (dlssg), DLSSD (Ray Reconstruction), DeepDVC, Streamline SDK.
 
 ---
 
-## 🧠 How It Works
+## How It Works
 
 NVIDIA DLSS DLLs live in several places. The toolkit scans, compares, and syncs all of them:
 
@@ -113,7 +113,7 @@ NVIDIA DLSS DLLs live in several places. The toolkit scans, compares, and syncs 
 
 ---
 
-## 🔒 Security
+## Security
 
 Defense-in-depth for every file operation:
 
@@ -125,12 +125,12 @@ Defense-in-depth for every file operation:
 - **Long path support** — paths over 240 chars handled via the `\\?\` prefix
 - **SharpCompress 0.48.0** — patched against CVE-2026-44788 (directory traversal in `WriteToDirectory`)
 
-The in-app auto-updater is **opt-out**, never silent: it downloads a size-verified exe, swaps it
+The in-app auto-updater is opt-out, never silent: it downloads a size-verified exe, swaps it
 in place with rollback on failure, and prompts before restarting.
 
 ---
 
-## 🧰 Troubleshooting
+## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -143,7 +143,7 @@ in place with rollback on failure, and prompts before restarting.
 
 ---
 
-## 🗂️ Project Structure
+## Project Structure
 
 ```
 dlss-version-toolkit/
@@ -170,7 +170,7 @@ NvAPIWrapper.Net (DRS preset overrides) · SharpCompress.
 
 ---
 
-## ⭐ Star History
+## Star History
 
 <a href="https://star-history.com/#scubamount/dlss-version-toolkit&Date">
   <picture>
@@ -182,10 +182,8 @@ NvAPIWrapper.Net (DRS preset overrides) · SharpCompress.
 
 ---
 
-## 📄 License
+## License
 
 [Apache License 2.0](LICENSE) — see the [NOTICE](NOTICE) file for attribution requirements.
 
-<p align="center">
-  <strong>Built and maintained by scubamount.</strong>
-</p>
+Built and maintained by scubamount.
