@@ -6,8 +6,8 @@
         xmlns:local="clr-namespace:DLSSVersionToolkit"
         xmlns:vm="clr-namespace:DLSSVersionToolkit.ViewModels"
         xmlns:converters="clr-namespace:DLSSVersionToolkit.Converters"
-        Title="DLSS Version Toolkit — by scubamount" Height="700" Width="980"
-        MinHeight="600" MinWidth="900"
+        Title="DLSS Version Toolkit — by scubamount" Height="760" Width="980"
+        MinHeight="620" MinWidth="900"
         Background="{StaticResource CanvasBrush}"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
@@ -93,9 +93,33 @@
                             </TextBlock>
                         </Border>
                     </Button>
-                    <TextBlock Text="{Binding DlssIndicatorStatus}" Foreground="{StaticResource Text3Brush}"
+                    <!-- Indicator on/off signal dot (green = On, grey = Off) -->
+                    <Ellipse Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,6,0">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="{StaticResource Text3Brush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDlssIndicatorEnabled}" Value="True">
+                                        <Setter Property="Fill" Value="{StaticResource NvidiaGreenBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <TextBlock Text="{Binding DlssIndicatorStatus}"
                                FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"
-                               ToolTip="Toggle the on-screen DLSS overlay (appears bottom-left of supported games after a full restart)."/>
+                               ToolTip="Toggle the on-screen DLSS overlay (appears bottom-left of supported games after a full restart).">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{StaticResource Text3Brush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDlssIndicatorEnabled}" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource NvidiaGreenBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                     <Button Content="Toggle Indicator" Style="{StaticResource DarkButtonStyle}" Padding="10,4" FontSize="11"
                             Command="{Binding ToggleDlssIndicatorCommand}"/>
                 </StackPanel>
@@ -149,7 +173,19 @@
                                 </TextBlock>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
-                                <Ellipse Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center" Fill="{StaticResource NvidiaGreenBrush}"/>
+                                <Ellipse Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center">
+                                    <Ellipse.Style>
+                                        <Style TargetType="Ellipse">
+                                            <!-- amber by default (not applied / unknown); green once detected applied -->
+                                            <Setter Property="Fill" Value="{StaticResource AmberBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsWhitelistApplied}" Value="True">
+                                                    <Setter Property="Fill" Value="{StaticResource SuccessBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
                                 <TextBlock Foreground="{StaticResource Text2Brush}" FontSize="11" VerticalAlignment="Center">
                                     <Run Text="Whitelist: "/><Run Text="{Binding WhitelistStatus, Mode=OneWay}"/>
                                 </TextBlock>
@@ -157,8 +193,10 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- nav items -->
-                    <StackPanel DockPanel.Dock="Top">
+                    <!-- nav items — scrollable so the HELP group stays reachable even when the
+                         window is short (the status card stays pinned to the bottom) -->
+                    <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
                         <TextBlock Text="OVERVIEW" Style="{StaticResource NavGroupLabel}"/>
                         <Button Style="{StaticResource NavButtonStyle}" Tag="active" Command="{Binding ShowDashboardCommand}" Content="▦   Dashboard"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ScanCommand}"
@@ -166,15 +204,39 @@
 
                         <TextBlock Text="CONFIGURE" Style="{StaticResource NavGroupLabel}"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding OpenSettingsCommand}" Content="⚙   Settings"/>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SetupAnWaveCommand}"
-                                IsEnabled="{Binding IsSettingUpAnWave, Converter={StaticResource InverseBoolConverter}}" Content="⬡   Setup AnWave"/>
+                        <Button Command="{Binding SetupAnWaveCommand}"
+                                IsEnabled="{Binding IsSettingUpAnWave, Converter={StaticResource InverseBoolConverter}}" Content="⬡   Setup AnWave">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource NavButtonStyle}">
+                                    <!-- Dim + annotate when Update All / a prior run already installed AnWave -->
+                                    <Setter Property="ToolTip" Value="Install AnWave (downloads nvidiaDlssGlom + latest DLSS DLLs)."/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsAnWaveInstalled}" Value="True">
+                                            <Setter Property="Opacity" Value="0.55"/>
+                                            <Setter Property="ToolTip" Value="AnWave is already installed — Update All keeps it in sync. Click only to reinstall."/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <TextBlock Text="ADVANCED" Style="{StaticResource NavGroupLabel}"
                                    ToolTip="Manual steps — Update All runs all of these for you in the right order."/>
                         <TextBlock Text="Update All runs these for you" Foreground="{StaticResource Text3Brush}"
                                    FontSize="10" Margin="16,0,12,4" TextWrapping="Wrap"/>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ApplyWhitelistCommand}" Content="✓   Apply Whitelist"
-                                ToolTip="Remove NVIDIA App's DLSS4 override restrictions and restart NVIDIA services."/>
+                        <Button Command="{Binding ApplyWhitelistCommand}" Content="✓   Apply Whitelist">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource NavButtonStyle}">
+                                    <Setter Property="ToolTip" Value="Remove NVIDIA App's DLSS4 override restrictions and restart NVIDIA services."/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsWhitelistApplied}" Value="True">
+                                            <Setter Property="Opacity" Value="0.55"/>
+                                            <Setter Property="ToolTip" Value="Whitelist already applied — Update All maintains it. Click only to re-apply."/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadLatestCommand}" Content="⤓   Download DLSS SDK"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadStreamlineCommand}" Content="⤓   Download Streamline"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromDlssSdkCommand}" Content="⟳   Sync NGX from DLSS"/>
@@ -184,6 +246,7 @@
                         <TextBlock Text="HELP" Style="{StaticResource NavGroupLabel}"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ShowQuickGuideCommand}" Content="?   Quick Guide"/>
                     </StackPanel>
+                    </ScrollViewer>
                 </DockPanel>
             </Border>
 

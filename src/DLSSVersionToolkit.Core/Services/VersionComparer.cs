@@ -6,6 +6,13 @@ public interface IVersionComparer
 {
     void MarkNewest(ScanResult result);
     List<Recommendation> GenerateRecommendations(ScanResult result);
+
+    /// <summary>
+    /// True when <paramref name="candidate"/> is a strictly newer DLSS version than
+    /// <paramref name="baseline"/>, using numeric 4-part comparison (NOT lexical string
+    /// compare, which mis-orders e.g. 310.6 vs 310.10). "Unknown"/"N/A" handled safely.
+    /// </summary>
+    bool IsNewer(string candidate, string baseline);
 }
 
 public class VersionComparer : IVersionComparer
@@ -104,11 +111,14 @@ public class VersionComparer : IVersionComparer
         return recommendations;
     }
 
+    /// <summary>Public numeric version comparison — delegates to the same 4-part logic
+    /// MarkNewest uses, so UI availability checks and table highlighting never disagree.</summary>
+    public bool IsNewer(string candidate, string baseline) => IsVersionNewer(candidate, baseline);
+
     private static bool IsVersionNewer(string version1, string version2)
     {
         if (version1 == "Unknown" || version1 == "N/A") return false;
         if (version2 == "Unknown" || version2 == "N/A") return true;
-
         try
         {
             // Normalize: remove letters, trim to 4 parts

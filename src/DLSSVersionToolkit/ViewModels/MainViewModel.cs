@@ -146,6 +146,7 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     private bool _isQuickGuideVisible;
 
     private readonly AppUpdateService _appUpdateService = new();
+    private readonly IVersionComparer _versionComparer;
 
 public MainViewModel(
  IScanService scanService,
@@ -158,7 +159,8 @@ public MainViewModel(
  IAnWaveAutoService anWaveAutoService,
     IDlssIndicatorService dlssIndicatorService,
     IWhitelistService whitelistService,
-    IPresetOverrideService presetOverrideService)
+    IPresetOverrideService presetOverrideService,
+    IVersionComparer versionComparer)
 {
  _scanService = scanService;
  _upgradeService = upgradeService;
@@ -171,6 +173,7 @@ public MainViewModel(
  _whitelistService = whitelistService;
 _presetOverrideService = presetOverrideService;
 _dlssIndicatorService = dlssIndicatorService;
+_versionComparer = versionComparer;
 
 IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
 
@@ -950,15 +953,48 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     "DLSS Version Toolkit", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
             }
 
-            // Check available version from cached download
+            // Determine the LATEST AVAILABLE version. Sources, in priority order:
+            //   1. The newest version NVIDIA publishes on GitHub (the true "latest available").
+            //   2. A cached SDK download already on disk.
+            //   3. Fall back to the currently-installed NGX version — so when the user already
+            //      has the newest DLLs and nothing newer exists upstream, the hero strip shows
+            //      that version (not a blank "—") and correctly reads "UP TO DATE".
+            // Comparison is numeric (VersionComparer), never lexical, so 310.6 < 310.10.
+            var installedVer = (ngxRelease != null && ngxRelease.DLSS != "Unknown") ? ngxRelease.DLSS : null;
             var cachedVersion = _dlssDownloadService.GetCachedSdkVersion();
-            if (!string.IsNullOrEmpty(cachedVersion))
+
+            string? latestAvailable = null;
+            try
             {
-                AvailableDlssVersion = cachedVersion;
-                UpdateAvailable = !string.IsNullOrEmpty(cachedVersion) &&
-                    (ngxRelease == null || string.Compare(cachedVersion, ngxRelease.DLSS, StringComparison.OrdinalIgnoreCase) > 0);
+                var releases = await _dlssDownloadService.GetAvailableReleasesAsync();
+                latestAvailable = releases
+                    .Select(r => r.Version)
+                    .Where(v => !string.IsNullOrWhiteSpace(v))
+                    .OrderBy(v => v, Comparer<string>.Create((a, b) =>
+                        _versionComparer.IsNewer(a, b) ? 1 : _versionComparer.IsNewer(b, a) ? -1 : 0))
+                    .LastOrDefault();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ScanAsync: could not query latest DLSS releases (offline?): {ex.Message}");
+            }
+
+            // Take the newest of {upstream latest, cached, installed} as the displayed "available".
+            foreach (var candidate in new[] { cachedVersion, installedVer })
+            {
+                if (!string.IsNullOrWhiteSpace(candidate) &&
+                    (latestAvailable == null || _versionComparer.IsNewer(candidate!, latestAvailable)))
+                {
+                    latestAvailable = candidate;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(latestAvailable))
+            {
+                AvailableDlssVersion = latestAvailable!;
+                UpdateAvailable = installedVer == null || _versionComparer.IsNewer(latestAvailable!, installedVer);
                 VersionStatusMessage = UpdateAvailable
-                    ? $"v{cachedVersion} available (current: {CurrentDlssVersion})"
+                    ? $"v{latestAvailable} available (current: {CurrentDlssVersion})"
                     : "Already up to date";
             }
             else
@@ -967,7 +1003,10 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 UpdateAvailable = false;
                 VersionStatusMessage = "";
             }
-            // Check AnWave detection
+            // Check AnWave detection — and now also reflect an EXISTING install (issue D).
+            // The scan source tells us if AnWave was seen; DetectInstalled() reads the toolkit's
+            // own install dir + actual DLL version so a prior Setup/Update All is recognised
+            // instead of showing the amber "not set" dot with a blank version.
             var anWaveEntry = result.Sources.FirstOrDefault(s => s.Source == "AnWave");
             if (anWaveEntry != null && !string.IsNullOrEmpty(anWaveEntry.Path))
             {
@@ -987,6 +1026,40 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     AnWaveDetectedPath = "";
                     IsAnWaveDetected = false;
                 }
+            }
+
+            // Reflect an already-installed AnWave (read-only disk probe).
+            try
+            {
+                var anWaveInstall = _anWaveAutoService.DetectInstalled();
+                if (anWaveInstall.IsInstalled)
+                {
+                    IsAnWaveInstalled = true;
+                    AnWaveInstalledPath = anWaveInstall.InstalledPath ?? "";
+                    AnWaveDllVersion = anWaveInstall.DllVersion ?? "";
+                    AnWaveGlomVersion = anWaveInstall.GlomVersion ?? "";
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ScanAsync: AnWave install detection failed: {ex.Message}");
+            }
+
+            // Reflect the real whitelist state (issue C) — read-only, no mutation.
+            try
+            {
+                var whitelistState = await _whitelistService.DetectStateAsync();
+                WhitelistStatus = whitelistState switch
+                {
+                    WhitelistState.Applied => "Applied",
+                    WhitelistState.NotApplied => "Not applied",
+                    _ => "N/A (NVIDIA App not found)"
+                };
+                IsWhitelistApplied = whitelistState == WhitelistState.Applied;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ScanAsync: whitelist state detection failed: {ex.Message}");
             }
 
             Recommendations.Clear();
