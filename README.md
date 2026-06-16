@@ -1,212 +1,191 @@
 # DLSS Version Toolkit
 
-> A Windows GUI for checking, upgrading, and syncing NVIDIA DLSS versions across all sources — built and maintained by scubamount.
+<p align="center">
+  <img src="docs/main-window.png" alt="DLSS Version Toolkit — sidebar dashboard" width="900" />
+</p>
 
-![DLSS Version Toolkit](docs/main-window.png)
+<p align="center">
+  <a href="https://github.com/scubamount/dlss-version-toolkit/releases/latest"><img src="https://img.shields.io/github/v/release/scubamount/dlss-version-toolkit?color=76b900&label=latest" alt="Latest Release"></a>
+  <a href="https://github.com/scubamount/dlss-version-toolkit/releases"><img src="https://img.shields.io/github/downloads/scubamount/dlss-version-toolkit/total?color=green" alt="Downloads"></a>
+  <a href="https://github.com/scubamount/dlss-version-toolkit/stargazers"><img src="https://img.shields.io/github/stars/scubamount/dlss-version-toolkit?style=social" alt="Stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6" alt="Platform">
+  <img src="https://img.shields.io/badge/.NET-9.0-512BD4" alt=".NET 9">
+</p>
 
-## Overview
+<p align="center">
+  <a href="#-tldr">TL;DR</a> ·
+  <a href="#-install">Install</a> ·
+  <a href="#-what-it-does">What It Does</a> ·
+  <a href="#-how-it-works">How It Works</a> ·
+  <a href="#-troubleshooting">Troubleshooting</a> ·
+  <a href="#-security">Security</a>
+</p>
 
-NVIDIA DLSS components live in multiple locations on your system. Two are managed by the NVIDIA App and drivers, one is installed automatically by this tool, and one is optional:
+---
 
-| Source | Description | Auto-installed? |
-|--------|-------------|-----------------|
-| **NGX Release** | Active DLSS override used by games | Yes — by NVIDIA App |
-| **NGX Staging** | Driver-staged DLSS versions | Yes — by NVIDIA drivers |
-| **AnWave** | Global DLL injection override | Yes — auto-installed by this tool from [SimonMacer/AnWave](https://github.com/SimonMacer/AnWave) |
-| **Streamline SDK** | NVIDIA's SDK with the latest DLLs | Yes — auto-downloaded from NVIDIA-RTX/Streamline on GitHub |
+## ⚡ TL;DR
 
-This tool also downloads the official **DLSS SDK** (`ngx_dlss_demo_windows.zip`) from [NVIDIA/DLSS](https://github.com/NVIDIA/DLSS) on GitHub automatically — no manual download needed.
+**DLSS Version Toolkit** is a Windows app that keeps your NVIDIA DLSS DLLs up to date and
+forces the render preset you want — across every game — in one click.
 
-**Supported components:** DLSS, Frame Generation (dlssg), DLSSD, DeepDVC, Streamline SDK
+> **Pick a preset → click Update All → restart your game.** The toolkit downloads the latest
+> DLSS SDK, syncs it everywhere DLSS lives on your system, whitelists the NVIDIA App so it
+> stops reverting your choice, and applies your preset to every game profile. It also updates
+> itself.
 
-## Features
+Single self-contained `.exe`. No installer. Your DLLs, your machine.
 
-- **Quick guide on first launch** — a short card walks you through the whole flow: pick a preset, click Update All, restart your game
-- **App auto-update** — checks this repo for a newer release on launch and offers a one-click in-place update (toggle in Settings)
-- **Visual dashboard** — see all DLSS versions at a glance in a clean dark-themed table
-- **Update All** — one button to apply your chosen preset to every game profile, download the latest DLSS SDK, sync to NGX Release, and auto-setup AnWave if not installed
-- **Override presets** — pick a DLSS render preset (J/K/L/M) and apply it across the base profile and every game profile in one click
-- **AnWave auto-setup** — integrated into Update All — downloads and installs nvidiaDlssGlom from GitHub, fetches the latest DLSS DLLs from NVIDIA, and activates the global DLSS override automatically
-- **Advanced manual steps** — the individual operations Update All runs (whitelist, downloads, NGX syncs) remain available in the sidebar Advanced group for recovery and debugging
-- **Export** — save version reports as CSV or JSON
-- **System tray** — minimize to tray with notifications when new versions are detected
-- **Background scanning** — optionally check for updates every 4 hours automatically
-- **Operation hardening** — pre-flight checks (network, disk space, writable), PE signature verification, post-copy file size validation, backup verification, automatic rollback on failure, path allowlisting
-- **Improved dialogs** — every operation result shows version numbers, file lists, and actionable next-step guidance
+---
 
-## Screenshots
+## 🚀 Install
 
-### Main Dashboard
-![Main Window](docs/main-window.png)
+### Run the .exe (recommended)
 
-## Requirements
+Download **`DLSSVersionToolkit.exe`** from the
+[latest release](https://github.com/scubamount/dlss-version-toolkit/releases/latest) and run it.
+No installer — it's a single self-contained executable (needs the
+[.NET 9 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0)).
 
-- Windows 10 version 1903+ or Windows 11
-- .NET 9 Runtime ([download .NET 9](https://dotnet.microsoft.com/download/dotnet/9.0))
-- NVIDIA GPU with DLSS support
-- NVIDIA App with DLSS override enabled
+The app **updates itself**: when a newer release ships, an **⬆ vX.Y.Z available** pill appears
+in the header — click it to download, swap, and restart in place. Toggle off in Settings.
 
-## Installation
-
-### Option 1: Run the .exe
-
-Download `DLSSVersionToolkit.exe` from the [latest release](https://github.com/scubamount/dlss-version-toolkit/releases/latest) and run it. No installer — it's a single self-contained executable (requires the .NET 9 Runtime).
-
-The app **checks for its own updates** on launch: when a newer release is published, an **⬆ vX.Y.Z available** pill appears in the header — click it to download and install the update in place, then restart. This can be turned off in Settings.
-
-### Option 2: Build from Source
+### Build from source
 
 ```powershell
-# Requires .NET 9 SDK
+# Requires the .NET 9 SDK
 git clone https://github.com/scubamount/dlss-version-toolkit.git
 cd dlss-version-toolkit
-
-# Build
 dotnet build src/DLSSVersionToolkit.sln --configuration Release
-
-# Publish single-file exe
 dotnet publish src/DLSSVersionToolkit/DLSSVersionToolkit.csproj --configuration Release --self-contained false
 ```
 
-## Usage
+**Requirements:** Windows 10 (1903+) or 11 · NVIDIA GPU with DLSS support · NVIDIA App with
+DLSS override enabled.
 
-### First Launch
+---
 
-On first launch, the app scans all known DLSS sources automatically. The dashboard shows your current DLSS versions and whether an update is available.
+## 🎯 What It Does
 
-If AnWave is not installed, the status card in the sidebar shows "not set" — click **Setup AnWave** in the sidebar *Configure* group to install it automatically.
+| Action | What happens |
+|---|---|
+| 🟢 **Update All** | The one button: whitelist → apply preset to all games → download latest DLSS SDK → sync to NGX Release → set up AnWave |
+| 🎚️ **Override Preset** | Pick a DLSS render preset (J / K / L / M) and apply it to the base profile **and every game profile** |
+| 🔄 **Auto-scan on launch** | Opens straight to your installed versions, newest-build highlight, and live whitelist / AnWave status — no clicking required |
+| ⬆️ **App auto-update** | Checks this repo on launch and offers a one-click in-place update |
+| 🧩 **AnWave auto-setup** | Downloads + installs nvidiaDlssGlom, fetches the latest DLSS DLLs, activates the global override |
+| 📤 **Export** | Save a snapshot of your DLSS setup as CSV or JSON |
+| 🛟 **Advanced (manual)** | Each step Update All runs is also available on its own for recovery: whitelist, downloads, NGX syncs |
 
-### The Dashboard
+**Supported components:** DLSS, Frame Generation (dlssg), DLSSD (Ray Reconstruction), DeepDVC, Streamline SDK.
 
-The main window shows:
-- **Current version** — the DLSS version currently active in NGX Release
-- **Available version** — the latest version cached locally (from NVIDIA's GitHub)
-- **Update status** — whether a newer version is available
-- **AnWave status** — whether AnWave is installed and which version is active
+---
 
-Green text in the table indicates the newest version for that component across all sources.
+## 🧠 How It Works
 
-### Update All (Recommended)
+NVIDIA DLSS DLLs live in several places. The toolkit scans, compares, and syncs all of them:
 
-1. Pre-flight checks — verifies network connectivity, disk space (500 MB minimum), and target directory write access
-2. Applies the whitelist — removes NVIDIA App's DLSS override restrictions
-3. Applies your selected **Override Preset** to the base profile and every game profile
-4. Downloads the latest DLSS SDK from NVIDIA/DLSS on GitHub (skipped if already cached)
-5. Syncs the SDK DLLs to NGX Release (with verified backup and automatic rollback on failure)
-6. Auto-setups AnWave if not installed — downloads nvidiaDlssGlom, fetches DLSS DLLs, activates override
-7. Applies the updated DLLs to the AnWave folder (PE signature + file size verified)
+| Source | What it is | Managed by |
+|---|---|---|
+| **NGX Release** | The active DLSS override games actually load | NVIDIA App |
+| **NGX Staging** | Driver-staged DLSS versions | NVIDIA drivers |
+| **AnWave** | Global DLL injection override | Auto-installed by this tool ([SimonMacer/AnWave](https://github.com/SimonMacer/AnWave)) |
+| **Streamline SDK** | NVIDIA's SDK with the latest DLLs | Auto-downloaded ([NVIDIA-RTX/Streamline](https://github.com/NVIDIA-RTX/Streamline)) |
+| **DLSS SDK** | Official `ngx_dlss_demo_windows.zip` | Auto-downloaded ([NVIDIA/DLSS](https://github.com/NVIDIA/DLSS)) |
 
-Each step shows a dialog with the version applied, files copied, and what to do next. If AnWave setup fails, NGX is still updated — try Setup AnWave separately from the Advanced menu.
+### The dashboard
 
-### Individual Operations (Advanced)
+- **Current NGX** → **Latest available** version strip, with an up-to-date / update-available pill.
+- **Installed Versions** table — green highlights the newest build of each component across all sources.
+- **Sidebar status card** — live dots for scan, AnWave (installed + version), and whitelist (applied / not).
 
-**Update All** is the recommended path — it runs the whole sequence in the right order. The individual steps it performs are also available on their own from the sidebar **Advanced** group, useful for recovery when one step fails:
+### Update All, step by step
 
-- **Apply Whitelist** — remove NVIDIA App's DLSS override restrictions and restart NVIDIA services
-- **Download DLSS SDK** — download the newest official DLSS SDK from NVIDIA's GitHub
-- **Download Streamline** — download the latest Streamline SDK from NVIDIA-RTX/Streamline
-- **Sync NGX from DLSS** — apply the cached DLSS SDK to NGX Release
-- **Sync NGX from AnWave** — copy DLLs from AnWave into NGX Release
-- **Export Report** — save the current version table as CSV or JSON
+1. **Pre-flight** — network, ≥500 MB disk, and writable target checks
+2. **Whitelist** — removes the NVIDIA App override restrictions that otherwise revert your choice
+3. **Preset sweep** — applies your Override Preset to the base profile + every game profile on your system
+4. **Download** — latest DLSS SDK from NVIDIA/DLSS (skipped if already cached)
+5. **Sync** — copies the SDK DLLs to NGX Release with a verified backup + automatic rollback
+6. **AnWave** — installs it if missing, then applies the updated DLLs
 
-### Export
+> After applying, **fully restart your game** (not just to the menu). The on-screen DLSS
+> indicator overlay appears in the **bottom-left** corner of supported games.
 
-Click **Export** to save a snapshot of your current DLSS setup as:
-- **CSV** — spreadsheet-friendly format
-- **JSON** — full data with metadata
+---
 
-### Settings
+## 🔒 Security
 
-Click **Settings** to configure:
-- **NGX Base Path** — where NGX is installed (default: `C:\ProgramData\NVIDIA\NGX`)
-- **AnWave Path** — path to AnWave (leave empty for auto-detect)
-- **Streamline SDK Path** — path to Streamline SDK (leave empty for auto-detect)
-- **Periodic background scans** — enable auto-scan every 4 hours
-- **Check for app updates** — check this repo for a newer app release on launch (on by default)
-- **Minimize to tray** — keep running in the background when the window is closed
-- **Notifications** — show alerts when new DLSS versions are detected
+Defense-in-depth for every file operation:
 
-### System Tray
-
-When **Minimize to tray** is enabled:
-- Closing the window hides the app to the system tray
-- Right-click the tray icon for **Show Dashboard**, **Check Now**, or **Exit**
-- Double-click the tray icon to restore the main window
-
-## Security
-
-DLSS Version Toolkit implements defense-in-depth for file operations:
-
-- **Path allowlisting** — only `C:\ProgramData\NVIDIA\NGX` and `%APPDATA%\NVIDIA\NGX` are writable targets
-- **Pre-flight checks** — network connectivity, disk space (500 MB), and directory write access verified before any operation starts
-- **PE header verification** — DLLs are checked for valid MZ/PE signatures before being copied
-- **Post-copy validation** — file sizes are verified after copy to catch truncated or mismatched binaries
-- **Backup verification** — backups are validated (non-empty, correct file count) before any file modification proceeds
-- **Automatic rollback** — if any operation fails, the verified backup is restored automatically
-- **Backup isolation** — backups are stored in the same volume as the target, ensuring restoration is always possible
-- **OperationGuard** — centralized verification class used across all services (network, disk, writable, PE signature, file, backup, directory creation)
-- **Long path support** — paths exceeding 240 characters are handled via the `\\?\` prefix
+- **Path allowlisting** — only `C:\ProgramData\NVIDIA\NGX` and `%APPDATA%\NVIDIA\NGX` are writable
+- **Pre-flight checks** — network, disk space, and write access verified before anything starts
+- **PE header verification** — DLLs checked for valid MZ/PE signatures before copy
+- **Post-copy validation** — file sizes verified after copy to catch truncated binaries
+- **Backup + rollback** — backups validated before any change; restored automatically on failure
+- **Long path support** — paths over 240 chars handled via the `\\?\` prefix
 - **SharpCompress 0.48.0** — patched against CVE-2026-44788 (directory traversal in `WriteToDirectory`)
 
-## Troubleshooting
+The in-app auto-updater is **opt-out**, never silent: it downloads a size-verified exe, swaps it
+in place with rollback on failure, and prompts before restarting.
 
-### "Administrator access is required"
+---
 
-Run the app as Administrator. Upgrade and sync operations write to `C:\ProgramData\NVIDIA\NGX\`, which requires elevated permissions.
+## 🧰 Troubleshooting
 
-### "No DLSS versions found"
+| Symptom | Fix |
+|---|---|
+| **"Administrator access is required"** | Run as Administrator — sync writes to `C:\ProgramData\NVIDIA\NGX\` |
+| **"No DLSS versions found"** | Install the NVIDIA App and enable DLSS override for at least one game (this creates the NGX folders), then rescan |
+| **DeepDVC shows "Unknown"** | Normal — some driver builds omit DeepDVC from the NGX config; handled gracefully |
+| **"AnWave not installed"** | Click **Update All** (it auto-installs), or **Setup AnWave** in Advanced |
+| **"Streamline SDK not found"** | Auto-downloaded when needed; or drop a manual SDK in Downloads / set its path in Settings |
+| **Changes don't show in-game** | Fully restart the game; the DLL version and preset both need a clean game launch |
 
-Ensure the NVIDIA App is installed and DLSS override is enabled. The NGX folder structure is created when the DLSS override feature is first used.
+---
 
-### DeepDVC Shows "Unknown"
-
-This is normal — some NVIDIA driver builds don't include DeepDVC in the NGX config file. The toolkit handles this gracefully.
-
-### "AnWave not installed"
-
-AnWave setup is fully integrated into **Update All** — just click Update All and the tool will automatically install AnWave if it's not already present. You can also click **Setup AnWave** in the Advanced section to install it separately. No manual download required.
-
-### "Streamline SDK not found"
-
-The app automatically downloads the Streamline SDK from NVIDIA-RTX/Streamline on GitHub when needed. If you have a manual Streamline SDK installation, place the extracted folder in your Downloads directory for auto-detection, or specify its path in Settings. The scan auto-detects the Streamline SDK in your Downloads folder even when the Settings path is empty.
-
-### "AnWave/dlssglom not found or has no valid DLLs"
-
-This warning appears in the status bar when the AnWave directory exists but contains no DLLs with valid version info. Click **Update All** to re-setup AnWave and apply the latest DLLs. If your Settings has an incorrect AnWave path, clear it and let the app auto-detect.
-
-## Project Structure
+## 🗂️ Project Structure
 
 ```
 dlss-version-toolkit/
 ├── src/
-│   ├── DLSSVersionToolkit.Core/          # Core logic library (no WPF dependency)
-│   │   ├── Models/                       # DLSSVersionEntry, ScanResult, AppUpdateInfo, etc.
-│   │   └── Services/                     # NgxScanner, UpgradeService, DlssDownloadService,
-│   │                                      # AnWaveAutoService, AppUpdateService, BackupService, etc.
-│   ├── DLSSVersionToolkit/               # WPF application
-│   │   ├── ViewModels/                   # MainViewModel (CommunityToolkit.Mvvm)
-│   │   ├── Views/                        # SettingsDialog
-│   │   ├── Converters/                   # UI value converters
-│   │   ├── MainWindow.xaml               # Sidebar-dashboard UI
-│   │   └── App.xaml                      # Dark theme, styles, startup
+│   ├── DLSSVersionToolkit.Core/      # Core logic (no WPF): scanners, services, models
+│   │   ├── Models/                   # DLSSVersionEntry, ScanResult, AppUpdateInfo, …
+│   │   └── Services/                 # NgxScanner, DlssDownloadService, AnWaveAutoService,
+│   │                                 # WhitelistService, PresetOverrideService, AppUpdateService, …
+│   ├── DLSSVersionToolkit/           # WPF app
+│   │   ├── ViewModels/               # MainViewModel (CommunityToolkit.Mvvm)
+│   │   ├── Views/                    # SettingsDialog
+│   │   ├── MainWindow.xaml           # Sidebar-dashboard UI
+│   │   └── App.xaml                  # Theme, styles, startup
 │   └── DLSSVersionToolkit.sln
-├── tests/
-│   └── DLSSVersionToolkit.Tests/         # xUnit tests (Core logic, version compare, guards)
-├── docs/                                  # Screenshots for documentation
-├── specs/                                  # Feature specs and plans
-└── README.md
+├── tests/DLSSVersionToolkit.Tests/   # xUnit tests
+└── .github/workflows/                # ci.yml (build+test on push/PR) · release.yml (tag → exe)
 ```
 
-The release `DLSSVersionToolkit.exe` (~3.9 MB, single-file, framework-dependent) is built by CI on every `v*` tag and attached to the corresponding GitHub release — it is not committed to the repo.
+The single-file `DLSSVersionToolkit.exe` (~3.9 MB, framework-dependent) is built by CI on every
+`v*` tag and attached to the GitHub release — it is **not** committed to the repo.
 
-## Technology
+**Built with:** .NET 9 + WPF · CommunityToolkit.Mvvm · Hardcodet.NotifyIcon.Wpf ·
+NvAPIWrapper.Net (DRS preset overrides) · SharpCompress.
 
-- **.NET 9 + WPF** — framework-dependent single-file deployment
-- **CommunityToolkit.Mvvm** — source-generated observable properties and commands
-- **Hardcodet.NotifyIcon.Wpf** — system tray integration
-- **SharpCompress 0.48.0** — .rar extraction for nvidiaDlssGlom packages
-- **System.IO.Compression.ZipFile** — built-in .zip extraction for NVIDIA DLSS SDK
+---
 
-## License
+## ⭐ Star History
 
-[Apache License 2.0](LICENSE). See the [NOTICE](NOTICE) file for attribution requirements.
+<a href="https://star-history.com/#scubamount/dlss-version-toolkit&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=scubamount/dlss-version-toolkit&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=scubamount/dlss-version-toolkit&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=scubamount/dlss-version-toolkit&type=Date" width="100%" />
+  </picture>
+</a>
+
+---
+
+## 📄 License
+
+[Apache License 2.0](LICENSE) — see the [NOTICE](NOTICE) file for attribution requirements.
+
+<p align="center">
+  <strong>Built and maintained by scubamount.</strong>
+</p>

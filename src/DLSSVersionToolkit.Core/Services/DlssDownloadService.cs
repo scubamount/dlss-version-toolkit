@@ -49,7 +49,40 @@ public class DlssDownloadService : IDlssDownloadService
 
     private string? _cachedDownloadPath;
 
+    // Short-lived in-memory cache of the GitHub release list. ScanAsync runs on every app
+    // launch (auto-scan) and previously hit the GitHub API each time — wasteful and prone to
+    // rate-limiting / offline failures on the startup hot path. Cache the result for a TTL so
+    // repeated scans within a session reuse it. Cleared implicitly when the process exits.
+    private static readonly object _releaseCacheLock = new();
+    private static List<DlssRelease>? _cachedReleases;
+    private static DateTime _cachedReleasesAt = DateTime.MinValue;
+    private static readonly TimeSpan ReleaseCacheTtl = TimeSpan.FromMinutes(30);
+
     public async Task<List<DlssRelease>> GetAvailableReleasesAsync(CancellationToken ct = default)
+    {
+        // Serve from cache when fresh (avoids a GitHub round-trip on every scan/launch).
+        lock (_releaseCacheLock)
+        {
+            if (_cachedReleases is not null && DateTime.UtcNow - _cachedReleasesAt < ReleaseCacheTtl)
+                return new List<DlssRelease>(_cachedReleases);
+        }
+
+        var releases = await FetchReleasesFromGitHubAsync(ct);
+
+        // Only cache a non-empty success — an empty list means the call failed (offline /
+        // rate-limited), and we don't want to pin that failure for the whole TTL.
+        if (releases.Count > 0)
+        {
+            lock (_releaseCacheLock)
+            {
+                _cachedReleases = new List<DlssRelease>(releases);
+                _cachedReleasesAt = DateTime.UtcNow;
+            }
+        }
+        return releases;
+    }
+
+    private async Task<List<DlssRelease>> FetchReleasesFromGitHubAsync(CancellationToken ct = default)
     {
         var releases = new List<DlssRelease>();
 

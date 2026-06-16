@@ -158,10 +158,22 @@ public sealed class PresetOverrideService : IPresetOverrideService
                     profilesUpdated++;
                 }
 
-                // 2) Every game profile. This is the key fix: games with their own DRS
-                //    profile do NOT inherit the base setting, so the preset only takes
-                //    effect in-game when we set it on each game's own profile. Iterate
-                //    all non-predefined profiles that have at least one application.
+                // 2) Every game profile that actually exists on THIS system. This is the key
+                //    fix: games with their own DRS profile do NOT inherit the base setting, so
+                //    the preset only takes effect in-game when we set it on each game's profile.
+                //
+                //    PERF (root-cause): NvAPIWrapper's DriverSettingsProfile re-fetches the full
+                //    NVDRS_PROFILE struct via NvAPI_DRS_GetProfileInfo on EVERY property access
+                //    (NumberOfApplications, IsPredefined, Name all call GetProfileInfo with no
+                //    caching). NVIDIA ships ~8000 predefined profiles, so reading a property per
+                //    profile = ~8000 P/Invokes + struct marshals, most for games the user doesn't
+                //    own. We minimise this two ways:
+                //      (a) materialise the profile list once (EnumProfiles is a single call);
+                //      (b) read NumberOfApplications EXACTLY ONCE per profile into a local — never
+                //          touch a second GetProfileInfo-backed property in the loop.
+                //    A profile with 0 applications affects no game on this machine, so writing to
+                //    it is pointless (and for NVIDIA's predefined DB entries, actively wrong — it
+                //    would override NVIDIA's per-game tuning for games not installed here).
                 if (options.ApplyToAllGameProfiles)
                 {
                     foreach (var profile in session.Profiles)
@@ -171,9 +183,10 @@ public sealed class PresetOverrideService : IPresetOverrideService
                         {
                             if (profile is null || !profile.IsValid)
                                 continue;
-                            // Skip the base/global profile (already done) and profiles with
-                            // no applications (nothing to affect).
-                            if (profile.NumberOfApplications <= 0)
+
+                            // Single GetProfileInfo-backed read per profile (cached in a local).
+                            int appCount = profile.NumberOfApplications;
+                            if (appCount <= 0)
                                 continue;
 
                             ApplyToProfile(profile, presetValue, enable, options);
