@@ -1,0 +1,41 @@
+name: CI
+
+# Build + test verification on every push and pull request.
+# This is the compile/test gate that runs BEFORE a release is tagged — it does NOT
+# publish anything (no release, no version). The release workflow (release.yml) handles
+# tag-triggered publishing. Having this means branch/PR changes are compile-verified
+# without having to cut a user-facing release first.
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+      - 'fix/**'
+      - 'chore/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore src/DLSSVersionToolkit.sln
+
+      - name: Build
+        run: dotnet build src/DLSSVersionToolkit.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test src/DLSSVersionToolkit.sln --configuration Release --no-build --verbosity normal
