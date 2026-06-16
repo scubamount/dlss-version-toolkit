@@ -29,10 +29,12 @@
 **DLSS Version Toolkit** is a Windows app that keeps your NVIDIA DLSS DLLs up to date and
 forces the render preset you want — across every game — in one click.
 
-> **Pick a preset → click Update All → restart your game.** The toolkit downloads the latest
-> DLSS SDK, syncs it everywhere DLSS lives on your system, whitelists the NVIDIA App so it
-> stops reverting your choice, and applies your preset to every game profile. It also updates
-> itself.
+> **Pick a preset → click Update All → restart your game.** The toolkit scans every place DLSS
+> lives on your system — NGX Release, the driver's OTA/staged versions, Streamline, and AnWave —
+> finds the newest build of each DLL (Super Resolution, Frame Generation, Ray Reconstruction),
+> downloads the latest official DLSS SDK, syncs those DLLs into NGX Release (and mirrors them to
+> AnWave), whitelists the NVIDIA App so it stops reverting your choice, and applies your preset
+> to every game profile. It also updates itself.
 
 Single self-contained `.exe`. No installer. Your DLLs, your machine.
 
