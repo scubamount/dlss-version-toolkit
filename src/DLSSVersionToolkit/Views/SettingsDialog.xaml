@@ -73,6 +73,7 @@
                 <CheckBox x:Name="AutoScanCheckBox" Content="Enable periodic background scans (every 4 hours)" Margin="0,4"/>
                 <CheckBox x:Name="MinimizeToTrayCheckBox" Content="Minimize to tray instead of closing" Margin="0,4"/>
                 <CheckBox x:Name="NotifyOnNewVersionCheckBox" Content="Show notifications for new DLSS versions" Margin="0,4"/>
+                <CheckBox x:Name="CheckForAppUpdatesCheckBox" Content="Check for app updates on launch" Margin="0,4"/>
 
                 <!-- Watermark -->
                 <TextBlock Text="by Scubamount" FontSize="10"

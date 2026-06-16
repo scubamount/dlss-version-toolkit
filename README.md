@@ -21,11 +21,13 @@ This tool also downloads the official **DLSS SDK** (`ngx_dlss_demo_windows.zip`)
 
 ## Features
 
+- **Quick guide on first launch** — a short card walks you through the whole flow: pick a preset, click Update All, restart your game
+- **App auto-update** — checks this repo for a newer release on launch and offers a one-click in-place update (toggle in Settings)
 - **Visual dashboard** — see all DLSS versions at a glance in a clean dark-themed table
-- **Update All** — one button to download the latest DLSS SDK, sync to NGX Release, auto-setup AnWave if not installed, and apply DLLs
+- **Update All** — one button to apply your chosen preset to every game profile, download the latest DLSS SDK, sync to NGX Release, and auto-setup AnWave if not installed
+- **Override presets** — pick a DLSS render preset (J/K/L/M) and apply it across the base profile and every game profile in one click
 - **AnWave auto-setup** — integrated into Update All — downloads and installs nvidiaDlssGlom from GitHub, fetches the latest DLSS DLLs from NVIDIA, and activates the global DLSS override automatically
-- **Sync from any source** — pull newer DLLs from Streamline SDK or AnWave into NGX Release
-- **Download latest DLSS** — fetch the newest official DLSS SDK directly from NVIDIA's GitHub; cached locally and skipped if already present
+- **Advanced manual steps** — the individual operations Update All runs (whitelist, downloads, NGX syncs) remain available in the sidebar Advanced group for recovery and debugging
 - **Export** — save version reports as CSV or JSON
 - **System tray** — minimize to tray with notifications when new versions are detected
 - **Background scanning** — optionally check for updates every 4 hours automatically
@@ -36,9 +38,6 @@ This tool also downloads the official **DLSS SDK** (`ngx_dlss_demo_windows.zip`)
 
 ### Main Dashboard
 ![Main Window](docs/main-window.png)
-
-### Settings
-![Settings Dialog](docs/settings-dialog.png)
 
 ## Requirements
 
@@ -51,11 +50,9 @@ This tool also downloads the official **DLSS SDK** (`ngx_dlss_demo_windows.zip`)
 
 ### Option 1: Run the .exe
 
-```powershell
-git clone https://github.com/scubamount/dlss-version-toolkit.git
-cd dlss-version-toolkit
-.\publish\DLSSVersionToolkit.exe
-```
+Download `DLSSVersionToolkit.exe` from the [latest release](https://github.com/scubamount/dlss-version-toolkit/releases/latest) and run it. No installer — it's a single self-contained executable (requires the .NET 9 Runtime).
+
+The app **checks for its own updates** on launch: when a newer release is published, an **⬆ vX.Y.Z available** pill appears in the header — click it to download and install the update in place, then restart. This can be turned off in Settings.
 
 ### Option 2: Build from Source
 
@@ -92,23 +89,25 @@ Green text in the table indicates the newest version for that component across a
 ### Update All (Recommended)
 
 1. Pre-flight checks — verifies network connectivity, disk space (500 MB minimum), and target directory write access
-2. Downloads the latest DLSS SDK from NVIDIA/DLSS on GitHub (skipped if already cached)
-3. Syncs the SDK DLLs to NGX Release (with verified backup and automatic rollback on failure)
-4. Auto-setups AnWave if not installed — downloads nvidiaDlssGlom, fetches DLSS DLLs, activates override
-5. Applies the updated DLLs to the AnWave folder (PE signature + file size verified)
+2. Applies the whitelist — removes NVIDIA App's DLSS override restrictions
+3. Applies your selected **Override Preset** to the base profile and every game profile
+4. Downloads the latest DLSS SDK from NVIDIA/DLSS on GitHub (skipped if already cached)
+5. Syncs the SDK DLLs to NGX Release (with verified backup and automatic rollback on failure)
+6. Auto-setups AnWave if not installed — downloads nvidiaDlssGlom, fetches DLSS DLLs, activates override
+7. Applies the updated DLLs to the AnWave folder (PE signature + file size verified)
 
 Each step shows a dialog with the version applied, files copied, and what to do next. If AnWave setup fails, NGX is still updated — try Setup AnWave separately from the Advanced menu.
 
-### Individual Operations
+### Individual Operations (Advanced)
 
-All operations are accessible from the sidebar at any time. Use **Update All** (the primary button) for the full workflow, or trigger any operation individually:
+**Update All** is the recommended path — it runs the whole sequence in the right order. The individual steps it performs are also available on their own from the sidebar **Advanced** group, useful for recovery when one step fails:
 
-- **Sync from Streamline SDK** — copy DLLs from a Streamline SDK installation to NGX Release
-- **Sync from AnWave** — copy DLLs from AnWave to NGX Release
-- **Sync from DLSS SDK** — apply the cached DLSS SDK to NGX Release
-- **Download Latest** — download the newest DLSS SDK from NVIDIA's GitHub
-- **Apply to AnWave** — copy current NGX Release DLLs to AnWave
-- **Setup AnWave** — download and install nvidiaDlssGlom, fetch latest DLSS DLLs, activate global override
+- **Apply Whitelist** — remove NVIDIA App's DLSS override restrictions and restart NVIDIA services
+- **Download DLSS SDK** — download the newest official DLSS SDK from NVIDIA's GitHub
+- **Download Streamline** — download the latest Streamline SDK from NVIDIA-RTX/Streamline
+- **Sync NGX from DLSS** — apply the cached DLSS SDK to NGX Release
+- **Sync NGX from AnWave** — copy DLLs from AnWave into NGX Release
+- **Export Report** — save the current version table as CSV or JSON
 
 ### Export
 
@@ -123,6 +122,7 @@ Click **Settings** to configure:
 - **AnWave Path** — path to AnWave (leave empty for auto-detect)
 - **Streamline SDK Path** — path to Streamline SDK (leave empty for auto-detect)
 - **Periodic background scans** — enable auto-scan every 4 hours
+- **Check for app updates** — check this repo for a newer app release on launch (on by default)
 - **Minimize to tray** — keep running in the background when the window is closed
 - **Notifications** — show alerts when new DLSS versions are detected
 
@@ -180,21 +180,24 @@ This warning appears in the status bar when the AnWave directory exists but cont
 dlss-version-toolkit/
 ├── src/
 │   ├── DLSSVersionToolkit.Core/          # Core logic library (no WPF dependency)
-│   │   ├── Models/                       # DLSSVersionEntry, ScanResult, UpgradeOperation, etc.
+│   │   ├── Models/                       # DLSSVersionEntry, ScanResult, AppUpdateInfo, etc.
 │   │   └── Services/                     # NgxScanner, UpgradeService, DlssDownloadService,
-│   │                                      # AnWaveAutoService, BackupService, etc.
+│   │                                      # AnWaveAutoService, AppUpdateService, BackupService, etc.
 │   ├── DLSSVersionToolkit/               # WPF application
 │   │   ├── ViewModels/                   # MainViewModel (CommunityToolkit.Mvvm)
 │   │   ├── Views/                        # SettingsDialog
 │   │   ├── Converters/                   # UI value converters
+│   │   ├── MainWindow.xaml               # Sidebar-dashboard UI
 │   │   └── App.xaml                      # Dark theme, styles, startup
 │   └── DLSSVersionToolkit.sln
-├── publish/
-│   └── DLSSVersionToolkit.exe            # Single-file release (~918 KB)
+├── tests/
+│   └── DLSSVersionToolkit.Tests/         # xUnit tests (Core logic, version compare, guards)
 ├── docs/                                  # Screenshots for documentation
 ├── specs/                                  # Feature specs and plans
 └── README.md
 ```
+
+The release `DLSSVersionToolkit.exe` (~3.9 MB, single-file, framework-dependent) is built by CI on every `v*` tag and attached to the corresponding GitHub release — it is not committed to the repo.
 
 ## Technology
 

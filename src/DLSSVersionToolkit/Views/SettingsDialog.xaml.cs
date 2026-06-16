@@ -29,6 +29,7 @@ public partial class SettingsDialog : Window
         AutoScanCheckBox.IsChecked = _settings.AutoScanEnabled;
         MinimizeToTrayCheckBox.IsChecked = _settings.MinimizeToTray;
         NotifyOnNewVersionCheckBox.IsChecked = _settings.NotifyOnNewVersion;
+        CheckForAppUpdatesCheckBox.IsChecked = _settings.CheckForAppUpdates;
     }
 
     private void BrowseNgxPath_Click(object sender, RoutedEventArgs e)
@@ -83,6 +84,7 @@ public partial class SettingsDialog : Window
         _settings.AutoScanEnabled = AutoScanCheckBox.IsChecked ?? false;
         _settings.MinimizeToTray = MinimizeToTrayCheckBox.IsChecked ?? false;
         _settings.NotifyOnNewVersion = NotifyOnNewVersionCheckBox.IsChecked ?? true;
+        _settings.CheckForAppUpdates = CheckForAppUpdatesCheckBox.IsChecked ?? true;
 
         await _settingsService.SaveAsync(_settings);
         DialogResult = true;

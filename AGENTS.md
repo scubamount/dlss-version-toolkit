@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-05-26
+Auto-generated from all feature plans. Last updated: 2026-06-11
 
 ## Active Technologies
 
@@ -12,18 +12,22 @@ Auto-generated from all feature plans. Last updated: 2026-05-26
 ```text
 src/
 ├── DLSSVersionToolkit.Core/         # Core logic library (no WPF)
-│   ├── Models/                        # DLSSVersionEntry, ScanResult, etc.
-│   └── Services/                      # NgxScanner, UpgradeService, etc.
+│   ├── Models/                        # DLSSVersionEntry, ScanResult, AppUpdateInfo, etc.
+│   └── Services/                      # NgxScanner, UpgradeService, AppUpdateService, etc.
 ├── DLSSVersionToolkit/               # WPF application
 │   ├── ViewModels/                   # MainViewModel
 │   ├── Views/                        # SettingsDialog
-│   ├── Services/                      # (in-app services)
-│   └── Converters/                   # UI converters
+│   ├── Converters/                   # UI converters
+│   ├── MainWindow.xaml               # Sidebar-dashboard UI
+│   └── App.xaml                      # Theme, styles, startup
 └── DLSSVersionToolkit.sln
 
-publish/
-└── DLSSVersionToolkit.exe            # Single-file release (~918 KB)
+tests/
+└── DLSSVersionToolkit.Tests/         # xUnit tests
 ```
+
+The single-file `DLSSVersionToolkit.exe` (~3.9 MB) is produced by CI on each `v*` tag and
+attached to the GitHub release — it is not committed to the repo.
 
 ## Commands
 
@@ -41,11 +45,17 @@ dotnet test
 ## Code Style
 
 - **C# / .NET 9**: Use CommunityToolkit.Mvvm `[ObservableProperty]` and `[RelayCommand]` source generators
-- **WPF**: Dark theme (#1E1E1E background, #76B900 green accent), Segoe UI font, Consolas for paths/versions
+- **WPF**: NVIDIA-leaning sidebar dashboard, true-black canvas (#000000) with layered panel surfaces (#0E0E0E/#171717), #76B900 green strictly as a signal accent, Inter/Segoe UI font, Consolas for paths/versions. New theme tokens live alongside the original brushes in App.xaml (additive — never remove old keys).
 
 ## Recent Changes
 
-- **v0.0.19**: DLSS Preset Override UI — replaced "Override Version" dropdown (cached version strings) with "Override Preset" dropdown (DlssPreset enum: Default, J, K, L, M, Latest); new `PresetOverrideService` using NvAPIWrapper DRS API to read/write NVIDIA global DLSS-SR render preset; `DlssPreset` enum + `DlssPresetDisplay` helper + `DlssPresetSettingIds` constants in Core/Models; `DlssPresetDescriptionConverter` for XAML binding; `PresetOverrideResult` record with Success/CurrentPreset/ErrorMessage/PermissionIssue; `ApplyPresetAsync` checks admin privileges via PermissionIssue; whitelist `IsApplicable` flag (N/A when NVIDIA app not installed); NvAPIWrapper.Net 0.8.1.101 dependency added to Core; 46 tests passing
+- **v0.0.31**: App auto-updater (`AppUpdateService` — startup GitHub-release check, in-place exe rename-swap with rollback + `--wait-for-pid` restart handshake, gated by `CheckForAppUpdates` setting); sidebar simplified (TOOLS→ADVANCED with "Update All runs these for you", Settings promoted to CONFIGURE, new HELP group); first-run quick-guide card (`HasSeenQuickGuide`). Removed 4 unused RelayCommands (UpgradeAsync, SyncFromStreamlineAsync, SyncDlssSdkToBothAsync, ExitApp — none were bound in the simplified UI). README/AGENTS docs refreshed.
+- **v0.0.30**: Relicensed MIT→Apache-2.0 (NOTICE attributes scubamount); old releases wiped (latest only); `PackageLicenseExpression=Apache-2.0`.
+- **v0.0.29**: UI redesign — NVIDIA-leaning sidebar dashboard + scubamount maker attribution in an in-window header.
+- **v0.0.28**: Fixed error dialog on every clean exit (ReleaseMutex on an unowned single-instance mutex).
+- **v0.0.27**: Progress indicator while applying a preset across all game profiles.
+- **v0.0.26**: Per-game profile sweep — apply preset to BaseProfile + every game profile (the real preset fix).
+- **v0.0.25**: Set the SR/RR/FG override ENABLE flag ("Custom") on apply — preset selection alone is a no-op without it.
 - **v0.0.17**: `TryParseVersion` (4-component), removed Apply to AnWave buttons, Update All rework (always calls DownloadLatestAsync), Setup reads real DLL versions, direct disk probe fallback
 - **v0.0.16**: `GetCachedSdkVersion()` substring bug fix (prefix length 13→9), `SetupAnWaveAsync()` early-exit when DLL exists, `AutoApplyToAnWaveAsync()` service fallback
 - **v0.0.15**: `ExtractVersionFromUrl()` regex fix, multi-path NGX scanning, `OneClickUpdateAllAsync` AnWave path fallback, "already up to date" messaging
