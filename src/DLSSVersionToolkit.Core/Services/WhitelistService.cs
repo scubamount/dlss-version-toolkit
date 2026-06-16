@@ -13,10 +13,31 @@ public sealed record WhitelistResult(
     List<string> ModifiedFiles,
     bool IsApplicable = true);
 
+/// <summary>
+/// Current whitelist state on disk, derived by reading (never mutating) NVIDIA App's
+/// ApplicationStorage.json and fingerprint.db files.
+/// </summary>
+public enum WhitelistState
+{
+    /// <summary>NVIDIA App backend files were not found — whitelisting does not apply here.</summary>
+    NotApplicable,
+    /// <summary>One or more Disable_*_Override flags are still ON (true / "1") — not yet whitelisted.</summary>
+    NotApplied,
+    /// <summary>All Disable_*_Override flags are OFF (false / "0") — whitelist already in effect.</summary>
+    Applied
+}
+
 public interface IWhitelistService
 {
     Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = default);
     Task<(bool Success, string? ErrorMessage)> RestartNvidiaServicesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Reads the current whitelist state from disk without changing anything. Used at startup /
+    /// scan time so the UI reflects reality (e.g. a whitelist a previous run already applied)
+    /// instead of always showing "Not applied" until the user clicks Apply this session.
+    /// </summary>
+    Task<WhitelistState> DetectStateAsync(CancellationToken ct = default);
 }
 
 public sealed class WhitelistService : IWhitelistService
@@ -97,6 +118,118 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
         ErrorMessage: string.IsNullOrEmpty(errorMessage) ? null : errorMessage,
         ModifiedFiles: modifiedFiles,
         IsApplicable: isApplicable);
+    }
+
+    /// <summary>
+    /// Reads ApplicationStorage.json + every fingerprint.db and reports whether the whitelist
+    /// is already in effect, WITHOUT writing anything. The applied/not-applied decision uses the
+    /// exact same flag definitions as <see cref="ApplyWhitelistAsync"/> so the two cannot drift:
+    /// any Disable_*_Override still ON anywhere ⇒ NotApplied; none found anywhere ⇒ NotApplicable;
+    /// flags present and all OFF ⇒ Applied.
+    /// </summary>
+    public async Task<WhitelistState> DetectStateAsync(CancellationToken ct = default)
+    {
+        bool anyBackendFilePresent = false;
+        bool anyFlagStillOn = false;
+
+        // ApplicationStorage.json — count "Disable_*_Override": true occurrences (read-only).
+        if (File.Exists(ApplicationStoragePath))
+        {
+            anyBackendFilePresent = true;
+            try
+            {
+                var json = await File.ReadAllTextAsync(ApplicationStoragePath, ct);
+                if (!string.IsNullOrWhiteSpace(json) && CountTrueJsonDisableFlags(json) > 0)
+                    anyFlagStillOn = true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"DetectStateAsync: could not read ApplicationStorage.json: {ex.Message}");
+            }
+        }
+
+        // fingerprint.db files — any <Disable_*_Override>1</...> means still-on (read-only).
+        foreach (var fpdbPath in EnumerateFingerprintDbPaths())
+        {
+            anyBackendFilePresent = true;
+            try
+            {
+                var xml = File.ReadAllText(fpdbPath);
+                if (!string.IsNullOrWhiteSpace(xml) && FingerprintDbHasFlagOn(xml))
+                {
+                    anyFlagStillOn = true;
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"DetectStateAsync: could not read {fpdbPath}: {ex.Message}");
+            }
+        }
+
+        if (!anyBackendFilePresent) return WhitelistState.NotApplicable;
+        return anyFlagStillOn ? WhitelistState.NotApplied : WhitelistState.Applied;
+    }
+
+    /// <summary>Counts <c>"Disable_*_Override": true</c> occurrences in raw JSON (read-only twin of
+    /// <see cref="FlipDisableOverrideFlags"/> — same regex, but matches <c>true</c> and counts).</summary>
+    public static int CountTrueJsonDisableFlags(string json)
+    {
+        int count = 0;
+        foreach (var key in DisableOverrideKeys)
+        {
+            var pattern = $"(\"{System.Text.RegularExpressions.Regex.Escape(key)}\"\\s*:\\s*)true";
+            count += System.Text.RegularExpressions.Regex.Matches(
+                json, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase).Count;
+        }
+        return count;
+    }
+
+    /// <summary>True if any <c>&lt;Disable_*_Override&gt;1&lt;/...&gt;</c> element exists (read-only twin
+    /// of the fingerprint.db modify path's detection).</summary>
+    private static bool FingerprintDbHasFlagOn(string xmlContent)
+    {
+        try
+        {
+            var doc = XDocument.Parse(xmlContent);
+            foreach (var tagName in DisableOverrideKeys)
+            {
+                if (doc.Descendants(tagName).Any(el => el.Value == "1"))
+                    return true;
+            }
+            return false;
+        }
+        catch (System.Xml.XmlException)
+        {
+            // Unparseable — treat as "can't confirm applied", caller leaves it as NotApplied/NotApplicable.
+            return false;
+        }
+    }
+
+    /// <summary>Enumerates the fingerprint.db paths the apply path also touches (primary + DAO copies).</summary>
+    private static IEnumerable<string> EnumerateFingerprintDbPaths()
+    {
+        if (File.Exists(ApplicationOntologyPath))
+            yield return ApplicationOntologyPath;
+
+        if (Directory.Exists(DaoBasePath))
+        {
+            string[] daoDbs;
+            try
+            {
+                daoDbs = Directory.GetFiles(DaoBasePath, "fingerprint.db", SearchOption.AllDirectories);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"EnumerateFingerprintDbPaths: DAO search failed: {ex.Message}");
+                yield break;
+            }
+            foreach (var db in daoDbs)
+            {
+                if (!string.Equals(db, ApplicationOntologyPath, StringComparison.OrdinalIgnoreCase))
+                    yield return db;
+            }
+        }
     }
 
     public async Task<(bool Success, string? ErrorMessage)> RestartNvidiaServicesAsync(CancellationToken ct = default)
@@ -256,29 +389,8 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
         int gamesModified = 0;
         string? errorMessage = null;
 
-        // Primary fingerprint.db location
-        var fpdbPaths = new List<string>();
-
-        if (File.Exists(ApplicationOntologyPath))
-            fpdbPaths.Add(ApplicationOntologyPath);
-
-        // Search DAO subdirectories for additional fingerprint.db copies
-        if (Directory.Exists(DaoBasePath))
-        {
-            try
-            {
-                var daoDbs = Directory.GetFiles(DaoBasePath, "fingerprint.db", SearchOption.AllDirectories);
-                foreach (var db in daoDbs)
-                {
-                    if (!fpdbPaths.Contains(db, StringComparer.OrdinalIgnoreCase))
-                        fpdbPaths.Add(db);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"ModifyFingerprintDatabases: error searching DAO directory: {ex.Message}");
-            }
-        }
+        // Single source of truth for which fingerprint.db files exist (shared with DetectStateAsync).
+        var fpdbPaths = EnumerateFingerprintDbPaths().ToList();
 
         if (fpdbPaths.Count == 0)
         {

@@ -50,5 +50,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          # IMPORTANT: the in-app auto-updater (AppUpdateService.ExeAssetName) matches the
+          # release asset by the EXACT name "DLSSVersionToolkit.exe". Do NOT rename this asset
+          # (e.g. adding a version suffix) without updating ExeAssetName in lockstep, or older
+          # installed versions will silently fail to find the update.
           files: publish/DLSSVersionToolkit.exe
           fail_on_unmatched_files: true

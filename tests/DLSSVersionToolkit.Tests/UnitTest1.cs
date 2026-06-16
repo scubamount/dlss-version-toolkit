@@ -835,3 +835,80 @@ public class AppUpdateServiceTests
 		Assert.False(settings.HasSeenQuickGuide);
 	}
 }
+
+public class WhitelistDetectionTests
+{
+	[Fact]
+	public void CountTrueJsonDisableFlags_CountsOnlyTrueFlags()
+	{
+		var json = """
+		{
+		  "games": {
+		    "Disable_SR_Override": true,
+		    "Disable_RR_Override": false,
+		    "Disable_FG_Override": true,
+		    "Disable_SR_Model_Override": false,
+		    "Disable_RR_Model_Override": false
+		  }
+		}
+		""";
+		// 2 flags still ON (true) → not fully whitelisted
+		Assert.Equal(2, Core.Services.WhitelistService.CountTrueJsonDisableFlags(json));
+	}
+
+	[Fact]
+	public void CountTrueJsonDisableFlags_AllFalse_ReturnsZero()
+	{
+		var json = """
+		{ "Disable_SR_Override": false, "Disable_FG_Override": false }
+		""";
+		Assert.Equal(0, Core.Services.WhitelistService.CountTrueJsonDisableFlags(json));
+	}
+
+	[Fact]
+	public void CountTrueJsonDisableFlags_WhitespaceTolerant()
+	{
+		// pretty-printed with varying spacing around the colon
+		var json = "{ \"Disable_SR_Override\"  :   true }";
+		Assert.Equal(1, Core.Services.WhitelistService.CountTrueJsonDisableFlags(json));
+	}
+
+	[Fact]
+	public void CountTrueJsonDisableFlags_NoFlags_ReturnsZero()
+	{
+		Assert.Equal(0, Core.Services.WhitelistService.CountTrueJsonDisableFlags("{ \"other\": true }"));
+	}
+
+	[Fact]
+	public void FlipAndCount_AreConsistent()
+	{
+		// After flipping, the true-count must be zero — the detect twin agrees with the apply path.
+		var json = "{ \"Disable_SR_Override\": true, \"Disable_FG_Override\": true }";
+		var flipped = Core.Services.WhitelistService.FlipDisableOverrideFlags(json, out var n);
+		Assert.Equal(2, n);
+		Assert.Equal(0, Core.Services.WhitelistService.CountTrueJsonDisableFlags(flipped));
+	}
+}
+
+public class VersionComparerPublicTests
+{
+	private readonly Core.Services.VersionComparer _c = new();
+
+	[Theory]
+	[InlineData("310.10.0.0", "310.6.0.0", true)]   // numeric, not lexical: 10 > 6
+	[InlineData("310.6.0.0", "310.10.0.0", false)]
+	[InlineData("310.7.0.0", "310.6.0.0", true)]
+	[InlineData("310.6.0.0", "310.6.0.0", false)]   // equal
+	[InlineData("311.0.0.0", "310.99.0.0", true)]
+	public void IsNewer_NumericComparison(string candidate, string baseline, bool expected)
+	{
+		Assert.Equal(expected, _c.IsNewer(candidate, baseline));
+	}
+
+	[Fact]
+	public void IsNewer_UnknownHandling()
+	{
+		Assert.False(_c.IsNewer("Unknown", "310.6.0.0"));
+		Assert.True(_c.IsNewer("310.6.0.0", "Unknown"));
+	}
+}

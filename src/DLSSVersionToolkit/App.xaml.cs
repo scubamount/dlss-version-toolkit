@@ -149,7 +149,7 @@ public partial class App : Application
         var whitelistService = new WhitelistService();
         var presetOverrideService = new PresetOverrideService();
 
-        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService, whitelistService, presetOverrideService);
+        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService, whitelistService, presetOverrideService, versionComparer);
 
         SetupTrayIcon();
 
@@ -158,6 +158,13 @@ public partial class App : Application
 
         MainWindow = mainWindow;
         mainWindow.Show();
+
+        // Auto-scan on launch (issue A) so the dashboard shows installed versions, the newest
+        // highlight, whitelist + AnWave state, and the version strip WITHOUT the user clicking
+        // Rescan. Fire-and-forget on the UI thread (ScanAsync mutates ObservableCollections, so
+        // it must run here, not on a background thread). ScanAsync guards against re-entrancy.
+        if (_mainViewModel.ScanCommand.CanExecute(null))
+            _mainViewModel.ScanCommand.Execute(null);
 
         // Post-update hygiene: remove the previous version's renamed exe (.old) and the
         // download staging dir. Best-effort, off the UI thread; never blocks startup.

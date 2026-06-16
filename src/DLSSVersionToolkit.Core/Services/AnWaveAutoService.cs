@@ -55,6 +55,23 @@ public interface IAnWaveAutoService
     /// Returns the DLL version currently in the AnWave folder.
     /// </summary>
     string? GetInstalledDllVersion();
+
+    /// <summary>
+    /// Probes the known install directory on disk for an existing AnWave/nvidiaDlssGlom setup
+    /// WITHOUT downloading or modifying anything. Populates the cached install path + DLL/glom
+    /// versions so the UI reflects an install a previous run (or Update All) already made,
+    /// instead of showing "not set" until the user re-runs Setup this session.
+    /// </summary>
+    AnWaveDetectionResult DetectInstalled();
+}
+
+/// <summary>Read-only result of probing disk for an existing AnWave install.</summary>
+public class AnWaveDetectionResult
+{
+    public bool IsInstalled { get; set; }
+    public string? InstalledPath { get; set; }
+    public string? DllVersion { get; set; }
+    public string? GlomVersion { get; set; }
 }
 
 public class AnWaveAutoService : IAnWaveAutoService
@@ -88,46 +105,68 @@ public class AnWaveAutoService : IAnWaveAutoService
     public string? GetInstalledGlomVersion() => _glomVersion;
     public string? GetInstalledDllVersion() => _dllVersion;
 
+    /// <summary>
+    /// Read-only probe of the install dir. Reads the real DLL/glom versions via FileVersionInfo
+    /// and caches them, so a prior install is recognised without re-running Setup. Mirrors the
+    /// existing-install fast path in <see cref="SetupAnWaveAsync"/> (which now delegates here).
+    /// </summary>
+    public AnWaveDetectionResult DetectInstalled()
+    {
+        var mainDll = Path.Combine(InstallDir, "nvngx_dlss.dll");
+        if (!File.Exists(mainDll))
+            return new AnWaveDetectionResult { IsInstalled = false };
+
+        _installedPath = InstallDir;
+
+        try
+        {
+            var vi = System.Diagnostics.FileVersionInfo.GetVersionInfo(mainDll);
+            _dllVersion = vi.FileVersion ?? vi.ProductVersion ?? "unknown";
+        }
+        catch
+        {
+            _dllVersion ??= "unknown";
+        }
+
+        try
+        {
+            var glomExe = Directory.GetFiles(InstallDir, "nvidiaDlssGlom*.exe").FirstOrDefault();
+            if (glomExe != null)
+            {
+                var vi = System.Diagnostics.FileVersionInfo.GetVersionInfo(glomExe);
+                _glomVersion = vi.FileVersion ?? vi.ProductVersion ?? "cached";
+            }
+        }
+        catch
+        {
+            _glomVersion ??= "cached";
+        }
+
+        return new AnWaveDetectionResult
+        {
+            IsInstalled = true,
+            InstalledPath = _installedPath,
+            DllVersion = _dllVersion,
+            GlomVersion = _glomVersion
+        };
+    }
+
     public async Task<AnWaveSetupResult> SetupAnWaveAsync(IProgress<int>? progress = null, CancellationToken ct = default)
     {
         progress?.Report(0);
 
-        // Quick check: if InstallDir already has the main DLL, skip re-download
-        var existingDll = Path.Combine(InstallDir, "nvngx_dlss.dll");
-        if (File.Exists(existingDll))
+        // Quick check: if InstallDir already has the main DLL, skip re-download.
+        // DetectInstalled() does the on-disk probe + version reads (single source of truth).
+        var existing = DetectInstalled();
+        if (existing.IsInstalled)
         {
-            _installedPath = InstallDir;
-            // Read actual version from the existing DLL
-            try
-            {
-                var vi = System.Diagnostics.FileVersionInfo.GetVersionInfo(existingDll);
-                _dllVersion = vi.FileVersion ?? vi.ProductVersion ?? "unknown";
-            }
-            catch
-            {
-                _dllVersion = _dllVersion ?? "unknown";
-            }
-            // Read glom version from any nvidiaDlssGlom*.exe in InstallDir
-            try
-            {
-                var glomExe = Directory.GetFiles(InstallDir, "nvidiaDlssGlom*.exe").FirstOrDefault();
-                if (glomExe != null)
-                {
-                    var vi = System.Diagnostics.FileVersionInfo.GetVersionInfo(glomExe);
-                    _glomVersion = vi.FileVersion ?? vi.ProductVersion ?? "cached";
-                }
-            }
-            catch
-            {
-                _glomVersion = _glomVersion ?? "cached";
-            }
             progress?.Report(100);
             return new AnWaveSetupResult
             {
                 Success = true,
-                InstalledPath = InstallDir,
-                GlomVersion = _glomVersion ?? "cached",
-                DllVersion = _dllVersion ?? "unknown"
+                InstalledPath = existing.InstalledPath,
+                GlomVersion = existing.GlomVersion ?? "cached",
+                DllVersion = existing.DllVersion ?? "unknown"
             };
         }
 
