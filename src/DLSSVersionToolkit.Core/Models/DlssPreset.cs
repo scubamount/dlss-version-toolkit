@@ -4,9 +4,11 @@ namespace DLSSVersionToolkit.Core.Models;
 /// DLSS render preset override values for the NVIDIA DRS (Driver Registry Settings).
 /// The letter → value mapping is identical across DLSS-SR, DLSS-RR and DLSS-FG per NVIDIA's
 /// NvApiDriverSettings.h (A=1, B=2, … M=13), so this single enum is reused for all three
-/// features; the per-feature lists below describe which letters are meaningful for each.
+/// underlying values ARE the DRS preset values. The enum is uint-backed so it matches the
+/// uint DRS values directly (Enum.IsDefined requires the boxed value's type to equal the
+/// enum's underlying type).
 /// </summary>
-public enum DlssPreset
+public enum DlssPreset : uint
 {
     /// <summary>No override — use driver default.</summary>
     Default = 0x00000000,
