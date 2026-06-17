@@ -6,12 +6,13 @@
         xmlns:local="clr-namespace:DLSSVersionToolkit"
         xmlns:vm="clr-namespace:DLSSVersionToolkit.ViewModels"
         xmlns:converters="clr-namespace:DLSSVersionToolkit.Converters"
-        Title="DLSS Version Toolkit — by scubamount" Height="760" Width="980"
-        MinHeight="620" MinWidth="900"
+        Title="DLSS Version Toolkit — by scubamount" Height="760" Width="1120"
+        MinHeight="620" MinWidth="1080"
         Background="{StaticResource CanvasBrush}"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <converters:DlssPresetDescriptionConverter x:Key="DlssPresetDescriptionConverter"/>
+        <converters:DlssPresetShortLabelConverter x:Key="DlssPresetShortLabelConverter"/>
 
         <!-- DataGrid cell that turns green for the newest DLSS build -->
         <Style x:Key="NewestCellStyle" TargetType="DataGridCell">
@@ -366,39 +367,84 @@
                     <Grid Margin="28,16,28,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- Update All -->
                         <Button Grid.Column="0" Style="{StaticResource PrimaryButtonStyle}" VerticalAlignment="Bottom"
                                 Command="{Binding OneClickUpdateAllCommand}"
-                                ToolTip="One click: applies the whitelist, pushes the selected preset to every game, downloads the latest DLSS SDK and syncs it to NGX, and sets up AnWave.">
+                                ToolTip="One click: applies the whitelist, pushes the selected presets to every game, downloads the latest DLSS SDK and syncs it to NGX, and sets up AnWave.">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="⟳  Update All" FontWeight="SemiBold"/>
                             </StackPanel>
                         </Button>
 
-                        <!-- Override preset picker -->
+                        <!-- Override preset pickers: SR / RR / FG, each independent -->
                         <StackPanel Grid.Column="1" Margin="14,0,0,0">
-                            <TextBlock Text="OVERRIDE PRESET" Foreground="{StaticResource Text3Brush}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                            <StackPanel Orientation="Horizontal">
-                                <ComboBox ItemsSource="{Binding AvailablePresets}" SelectedItem="{Binding SelectedPreset}"
-                                          MinWidth="220" FontSize="12"
-                                          Background="{StaticResource Panel2Brush}" Foreground="{StaticResource NvidiaGreenBrush}"
-                                          BorderBrush="{StaticResource HairlineStrongBrush}" Padding="8,5" VerticalAlignment="Center"
-                                          IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding Converter={StaticResource DlssPresetDescriptionConverter}}" FontSize="12"/>
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
-                                <Button Content="Apply to all games" Style="{StaticResource SolidGreenButtonStyle}" Margin="8,0,0,0"
-                                        Command="{Binding ApplyPresetCommand}"
-                                        IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
-                                        ToolTip="Enables the DLSS override (&quot;Custom&quot;) and applies this preset to every game profile. Takes a few seconds; fully restart the game afterward."/>
-                            </StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- DLSS-SR (Super Resolution) — the main upscaling preset -->
+                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                    <TextBlock Text="DLSS-SR PRESET" Foreground="{StaticResource Text3Brush}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"
+                                               ToolTip="DLSS Super Resolution render preset (the main upscaler). Recommended: L."/>
+                                    <ComboBox ItemsSource="{Binding AvailablePresets}" SelectedItem="{Binding SelectedPreset}"
+                                              MinWidth="210" FontSize="12"
+                                              Background="{StaticResource Panel2Brush}" Foreground="{StaticResource NvidiaGreenBrush}"
+                                              BorderBrush="{StaticResource HairlineStrongBrush}" Padding="8,5" VerticalAlignment="Center"
+                                              IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource DlssPresetDescriptionConverter}}" FontSize="12"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </StackPanel>
+
+                                <!-- DLSS-RR (Ray Reconstruction) — independent preset; recommended E -->
+                                <StackPanel Grid.Column="1" Margin="0,0,12,0">
+                                    <TextBlock Text="DLSS-RR PRESET" Foreground="{StaticResource Text3Brush}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"
+                                               ToolTip="DLSS Ray Reconstruction (denoiser) render preset. Recommended: E (best quality)."/>
+                                    <ComboBox ItemsSource="{Binding AvailableRrPresets}" SelectedItem="{Binding SelectedRrPreset}"
+                                              MinWidth="120" FontSize="12"
+                                              Background="{StaticResource Panel2Brush}" Foreground="{StaticResource NvidiaGreenBrush}"
+                                              BorderBrush="{StaticResource HairlineStrongBrush}" Padding="8,5" VerticalAlignment="Center"
+                                              IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource DlssPresetShortLabelConverter}}" FontSize="12"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </StackPanel>
+
+                                <!-- DLSS-FG (Frame Generation) — independent preset; recommended B -->
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="DLSS-FG PRESET" Foreground="{StaticResource Text3Brush}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"
+                                               ToolTip="DLSS Frame Generation render preset. Recommended: B (higher quality than A)."/>
+                                    <ComboBox ItemsSource="{Binding AvailableFgPresets}" SelectedItem="{Binding SelectedFgPreset}"
+                                              MinWidth="120" FontSize="12"
+                                              Background="{StaticResource Panel2Brush}" Foreground="{StaticResource NvidiaGreenBrush}"
+                                              BorderBrush="{StaticResource HairlineStrongBrush}" Padding="8,5" VerticalAlignment="Center"
+                                              IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource DlssPresetShortLabelConverter}}" FontSize="12"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </StackPanel>
+                            </Grid>
+
+                            <Button Content="Apply to all games" Style="{StaticResource SolidGreenButtonStyle}"
+                                    HorizontalAlignment="Left" Margin="0,10,0,0"
+                                    Command="{Binding ApplyPresetCommand}"
+                                    IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
+                                    ToolTip="Enables the DLSS overrides (&quot;Custom&quot;) and applies the SR, RR and FG presets to every game profile. Takes a few seconds; fully restart the game afterward."/>
                         </StackPanel>
                     </Grid>
 

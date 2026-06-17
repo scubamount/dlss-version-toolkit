@@ -118,6 +118,20 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     [ObservableProperty]
     private DlssPreset? _selectedPreset;
 
+    // DLSS-RR (Ray Reconstruction) and DLSS-FG (Frame Generation) each have their OWN preset
+    // selection, independent of the SR preset above. Defaults: RR=E (best quality), FG=B.
+    [ObservableProperty]
+    private ObservableCollection<DlssPreset> _availableRrPresets = new();
+
+    [ObservableProperty]
+    private DlssPreset _selectedRrPreset = DlssPresetDisplay.RayReconstructionDefault;
+
+    [ObservableProperty]
+    private ObservableCollection<DlssPreset> _availableFgPresets = new();
+
+    [ObservableProperty]
+    private DlssPreset _selectedFgPreset = DlssPresetDisplay.FrameGenerationDefault;
+
     [ObservableProperty]
     private string _currentPresetStatus = "";
 
@@ -306,8 +320,15 @@ private void LoadPresetDefaults()
 	// and must always succeed so the UI has something to bind to.
 	try
 	{
-		AvailablePresets = new ObservableCollection<DlssPreset>(DlssPresetDisplay.AllPresets);
-		SelectedPreset = AvailablePresets.FirstOrDefault();
+		AvailablePresets = new ObservableCollection<DlssPreset>(DlssPresetDisplay.SuperResolutionPresets);
+		SelectedPreset = DlssPresetDisplay.SuperResolutionDefault;  // L
+
+		AvailableRrPresets = new ObservableCollection<DlssPreset>(DlssPresetDisplay.RayReconstructionPresets);
+		SelectedRrPreset = DlssPresetDisplay.RayReconstructionDefault;  // E
+
+		AvailableFgPresets = new ObservableCollection<DlssPreset>(DlssPresetDisplay.FrameGenerationPresets);
+		SelectedFgPreset = DlssPresetDisplay.FrameGenerationDefault;  // B
+
 		CurrentPresetStatus = "Detecting…";
 	}
 	catch (Exception ex)
@@ -375,6 +396,16 @@ private void SetPresetStatusOnUi(DlssPreset? preset, string status)
 		dispatcher.Invoke(Apply);
 }
 
+/// <summary>
+/// Builds the per-feature override options from the current RR/FG dropdown selections.
+/// The SR preset is passed separately as the ApplyPresetAsync preset argument.
+/// </summary>
+private PresetApplyOptions BuildPresetOptions() => new()
+{
+	RayReconstructionPreset = SelectedRrPreset,
+	FrameGenerationPreset = SelectedFgPreset,
+};
+
 [RelayCommand]
 private async Task ApplyPresetAsync()
 {
@@ -391,7 +422,7 @@ private async Task ApplyPresetAsync()
 		// This iterates every game profile, so it can take several seconds — the
 		// status-bar progress indicator (bound to IsApplyingPreset) covers the wait.
 		DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(SelectedPreset.Value)} to all game profiles...";
-		var presetResult = await _presetOverrideService.ApplyPresetAsync(SelectedPreset.Value);
+		var presetResult = await _presetOverrideService.ApplyPresetAsync(SelectedPreset.Value, BuildPresetOptions());
 		if (presetResult.Success)
 		{
 			CurrentPresetStatus = $"Current: {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}";
@@ -670,7 +701,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             try
             {
                 DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(presetToApply)} to all games...";
-                var pr = await _presetOverrideService.ApplyPresetAsync(presetToApply);
+                var pr = await _presetOverrideService.ApplyPresetAsync(presetToApply, BuildPresetOptions());
                 if (pr.Success)
                     Debug.WriteLine($"OneClickUpdateAll: preset applied to {pr.GameProfilesUpdated} game profile(s)");
                 else
