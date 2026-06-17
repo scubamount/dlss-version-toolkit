@@ -912,3 +912,77 @@ public class VersionComparerPublicTests
 		Assert.True(_c.IsNewer("310.6.0.0", "Unknown"));
 	}
 }
+
+public class DlssPresetTests
+{
+	// Enum underlying values must equal the NVIDIA DRS preset values (A=1 … M=13).
+	[Theory]
+	[InlineData(DlssPreset.A, 1)]
+	[InlineData(DlssPreset.B, 2)]
+	[InlineData(DlssPreset.E, 5)]
+	[InlineData(DlssPreset.L, 12)]
+	[InlineData(DlssPreset.M, 13)]
+	[InlineData(DlssPreset.Default, 0)]
+	public void PresetEnum_HasCorrectDrsValue(DlssPreset preset, uint expected)
+	{
+		Assert.Equal(expected, (uint)preset);
+	}
+
+	[Fact]
+	public void PresetFromValue_RoundTripsLetters()
+	{
+		Assert.Equal(DlssPreset.E, Core.Services.PresetOverrideService.PresetFromValue(5));
+		Assert.Equal(DlssPreset.B, Core.Services.PresetOverrideService.PresetFromValue(2));
+		Assert.Equal(DlssPreset.L, Core.Services.PresetOverrideService.PresetFromValue(12));
+		Assert.Equal(DlssPreset.Latest, Core.Services.PresetOverrideService.PresetFromValue(0x00FFFFFF));
+	}
+
+	[Fact]
+	public void PresetFromValue_UnknownMapsToDefault()
+	{
+		Assert.Equal(DlssPreset.Default, Core.Services.PresetOverrideService.PresetFromValue(0xDEAD));
+		Assert.Equal(DlssPreset.Default, Core.Services.PresetOverrideService.PresetFromValue(99));
+	}
+
+	[Fact]
+	public void RecommendedDefaults_AreCorrect()
+	{
+		// The whole point of v0.0.35: RR defaults to E and FG to B, NOT L.
+		Assert.Equal(DlssPreset.L, DlssPresetDisplay.SuperResolutionDefault);
+		Assert.Equal(DlssPreset.E, DlssPresetDisplay.RayReconstructionDefault);
+		Assert.Equal(DlssPreset.B, DlssPresetDisplay.FrameGenerationDefault);
+	}
+
+	[Fact]
+	public void PresetLists_CoverFullLetterRange_AndStartWithDefault()
+	{
+		foreach (var list in new[]
+		{
+			DlssPresetDisplay.SuperResolutionPresets,
+			DlssPresetDisplay.RayReconstructionPresets,
+			DlssPresetDisplay.FrameGenerationPresets
+		})
+		{
+			Assert.Equal(DlssPreset.Default, list[0]);            // Default first
+			Assert.Contains(DlssPreset.E, list);                 // E selectable (RR default)
+			Assert.Contains(DlssPreset.B, list);                 // B selectable (FG default)
+			Assert.Contains(DlssPreset.L, list);                 // L selectable (SR default)
+		}
+	}
+
+	[Fact]
+	public void DrsSettingIds_AreDistinctPerFeature()
+	{
+		// Each feature must use its own preset-selection ID — cross-assignment was the RR bug.
+		var ids = new[]
+		{
+			DlssPresetSettingIds.SR_RENDER_PRESET,
+			DlssPresetSettingIds.RR_RENDER_PRESET,
+			DlssPresetSettingIds.FG_RENDER_PRESET
+		};
+		Assert.Equal(3, ids.Distinct().Count());
+		Assert.Equal(0x10E41DF3u, DlssPresetSettingIds.SR_RENDER_PRESET);
+		Assert.Equal(0x10E41DF7u, DlssPresetSettingIds.RR_RENDER_PRESET);
+		Assert.Equal(0x10E41DF1u, DlssPresetSettingIds.FG_RENDER_PRESET);
+	}
+}

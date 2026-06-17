@@ -39,6 +39,19 @@ public sealed record PresetApplyOptions
     public bool EnableFrameGeneration { get; init; } = true;
 
     /// <summary>
+    /// DLSS-RR (Ray Reconstruction) render preset. Has its OWN preset selection, independent of
+    /// SR — do NOT reuse the SR letter here. Null = derive from the SR preset is NOT done;
+    /// defaults to the recommended RR preset (E). Set to Default to clear the RR preset selection.
+    /// </summary>
+    public DlssPreset RayReconstructionPreset { get; init; } = DlssPresetDisplay.RayReconstructionDefault;
+
+    /// <summary>
+    /// DLSS-FG (Frame Generation) render preset. Independent of SR/RR. Defaults to the
+    /// recommended FG preset (B). Set to Default to clear the FG preset selection.
+    /// </summary>
+    public DlssPreset FrameGenerationPreset { get; init; } = DlssPresetDisplay.FrameGenerationDefault;
+
+    /// <summary>
     /// Apply to every game profile (not just the global/base profile). This is what
     /// actually changes in-game behavior for games that have their own DRS profile.
     /// </summary>
@@ -230,11 +243,13 @@ public sealed class PresetOverrideService : IPresetOverrideService
     }
 
     /// <summary>
-    /// Applies the SR override + render preset (and optionally RR/FG override enables) to a
-    /// single DRS profile. When <paramref name="enable"/> is false (preset = Default), the
-    /// overrides are turned OFF so behavior reverts to the driver/app default.
+    /// Applies the per-feature override enables + render presets to a single DRS profile.
+    /// <paramref name="srPresetValue"/> is the DLSS-SR preset; RR and FG take their OWN presets
+    /// from <paramref name="options"/> (each feature has an independent preset-selection ID — do
+    /// NOT cross-assign). When <paramref name="enable"/> is false (SR preset = Default), every
+    /// override is turned OFF so behavior reverts to the driver/app default.
     /// </summary>
-    private static void ApplyToProfile(DriverSettingsProfile profile, uint presetValue, bool enable, PresetApplyOptions options)
+    private static void ApplyToProfile(DriverSettingsProfile profile, uint srPresetValue, bool enable, PresetApplyOptions options)
     {
         var onOff = enable ? DlssPresetSettingIds.OVERRIDE_ON : DlssPresetSettingIds.OVERRIDE_OFF;
 
@@ -242,21 +257,26 @@ public sealed class PresetOverrideService : IPresetOverrideService
         {
             // Enable flag MUST be set or the preset selection is ignored ("Custom" vs default).
             profile.SetSetting(DlssPresetSettingIds.SR_OVERRIDE_ENABLE, DRSSettingType.Integer, onOff);
-            profile.SetSetting(DlssPresetSettingIds.SR_RENDER_PRESET, DRSSettingType.Integer, presetValue);
+            profile.SetSetting(DlssPresetSettingIds.SR_RENDER_PRESET, DRSSettingType.Integer, srPresetValue);
         }
 
         if (options.EnableRayReconstruction)
         {
-            // DLSS-RR ("NR" / Ray Reconstruction denoiser) DLL override.
+            // DLSS-RR ("NR" / Ray Reconstruction denoiser) override + its OWN preset selection.
+            // BUG FIX (v0.0.35): previously the SR letter was mirrored onto RR, so RR got L when
+            // it should default to E. RR now uses options.RayReconstructionPreset.
             profile.SetSetting(DlssPresetSettingIds.RR_OVERRIDE_ENABLE, DRSSettingType.Integer, onOff);
-            // Mirror the SR preset selection onto RR so RR also honors our chosen preset.
-            profile.SetSetting(DlssPresetSettingIds.RR_RENDER_PRESET, DRSSettingType.Integer, presetValue);
+            if (enable)
+                profile.SetSetting(DlssPresetSettingIds.RR_RENDER_PRESET, DRSSettingType.Integer, (uint)options.RayReconstructionPreset);
         }
 
         if (options.EnableFrameGeneration)
         {
-            // DLSS-FG (Frame Generation) DLL override. No preset selection for FG.
+            // DLSS-FG (Frame Generation) override + its OWN preset selection (0x10E41DF1).
+            // NEW (v0.0.35): FG previously had no preset selection set at all.
             profile.SetSetting(DlssPresetSettingIds.FG_OVERRIDE_ENABLE, DRSSettingType.Integer, onOff);
+            if (enable)
+                profile.SetSetting(DlssPresetSettingIds.FG_RENDER_PRESET, DRSSettingType.Integer, (uint)options.FrameGenerationPreset);
         }
     }
 
@@ -295,17 +315,10 @@ public sealed class PresetOverrideService : IPresetOverrideService
     }
 
     /// <summary>
-    /// Maps a raw DRS setting value to a <see cref="DlssPreset"/> enum.
-    /// Unknown values are mapped to Default.
+    /// Maps a raw DRS setting value to a <see cref="DlssPreset"/> enum. Because the enum's
+    /// underlying values ARE the DRS preset values (A=1…M=13, Default=0, Latest=0x00FFFFFF),
+    /// this is a checked cast — any value not defined in the enum maps to Default.
     /// </summary>
-    internal static DlssPreset PresetFromValue(uint value) => value switch
-    {
-        0x00000000 => DlssPreset.Default,
-        0x0000000A => DlssPreset.J,
-        0x0000000B => DlssPreset.K,
-        0x0000000C => DlssPreset.L,
-        0x0000000D => DlssPreset.M,
-        0x00FFFFFF => DlssPreset.Latest,
-        _ => DlssPreset.Default // Unknown preset value — treat as default
-    };
+    internal static DlssPreset PresetFromValue(uint value) =>
+        Enum.IsDefined(typeof(DlssPreset), value) ? (DlssPreset)value : DlssPreset.Default;
 }
