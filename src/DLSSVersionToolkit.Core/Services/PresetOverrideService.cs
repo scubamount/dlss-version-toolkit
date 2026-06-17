@@ -319,6 +319,6 @@ public sealed class PresetOverrideService : IPresetOverrideService
     /// underlying values ARE the DRS preset values (A=1…M=13, Default=0, Latest=0x00FFFFFF),
     /// this is a checked cast — any value not defined in the enum maps to Default.
     /// </summary>
-    internal static DlssPreset PresetFromValue(uint value) =>
+    public static DlssPreset PresetFromValue(uint value) =>
         Enum.IsDefined(typeof(DlssPreset), value) ? (DlssPreset)value : DlssPreset.Default;
 }
