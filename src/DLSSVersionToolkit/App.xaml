@@ -231,6 +231,90 @@
 	<SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#FFFFFF"/>
 	<SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#FFFFFF"/>
 
+	<!-- ComboBox: full dark template so the closed selection box, popup, and items all use
+	     our dark palette instead of the WPF default white chrome (fixed in v0.0.35.1 — the
+	     closed-state box was rendering white-on-green, hard to read). Implicit style applies to
+	     every ComboBox; the per-instance Background/Foreground set on the preset dropdowns still
+	     win for their specific accent, but the template guarantees no white surfaces anywhere. -->
+	<Style x:Key="ComboBoxToggleButtonStyle" TargetType="ToggleButton">
+		<Setter Property="Focusable" Value="False"/>
+		<Setter Property="ClickMode" Value="Press"/>
+		<Setter Property="Template">
+			<Setter.Value>
+				<ControlTemplate TargetType="ToggleButton">
+					<Border Background="{StaticResource Panel2Brush}"
+					        BorderBrush="{StaticResource HairlineStrongBrush}" BorderThickness="1" CornerRadius="2">
+						<Grid>
+							<Grid.ColumnDefinitions>
+								<ColumnDefinition Width="*"/>
+								<ColumnDefinition Width="20"/>
+							</Grid.ColumnDefinitions>
+							<Path Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+							      Data="M 0 0 L 4 4 L 8 0 Z" Fill="{StaticResource Text2Brush}"/>
+						</Grid>
+					</Border>
+				</ControlTemplate>
+			</Setter.Value>
+		</Setter>
+	</Style>
+
+	<Style TargetType="ComboBox">
+		<Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
+		<Setter Property="Background" Value="{StaticResource Panel2Brush}"/>
+		<Setter Property="BorderBrush" Value="{StaticResource HairlineStrongBrush}"/>
+		<Setter Property="SnapsToDevicePixels" Value="True"/>
+		<Setter Property="Template">
+			<Setter.Value>
+				<ControlTemplate TargetType="ComboBox">
+					<Grid>
+						<ToggleButton x:Name="ToggleButton" Style="{StaticResource ComboBoxToggleButtonStyle}"
+						              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"/>
+						<ContentPresenter x:Name="ContentSite" IsHitTestVisible="False"
+						                  Content="{TemplateBinding SelectionBoxItem}"
+						                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+						                  Margin="8,0,24,0" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+						<Popup x:Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}"
+						       AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+							<Border x:Name="DropDownBorder" MinWidth="{TemplateBinding ActualWidth}"
+							        MaxHeight="{TemplateBinding MaxDropDownHeight}"
+							        Background="{StaticResource Panel2Brush}"
+							        BorderBrush="{StaticResource HairlineStrongBrush}" BorderThickness="1" CornerRadius="2">
+								<ScrollViewer SnapsToDevicePixels="True">
+									<StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+								</ScrollViewer>
+							</Border>
+						</Popup>
+					</Grid>
+					<ControlTemplate.Triggers>
+						<Trigger Property="IsEnabled" Value="False">
+							<Setter Property="Opacity" Value="0.45"/>
+						</Trigger>
+					</ControlTemplate.Triggers>
+				</ControlTemplate>
+			</Setter.Value>
+		</Setter>
+	</Style>
+
+	<Style TargetType="ComboBoxItem">
+		<Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
+		<Setter Property="Background" Value="Transparent"/>
+		<Setter Property="Padding" Value="8,6"/>
+		<Setter Property="Template">
+			<Setter.Value>
+				<ControlTemplate TargetType="ComboBoxItem">
+					<Border x:Name="bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+						<ContentPresenter/>
+					</Border>
+					<ControlTemplate.Triggers>
+						<Trigger Property="IsHighlighted" Value="True">
+							<Setter TargetName="bd" Property="Background" Value="{StaticResource Panel3Brush}"/>
+						</Trigger>
+					</ControlTemplate.Triggers>
+				</ControlTemplate>
+			</Setter.Value>
+		</Setter>
+	</Style>
+
 	<!-- MenuItem Style -->
 	<Style TargetType="MenuItem">
 		<Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
