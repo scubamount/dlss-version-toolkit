@@ -346,39 +346,39 @@ private void LoadPresetDefaults()
 	// main window is shown) was the cause of the silent "double-click does nothing"
 	// startup crash in 0.0.20. Defer it, and isolate it in its own task so a native fault
 	// is contained instead of taking down app startup.
-	_ = Task.Run(DetectCurrentPresetSafe);
-}
+	_ = Task.Run(DetectCurrentPresetSafeAsync);
+	}
 
-private void DetectCurrentPresetSafe()
-{
-	try
+	private async Task DetectCurrentPresetSafeAsync()
 	{
-		if (!_presetOverrideService.IsAvailable)
+		try
 		{
-			SetPresetStatusOnUi(null, "N/A (NvAPI unavailable)");
-			return;
-		}
+			if (!_presetOverrideService.IsAvailable)
+			{
+				SetPresetStatusOnUi(null, "N/A (NvAPI unavailable)");
+				return;
+			}
 
-		var current = _presetOverrideService.GetCurrentPresetAsync().GetAwaiter().GetResult();
-		if (current.Success && current.CurrentPreset != null)
-		{
-			var preset = current.CurrentPreset.Value;
-			SetPresetStatusOnUi(preset, $"Current: {DlssPresetDisplay.GetDescription(preset)}");
+			var current = await _presetOverrideService.GetCurrentPresetAsync();
+			if (current.Success && current.CurrentPreset != null)
+			{
+				var preset = current.CurrentPreset.Value;
+				SetPresetStatusOnUi(preset, $"Current: {DlssPresetDisplay.GetDescription(preset)}");
+			}
+			else
+			{
+				SetPresetStatusOnUi(null, current.ErrorMessage ?? "N/A");
+			}
 		}
-		else
+		catch (Exception ex)
 		{
-			SetPresetStatusOnUi(null, current.ErrorMessage ?? "N/A");
+			// Covers managed exceptions from the wrapper. Corrupted-state exceptions thrown
+			// by the native driver are contained by the App-level AppDomain handler and the
+			// fact that this runs on a background task, not the startup thread.
+			Debug.WriteLine($"DetectCurrentPresetSafe failed: {ex.Message}");
+			SetPresetStatusOnUi(null, "Detection failed");
 		}
 	}
-	catch (Exception ex)
-	{
-		// Covers managed exceptions from the wrapper. Corrupted-state exceptions thrown
-		// by the native driver are contained by the App-level AppDomain handler and the
-		// fact that this runs on a background task, not the startup thread.
-		Debug.WriteLine($"DetectCurrentPresetSafe failed: {ex.Message}");
-		SetPresetStatusOnUi(null, "Detection failed");
-	}
-}
 
 private void SetPresetStatusOnUi(DlssPreset? preset, string status)
 {
