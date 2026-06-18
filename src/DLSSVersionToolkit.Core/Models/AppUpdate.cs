@@ -18,6 +18,11 @@ public class AppUpdateInfo
     /// <summary>Size in bytes of the exe asset, used as a download integrity check.</summary>
     public long AssetSize { get; set; }
 
+    /// <summary>browser_download_url of the DLSSVersionToolkit.exe.sha256 checksum asset.
+    /// Empty when the release doesn't publish a checksum (older releases). When present,
+    /// the updater verifies the downloaded exe against this hash before executing it.</summary>
+    public string Sha256Url { get; set; } = "";
+
     /// <summary>Release notes body from the GitHub release.</summary>
     public string ReleaseNotes { get; set; } = "";
 }
