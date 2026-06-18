@@ -125,8 +125,14 @@ public class VersionComparer : IVersionComparer
             var v1 = NormalizeVersion(version1);
             var v2 = NormalizeVersion(version2);
 
-            var parts1 = v1.Split('.').Take(4).Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
-            var parts2 = v2.Split('.').Take(4).Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
+            // Pad to exactly 4 components so 2-part versions (e.g. "310.6") don't
+            // IndexOutOfRange at parts[i] — caught as "never newer" before this fix.
+            var parts1 = v1.Split('.').Take(4)
+                .Select(p => int.TryParse(p, out var n) ? n : 0)
+                .Concat(Enumerable.Repeat(0, 4)).Take(4).ToArray();
+            var parts2 = v2.Split('.').Take(4)
+                .Select(p => int.TryParse(p, out var n) ? n : 0)
+                .Concat(Enumerable.Repeat(0, 4)).Take(4).ToArray();
 
             for (int i = 0; i < 4; i++)
             {
