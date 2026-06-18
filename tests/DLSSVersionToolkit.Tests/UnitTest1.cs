@@ -798,6 +798,20 @@ public class AppUpdateServiceTests
 			Version.Parse("0.0.31.0"), Version.Parse("0.0.31")));
 	}
 
+	// --- ToDisplayVersion (decimal-patch display) ---
+
+	[Theory]
+	[InlineData("0.0.35.0", "0.0.35")]       // trailing zero dropped — was ToString(3) "0.0.35"
+	[InlineData("0.0.35.1", "0.0.35.1")]     // decimal patch preserved — ToString(3) showed "0.0.35" (BUG)
+	[InlineData("1.2.3.4", "1.2.3.4")]       // all 4 components shown
+	[InlineData("0.0.31.0", "0.0.31")]       // 3-part display
+	[InlineData("2.0.0.0", "2.0")]           // never drops below major.minor
+	public void ToDisplayVersion_DropsTrailingZeros(string version, string expected)
+	{
+		var v = Version.Parse(version);
+		Assert.Equal(expected, Core.Services.AppUpdateService.ToDisplayVersion(v));
+	}
+
 	// --- AppUpdateInfo defaults ---
 
 	[Fact]
@@ -910,6 +924,16 @@ public class VersionComparerPublicTests
 	{
 		Assert.False(_c.IsNewer("Unknown", "310.6.0.0"));
 		Assert.True(_c.IsNewer("310.6.0.0", "Unknown"));
+	}
+
+	[Theory]
+	[InlineData("310.10", "310.6", true)]    // 2-part: 10 > 6 (was IndexOutOfRange → swallowed → false)
+	[InlineData("310.6", "310.10", false)]
+	[InlineData("310.6", "310.6", false)]     // equal 2-part
+	[InlineData("310.6.1", "310.6", true)]    // 3-part vs 2-part
+	public void IsNewer_TwoPartVersions_NoCrash(string candidate, string baseline, bool expected)
+	{
+		Assert.Equal(expected, _c.IsNewer(candidate, baseline));
 	}
 }
 

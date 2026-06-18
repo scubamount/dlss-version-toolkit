@@ -63,6 +63,20 @@ public class AppUpdateService
     }
 
     /// <summary>
+    /// Renders a version for display, dropping trailing zero components so 0.0.35.0 → "0.0.35"
+    /// but 0.0.35.1 → "0.0.35.1". Replaces ToString(3) which silently truncated the 4th component
+    /// (decimal patches like 0.0.35.1 displayed as "0.0.35").
+    /// </summary>
+    public static string ToDisplayVersion(Version v)
+    {
+        var parts = new[] { Math.Max(v.Major, 0), Math.Max(v.Minor, 0),
+                            Math.Max(v.Build, 0), Math.Max(v.Revision, 0) };
+        var len = 4;
+        while (len > 2 && parts[len - 1] == 0) len--;
+        return string.Join(".", parts.Take(len));
+    }
+
+    /// <summary>
     /// True when <paramref name="latest"/> is strictly newer than <paramref name="current"/>.
     /// Normalizes undefined components (-1) to 0 so 0.0.31 vs 0.0.31.0 compares equal.
     /// </summary>
@@ -82,7 +96,7 @@ public class AppUpdateService
     public async Task<AppUpdateInfo> CheckForUpdateAsync(CancellationToken ct = default)
     {
         var current = GetCurrentVersion();
-        var none = new AppUpdateInfo { CurrentVersion = current.ToString(3) };
+        var none = new AppUpdateInfo { CurrentVersion = ToDisplayVersion(current) };
 
         try
         {
@@ -126,8 +140,8 @@ public class AppUpdateService
 
             return new AppUpdateInfo
             {
-                CurrentVersion = current.ToString(3),
-                LatestVersion = latest.ToString(3),
+                CurrentVersion = ToDisplayVersion(current),
+                LatestVersion = ToDisplayVersion(latest),
                 IsUpdateAvailable = IsNewer(latest, current) && !string.IsNullOrEmpty(downloadUrl),
                 DownloadUrl = downloadUrl ?? "",
                 AssetSize = assetSize,
