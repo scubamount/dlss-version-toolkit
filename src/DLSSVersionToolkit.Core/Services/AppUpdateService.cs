@@ -33,6 +33,10 @@ public class AppUpdateService
         "https://api.github.com/repos/scubamount/dlss-version-toolkit/releases/latest";
     private const string ExeAssetName = "DLSSVersionToolkit.exe";
 
+    /// <summary>Filename suffix of the checksum asset published alongside the exe.
+    /// The full file is "DLSSVersionToolkit.exe.sha256" (sha256sum format: "hash  filename").</summary>
+    private const string Sha256AssetSuffix = ".sha256";
+
     /// <summary>Manual download fallback shown in error messages when the swap fails.</summary>
     public const string ReleasesPageUrl = "https://github.com/scubamount/dlss-version-toolkit/releases/latest";
 
@@ -120,6 +124,7 @@ public class AppUpdateService
             if (latest == null) return none;
 
             string? downloadUrl = null;
+            string? sha256Url = null;
             long assetSize = 0;
             if (root.TryGetProperty("assets", out var assets))
             {
@@ -131,7 +136,11 @@ public class AppUpdateService
                         downloadUrl = asset.TryGetProperty("browser_download_url", out var bdu)
                             ? bdu.GetString() : null;
                         assetSize = asset.TryGetProperty("size", out var sz) ? sz.GetInt64() : 0;
-                        break;
+                    }
+                    else if (name.EndsWith(Sha256AssetSuffix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        sha256Url = asset.TryGetProperty("browser_download_url", out var bdu)
+                            ? bdu.GetString() : null;
                     }
                 }
             }
@@ -145,6 +154,7 @@ public class AppUpdateService
                 IsUpdateAvailable = IsNewer(latest, current) && !string.IsNullOrEmpty(downloadUrl),
                 DownloadUrl = downloadUrl ?? "",
                 AssetSize = assetSize,
+                Sha256Url = sha256Url ?? "",
                 ReleaseNotes = notes,
             };
         }
@@ -218,6 +228,50 @@ public class AppUpdateService
                     $"Downloaded file size ({downloadedSize:N0} bytes) does not match the " +
                     $"release asset ({update.AssetSize:N0} bytes) — the download may have been " +
                     "interrupted.\n\nWhat to do: try again.");
+            }
+
+            // Integrity: SHA256 hash verification (when a checksum asset was published).
+            // This is the real integrity gate — size-matching alone is not a security control.
+            // MITM or a corrupted download produces a different hash → update is refused.
+            if (!string.IsNullOrEmpty(update.Sha256Url))
+            {
+                string expectedHash;
+                try
+                {
+                    using var hashReq = new HttpRequestMessage(HttpMethod.Get, update.Sha256Url);
+                    hashReq.Headers.Add("User-Agent", "DLSSVersionToolkit/2.0");
+                    using var hashResp = await _http.SendAsync(hashReq, ct);
+                    hashResp.EnsureSuccessStatusCode();
+                    // sha256sum format: "<64-hex>  <filename>" — take the first whitespace-delimited token
+                    var raw = await hashResp.Content.ReadAsStringAsync(ct);
+                    expectedHash = raw.Trim().Split(' ', 2, StringSplitOptions.TrimEntries)[0];
+                }
+                catch (Exception ex)
+                {
+                    TryDelete(stagedPath);
+                    return AppUpdateResult.Failed(
+                        $"Could not download the SHA256 checksum: {ex.Message}\n\n" +
+                        "The update was cancelled for safety.\n\n" +
+                        $"What to do: try again, or download manually from {ReleasesPageUrl}");
+                }
+
+                string actualHash;
+                using (var sha = System.Security.Cryptography.SHA256.Create())
+                await using (var stream = File.OpenRead(stagedPath))
+                {
+                    actualHash = BitConverter.ToString(await sha.ComputeHashAsync(stream, ct))
+                        .Replace("-", "").ToLowerInvariant();
+                }
+
+                if (!string.Equals(expectedHash, actualHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    TryDelete(stagedPath);
+                    return AppUpdateResult.Failed(
+                        "SHA256 mismatch — the downloaded file may be corrupted or tampered with.\n\n" +
+                        $"Expected: {expectedHash}\nActual:   {actualHash}\n\n" +
+                        "The update was cancelled.\n\n" +
+                        $"What to do: try again, or download manually from {ReleasesPageUrl}");
+                }
             }
         }
         catch (TaskCanceledException)

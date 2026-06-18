@@ -40,13 +40,23 @@ jobs:
           -p:PublishSingleFile=true
           --output publish
 
+      - name: Generate SHA256 checksum
+        shell: bash
+        run: |
+          cd publish
+          sha256sum DLSSVersionToolkit.exe > DLSSVersionToolkit.exe.sha256
+          echo "Checksum:"
+          cat DLSSVersionToolkit.exe.sha256
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: DLSSVersionToolkit
-          path: publish/DLSSVersionToolkit.exe
+          path: |
+            publish/DLSSVersionToolkit.exe
+            publish/DLSSVersionToolkit.exe.sha256
 
-      - name: Attach exe to release
+      - name: Attach exe + checksum to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
@@ -54,5 +64,9 @@ jobs:
           # release asset by the EXACT name "DLSSVersionToolkit.exe". Do NOT rename this asset
           # (e.g. adding a version suffix) without updating ExeAssetName in lockstep, or older
           # installed versions will silently fail to find the update.
-          files: publish/DLSSVersionToolkit.exe
+          # The .sha256 file is verified by AppUpdateService.DownloadAndApplyAsync before
+          # executing the downloaded exe (integrity gate — see v0.0.35.3).
+          files: |
+            publish/DLSSVersionToolkit.exe
+            publish/DLSSVersionToolkit.exe.sha256
           fail_on_unmatched_files: true

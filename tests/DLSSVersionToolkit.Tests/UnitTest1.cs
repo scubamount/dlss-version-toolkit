@@ -821,6 +821,7 @@ public class AppUpdateServiceTests
 		Assert.False(info.IsUpdateAvailable);
 		Assert.Equal("", info.DownloadUrl);
 		Assert.Equal(0, info.AssetSize);
+		Assert.Equal("", info.Sha256Url);
 	}
 
 	[Fact]

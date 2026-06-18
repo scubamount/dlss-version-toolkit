@@ -36,7 +36,7 @@ forces the render preset you want — across every game — in one click.
 > AnWave), whitelists the NVIDIA App so it stops reverting your choice, and applies your preset
 > to every game profile. It also updates itself.
 
-Single self-contained `.exe`. No installer. Your DLLs, your machine.
+Single-file `.exe`. No installer. Your DLLs, your machine.
 
 ---
 
@@ -46,8 +46,10 @@ Single self-contained `.exe`. No installer. Your DLLs, your machine.
 
 Download **`DLSSVersionToolkit.exe`** from the
 [latest release](https://github.com/scubamount/dlss-version-toolkit/releases/latest) and run it.
-No installer — it's a single self-contained executable (needs the
-[.NET 9 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0)).
+No installer — it's a single-file executable. Requires the
+[.NET 9 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/9.0)
+(Windows shows a "Download it now" dialog if missing — or install via
+`winget install Microsoft.DotNet.DesktopRuntime.9`).
 
 The app updates itself: when a newer release ships, an **update-available** pill appears
 in the header — click it to download, swap, and restart in place. Toggle off in Settings.
@@ -59,7 +61,7 @@ in the header — click it to download, swap, and restart in place. Toggle off i
 git clone https://github.com/scubamount/dlss-version-toolkit.git
 cd dlss-version-toolkit
 dotnet build src/DLSSVersionToolkit.sln --configuration Release
-dotnet publish src/DLSSVersionToolkit/DLSSVersionToolkit.csproj --configuration Release --self-contained false
+dotnet publish src/DLSSVersionToolkit/DLSSVersionToolkit.csproj --configuration Release --self-contained false --runtime win-x64
 ```
 
 **Requirements:** Windows 10 (1903+) or 11 · NVIDIA GPU with DLSS support · NVIDIA App with
@@ -136,6 +138,7 @@ in place with rollback on failure, and prompts before restarting.
 
 | Symptom | Fix |
 |---|---|
+| **App won't launch** | Install the [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) — or `winget install Microsoft.DotNet.DesktopRuntime.9` |
 | **"Administrator access is required"** | Run as Administrator — sync writes to `C:\ProgramData\NVIDIA\NGX\` |
 | **"No DLSS versions found"** | Install the NVIDIA App and enable DLSS override for at least one game (this creates the NGX folders), then rescan |
 | **DeepDVC shows "Unknown"** | Normal — some driver builds omit DeepDVC from the NGX config; handled gracefully |
