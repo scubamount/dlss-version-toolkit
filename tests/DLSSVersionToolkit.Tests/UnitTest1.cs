@@ -850,6 +850,169 @@ public class AppUpdateServiceTests
 		Assert.True(settings!.CheckForAppUpdates);
 		Assert.False(settings.HasSeenQuickGuide);
 	}
+
+	// --- Download/swap flow (v0.0.35.5: mock HttpMessageHandler) ---
+
+	private const string GitHubApiUrl =
+		"https://api.github.com/repos/scubamount/dlss-version-toolkit/releases/latest";
+	private const string ExeUrl = "https://test.local/DLSSVersionToolkit.exe";
+	private const string Sha256Url = "https://test.local/DLSSVersionToolkit.exe.sha256";
+
+	/// <summary>Mock HttpMessageHandler — returns canned responses by exact URL match.</summary>
+	private class MockHttpHandler : HttpMessageHandler
+	{
+		private readonly Dictionary<string, (HttpStatusCode status, byte[] content, string mediaType)> _responses = new();
+
+		public void Setup(string url, HttpStatusCode status, byte[] content, string mediaType = "application/json")
+		{
+			_responses[url] = (status, content, mediaType);
+		}
+
+		protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+		{
+			var url = request.RequestUri!.ToString();
+			if (_responses.TryGetValue(url, out var resp))
+			{
+				var content = new ByteArrayContent(resp.content);
+				content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(resp.mediaType);
+				return Task.FromResult(new HttpResponseMessage(resp.status) { Content = content });
+			}
+			return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+		}
+	}
+
+	private static Core.Services.AppUpdateService CreateService(MockHttpHandler handler)
+	{
+		var client = new HttpClient(handler);
+		return new Core.Services.AppUpdateService(client);
+	}
+
+	private static byte[] BuildReleaseJson(string tag, string exeUrl, string shaUrl, long exeSize)
+	{
+		var json = $$"""
+		{
+			"tag_name": "{{tag}}",
+			"assets": [
+				{"name": "DLSSVersionToolkit.exe", "browser_download_url": "{{exeUrl}}", "size": {{exeSize}}},
+				{"name": "DLSSVersionToolkit.exe.sha256", "browser_download_url": "{{shaUrl}}", "size": 89}
+			],
+			"body": "Test release notes"
+		}
+		""";
+		return System.Text.Encoding.UTF8.GetBytes(json);
+	}
+
+	[Fact]
+	public async Task CheckForUpdateAsync_NewerVersion_ReturnsUpdateAvailable()
+	{
+		var handler = new MockHttpHandler();
+		handler.Setup(GitHubApiUrl, HttpStatusCode.OK,
+			BuildReleaseJson("v99.0.0.0", ExeUrl, Sha256Url, 100), "application/vnd.github+json");
+
+		var svc = CreateService(handler);
+		var info = await svc.CheckForUpdateAsync();
+
+		Assert.True(info.IsUpdateAvailable);
+		Assert.Equal(ExeUrl, info.DownloadUrl);
+		Assert.Equal(Sha256Url, info.Sha256Url);
+		Assert.Equal(100, info.AssetSize);
+		Assert.NotEmpty(info.LatestVersion);
+	}
+
+	[Fact]
+	public async Task CheckForUpdateAsync_ApiFailure_ReturnsNoUpdate()
+	{
+		var handler = new MockHttpHandler();
+		handler.Setup(GitHubApiUrl, HttpStatusCode.InternalServerError, "error"u8.ToArray());
+
+		var svc = CreateService(handler);
+		var info = await svc.CheckForUpdateAsync();
+
+		Assert.False(info.IsUpdateAvailable);
+		Assert.Equal("", info.DownloadUrl);
+	}
+
+	[Fact]
+	public async Task CheckForUpdateAsync_NoExeAsset_ReturnsNoUpdate()
+	{
+		// Release with only a sha256 asset (no exe) → no download URL → not available
+		var json = """{"tag_name": "v99.0.0.0", "assets": [{"name": "DLSSVersionToolkit.exe.sha256", "browser_download_url": "https://test.local/hash", "size": 89}], "body": ""}""";
+		var handler = new MockHttpHandler();
+		handler.Setup(GitHubApiUrl, HttpStatusCode.OK, System.Text.Encoding.UTF8.GetBytes(json));
+
+		var svc = CreateService(handler);
+		var info = await svc.CheckForUpdateAsync();
+
+		Assert.False(info.IsUpdateAvailable);
+		Assert.Equal("", info.DownloadUrl);
+	}
+
+	[Fact]
+	public async Task DownloadAndApplyAsync_Sha256Mismatch_RefusesToExecute()
+	{
+		// Exe content: bytes that hash to something specific
+		var exeContent = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
+		// Wrong hash: all zeros (will never match the actual hash)
+		var wrongHash = "0000000000000000000000000000000000000000000000000000000000000000  DLSSVersionToolkit.exe";
+
+		var handler = new MockHttpHandler();
+		handler.Setup(ExeUrl, HttpStatusCode.OK, exeContent, "application/octet-stream");
+		handler.Setup(Sha256Url, HttpStatusCode.OK, System.Text.Encoding.UTF8.GetBytes(wrongHash), "text/plain");
+
+		var svc = CreateService(handler);
+
+		var update = new AppUpdateInfo
+		{
+			IsUpdateAvailable = true,
+			DownloadUrl = ExeUrl,
+			Sha256Url = Sha256Url,
+			AssetSize = 0  // skip size check — focus on hash mismatch
+		};
+
+		var result = await svc.DownloadAndApplyAsync(update);
+
+		Assert.False(result.Success);
+		Assert.Contains("SHA256 mismatch", result.ErrorMessage);
+		Assert.Contains("cancelled", result.ErrorMessage);
+	}
+
+	[Fact]
+	public async Task DownloadAndApplyAsync_ExeNotFound_Fails()
+	{
+		var handler = new MockHttpHandler();
+		// Exe URL not set up → 404
+		handler.Setup(Sha256Url, HttpStatusCode.OK,
+			System.Text.Encoding.UTF8.GetBytes("abcdef  DLSSVersionToolkit.exe"), "text/plain");
+
+		var svc = CreateService(handler);
+
+		var update = new AppUpdateInfo
+		{
+			IsUpdateAvailable = true,
+			DownloadUrl = ExeUrl,
+			Sha256Url = "",
+			AssetSize = 0
+		};
+
+		var result = await svc.DownloadAndApplyAsync(update);
+
+		Assert.False(result.Success);
+		Assert.Contains("Download failed", result.ErrorMessage);
+	}
+
+	[Fact]
+	public async Task DownloadAndApplyAsync_NoUpdateAvailable_Fails()
+	{
+		var handler = new MockHttpHandler();
+		var svc = CreateService(handler);
+
+		var update = new AppUpdateInfo { IsUpdateAvailable = false };
+
+		var result = await svc.DownloadAndApplyAsync(update);
+
+		Assert.False(result.Success);
+		Assert.Contains("No update", result.ErrorMessage);
+	}
 }
 
 public class WhitelistDetectionTests
@@ -1175,171 +1338,5 @@ public class UpgradeServiceTests
 		data[0] = (byte)'M';
 		data[1] = (byte)'Z';
 		File.WriteAllBytes(path, data);
-	}
-}
-
-// --- AppUpdateService tests (v0.0.35.5: download/swap flow with mock HttpMessageHandler) ---
-
-public class AppUpdateServiceTests
-{
-	private const string GitHubApiUrl =
-		"https://api.github.com/repos/scubamount/dlss-version-toolkit/releases/latest";
-	private const string ExeUrl = "https://test.local/DLSSVersionToolkit.exe";
-	private const string Sha256Url = "https://test.local/DLSSVersionToolkit.exe.sha256";
-
-	/// <summary>Mock HttpMessageHandler — returns canned responses by exact URL match.</summary>
-	private class MockHttpHandler : HttpMessageHandler
-	{
-		private readonly Dictionary<string, (HttpStatusCode status, byte[] content, string mediaType)> _responses = new();
-
-		public void Setup(string url, HttpStatusCode status, byte[] content, string mediaType = "application/json")
-		{
-			_responses[url] = (status, content, mediaType);
-		}
-
-		protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-		{
-			var url = request.RequestUri!.ToString();
-			if (_responses.TryGetValue(url, out var resp))
-			{
-				var content = new ByteArrayContent(resp.content);
-				content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(resp.mediaType);
-				return Task.FromResult(new HttpResponseMessage(resp.status) { Content = content });
-			}
-			return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
-		}
-	}
-
-	private static AppUpdateService CreateService(MockHttpHandler handler)
-	{
-		var client = new HttpClient(handler);
-		return new AppUpdateService(client);
-	}
-
-	private static byte[] BuildReleaseJson(string tag, string exeUrl, string shaUrl, long exeSize)
-	{
-		var json = $$"""
-		{
-			"tag_name": "{{tag}}",
-			"assets": [
-				{"name": "DLSSVersionToolkit.exe", "browser_download_url": "{{exeUrl}}", "size": {{exeSize}}},
-				{"name": "DLSSVersionToolkit.exe.sha256", "browser_download_url": "{{shaUrl}}", "size": 89}
-			],
-			"body": "Test release notes"
-		}
-		""";
-		return System.Text.Encoding.UTF8.GetBytes(json);
-	}
-
-	[Fact]
-	public async Task CheckForUpdateAsync_NewerVersion_ReturnsUpdateAvailable()
-	{
-		var handler = new MockHttpHandler();
-		handler.Setup(GitHubApiUrl, HttpStatusCode.OK,
-			BuildReleaseJson("v99.0.0.0", ExeUrl, Sha256Url, 100), "application/vnd.github+json");
-
-		var svc = CreateService(handler);
-		var info = await svc.CheckForUpdateAsync();
-
-		Assert.True(info.IsUpdateAvailable);
-		Assert.Equal(ExeUrl, info.DownloadUrl);
-		Assert.Equal(Sha256Url, info.Sha256Url);
-		Assert.Equal(100, info.AssetSize);
-		Assert.NotEmpty(info.LatestVersion);
-	}
-
-	[Fact]
-	public async Task CheckForUpdateAsync_ApiFailure_ReturnsNoUpdate()
-	{
-		var handler = new MockHttpHandler();
-		handler.Setup(GitHubApiUrl, HttpStatusCode.InternalServerError, "error"u8.ToArray());
-
-		var svc = CreateService(handler);
-		var info = await svc.CheckForUpdateAsync();
-
-		Assert.False(info.IsUpdateAvailable);
-		Assert.Equal("", info.DownloadUrl);
-	}
-
-	[Fact]
-	public async Task CheckForUpdateAsync_NoExeAsset_ReturnsNoUpdate()
-	{
-		// Release with only a sha256 asset (no exe) → no download URL → not available
-		var json = """{"tag_name": "v99.0.0.0", "assets": [{"name": "DLSSVersionToolkit.exe.sha256", "browser_download_url": "https://test.local/hash", "size": 89}], "body": ""}""";
-		var handler = new MockHttpHandler();
-		handler.Setup(GitHubApiUrl, HttpStatusCode.OK, System.Text.Encoding.UTF8.GetBytes(json));
-
-		var svc = CreateService(handler);
-		var info = await svc.CheckForUpdateAsync();
-
-		Assert.False(info.IsUpdateAvailable);
-		Assert.Equal("", info.DownloadUrl);
-	}
-
-	[Fact]
-	public async Task DownloadAndApplyAsync_Sha256Mismatch_RefusesToExecute()
-	{
-		// Exe content: bytes that hash to something specific
-		var exeContent = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
-		// Wrong hash: all zeros (will never match the actual hash)
-		var wrongHash = "0000000000000000000000000000000000000000000000000000000000000000  DLSSVersionToolkit.exe";
-
-		var handler = new MockHttpHandler();
-		handler.Setup(ExeUrl, HttpStatusCode.OK, exeContent, "application/octet-stream");
-		handler.Setup(Sha256Url, HttpStatusCode.OK, System.Text.Encoding.UTF8.GetBytes(wrongHash), "text/plain");
-
-		var svc = CreateService(handler);
-
-		var update = new AppUpdateInfo
-		{
-			IsUpdateAvailable = true,
-			DownloadUrl = ExeUrl,
-			Sha256Url = Sha256Url,
-			AssetSize = 0  // skip size check — focus on hash mismatch
-		};
-
-		var result = await svc.DownloadAndApplyAsync(update);
-
-		Assert.False(result.Success);
-		Assert.Contains("SHA256 mismatch", result.ErrorMessage);
-		Assert.Contains("cancelled", result.ErrorMessage);
-	}
-
-	[Fact]
-	public async Task DownloadAndApplyAsync_ExeNotFound_Fails()
-	{
-		var handler = new MockHttpHandler();
-		// Exe URL not set up → 404
-		handler.Setup(Sha256Url, HttpStatusCode.OK,
-			System.Text.Encoding.UTF8.GetBytes("abcdef  DLSSVersionToolkit.exe"), "text/plain");
-
-		var svc = CreateService(handler);
-
-		var update = new AppUpdateInfo
-		{
-			IsUpdateAvailable = true,
-			DownloadUrl = ExeUrl,
-			Sha256Url = "",
-			AssetSize = 0
-		};
-
-		var result = await svc.DownloadAndApplyAsync(update);
-
-		Assert.False(result.Success);
-		Assert.Contains("Download failed", result.ErrorMessage);
-	}
-
-	[Fact]
-	public async Task DownloadAndApplyAsync_NoUpdateAvailable_Fails()
-	{
-		var handler = new MockHttpHandler();
-		var svc = CreateService(handler);
-
-		var update = new AppUpdateInfo { IsUpdateAvailable = false };
-
-		var result = await svc.DownloadAndApplyAsync(update);
-
-		Assert.False(result.Success);
-		Assert.Contains("No update", result.ErrorMessage);
 	}
 }
