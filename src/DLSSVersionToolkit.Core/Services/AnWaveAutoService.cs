@@ -535,7 +535,7 @@ progress?.Report(30);
                 if (match.Success)
                     return match.Groups[1].Value;
             }
-            catch { }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"AnWaveAutoService: DLL version parse failed: {ex.Message}"); }
         }
         if (!string.IsNullOrEmpty(_dllVersion))
             return _dllVersion;
@@ -599,7 +599,7 @@ app_E658703 = {version}
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"AnWaveAutoService: ngx_dlss_demo URL fetch failed: {ex.Message}"); }
 
         return null;
     }
@@ -636,7 +636,7 @@ app_E658703 = {version}
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"AnWaveAutoService: nvidiaDlssGlom URL fetch failed: {ex.Message}"); }
 
         return null;
     }

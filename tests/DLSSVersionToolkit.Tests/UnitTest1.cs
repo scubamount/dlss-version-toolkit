@@ -1011,3 +1011,168 @@ public class DlssPresetTests
 		Assert.Equal(0x10E41DF1u, DlssPresetSettingIds.FG_RENDER_PRESET);
 	}
 }
+
+// --- UpgradeService tests (v0.0.35.4: first tests for the core DLL-replace logic) ---
+
+public class UpgradeServiceTests
+{
+	private static string AllowedPath =>
+		Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+			"NVIDIA", "NGX");
+
+	/// <summary>Minimal mock INgxScanner — returns controlled entries for decision-logic tests.</summary>
+	private class MockNgxScanner : Core.Services.INgxScanner
+	{
+		private readonly List<DLSSVersionEntry> _entries;
+		public MockNgxScanner(IEnumerable<DLSSVersionEntry> entries) => _entries = entries.ToList();
+		public List<DLSSVersionEntry> Scan(string ngxBasePath) => _entries.ToList();
+	}
+
+	/// <summary>Minimal mock IBackupService — controllable success/failure.</summary>
+	private class MockBackupService : Core.Services.IBackupService
+	{
+		public string? BackupResult { get; set; } = @"C:\fake\backup";
+		public bool VerifyResult { get; set; } = true;
+		public string? CreateBackup(string releaseFolderPath, string versionsParentPath) => BackupResult;
+		public bool RestoreBackup(string backupPath, string releaseFolderPath) => true;
+		public void CleanupOldBackups(string versionsParentPath, int keepCount = 10) { }
+		public bool VerifyBackup(string backupPath, int expectedFileCount = -1) => VerifyResult;
+	}
+
+	[Fact]
+	public void UpgradeFromStaging_DisallowedPath_ReturnsFailed()
+	{
+		var scanner = new MockNgxScanner(new List<DLSSVersionEntry>());
+		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService());
+		var result = svc.UpgradeFromStaging(@"C:\Totally\Random\Path");
+		Assert.Equal(OperationStatus.Failed, result.Status);
+		Assert.Contains("not in allowed list", result.ErrorMessage);
+	}
+
+	[Fact]
+	public void UpgradeFromStaging_NoRelease_ReturnsFailed()
+	{
+		var entries = new List<DLSSVersionEntry>
+		{
+			new() { Source = "NGX_Staging", DLSS = "310.10.0.0", Path = AllowedPath }
+		};
+		var scanner = new MockNgxScanner(entries);
+		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService());
+		var result = svc.UpgradeFromStaging(AllowedPath);
+		Assert.Equal(OperationStatus.Failed, result.Status);
+		Assert.Contains("No Release", result.ErrorMessage);
+	}
+
+	[Fact]
+	public void UpgradeFromStaging_NoStaging_ReturnsFailed()
+	{
+		var entries = new List<DLSSVersionEntry>
+		{
+			new() { Source = "NGX_Release", DLSS = "310.6.0.0", Path = AllowedPath }
+		};
+		var scanner = new MockNgxScanner(entries);
+		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService());
+		var result = svc.UpgradeFromStaging(AllowedPath);
+		Assert.Equal(OperationStatus.Failed, result.Status);
+		Assert.Contains("No staging", result.ErrorMessage);
+	}
+
+	[Fact]
+	public void UpgradeFromStaging_AlreadyUpToDate_ReturnsCompleted()
+	{
+		// Staging (310.6) is NOT newer than Release (310.10) → already up to date
+		var entries = new List<DLSSVersionEntry>
+		{
+			new() { Source = "NGX_Release", DLSS = "310.10.0.0", Path = AllowedPath },
+			new() { Source = "NGX_Staging", DLSS = "310.6.0.0", Path = AllowedPath }
+		};
+		var scanner = new MockNgxScanner(entries);
+		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService());
+		var result = svc.UpgradeFromStaging(AllowedPath);
+		Assert.Equal(OperationStatus.Completed, result.Status);
+		Assert.Contains("up to date", result.ErrorMessage);
+	}
+
+	[Fact]
+	public void UpgradeFromStaging_BackupFails_ReturnsFailed()
+	{
+		var entries = new List<DLSSVersionEntry>
+		{
+			new() { Source = "NGX_Release", DLSS = "310.6.0.0", Path = AllowedPath },
+			new() { Source = "NGX_Staging", DLSS = "310.10.0.0", Path = AllowedPath }
+		};
+		var scanner = new MockNgxScanner(entries);
+		var backup = new MockBackupService { BackupResult = null };
+		var svc = new Core.Services.UpgradeService(scanner, backup);
+		var result = svc.UpgradeFromStaging(AllowedPath);
+		Assert.Equal(OperationStatus.Failed, result.Status);
+		Assert.Contains("backup", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+	}
+
+	[Fact]
+	public void UpgradeFromStaging_BackupVerifyFails_ReturnsFailed()
+	{
+		var entries = new List<DLSSVersionEntry>
+		{
+			new() { Source = "NGX_Release", DLSS = "310.6.0.0", Path = AllowedPath },
+			new() { Source = "NGX_Staging", DLSS = "310.10.0.0", Path = AllowedPath }
+		};
+		var scanner = new MockNgxScanner(entries);
+		var backup = new MockBackupService { VerifyResult = false };
+		var svc = new Core.Services.UpgradeService(scanner, backup);
+		var result = svc.UpgradeFromStaging(AllowedPath);
+		Assert.Equal(OperationStatus.Failed, result.Status);
+		Assert.Contains("verification", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+	}
+
+	/// <summary>End-to-end: real temp dirs with fake PE DLLs, real file copies.
+	/// Verifies the full upgrade path: backup → signature check → copy → verify.</summary>
+	[Fact]
+	public void UpgradeFromStaging_Success_CopiesDlls()
+	{
+		var baseDir = Path.Combine(AllowedPath, $"test-{Guid.NewGuid():N}");
+		var stagingDir = Path.Combine(baseDir, "staging");
+		var releaseDir = Path.Combine(baseDir, "release");
+		Directory.CreateDirectory(stagingDir);
+		Directory.CreateDirectory(releaseDir);
+
+		try
+		{
+			CreateFakePeDll(Path.Combine(stagingDir, "nvngx_dlss.dll"));
+			CreateFakePeDll(Path.Combine(releaseDir, "nvngx_dlss.dll"));
+			File.WriteAllText(Path.Combine(stagingDir, "nvngx_package_config.txt"), "dlss, 310.10.0.0");
+			File.WriteAllText(Path.Combine(releaseDir, "nvngx_package_config.txt"), "dlss, 310.6.0.0");
+
+			var entries = new List<DLSSVersionEntry>
+			{
+				new() { Source = "NGX_Release", DLSS = "310.6.0.0", Path = releaseDir },
+				new() { Source = "NGX_Staging", DLSS = "310.10.0.0", Path = stagingDir }
+			};
+			var scanner = new MockNgxScanner(entries);
+			var backup = new MockBackupService();
+			var svc = new Core.Services.UpgradeService(scanner, backup);
+
+			var result = svc.UpgradeFromStaging(baseDir);
+
+			Assert.Equal(OperationStatus.Completed, result.Status);
+			Assert.NotEmpty(result.FilesCopied);
+			Assert.Contains("nvngx_dlss.dll", result.FilesCopied);
+			Assert.Contains("nvngx_package_config.txt", result.FilesCopied);
+		}
+		finally
+		{
+			if (Directory.Exists(baseDir))
+			{
+				try { Directory.Delete(baseDir, recursive: true); } catch { }
+			}
+		}
+	}
+
+	private static void CreateFakePeDll(string path)
+	{
+		var data = new byte[2048];
+		data[0] = (byte)'M';
+		data[1] = (byte)'Z';
+		File.WriteAllBytes(path, data);
+	}
+}
