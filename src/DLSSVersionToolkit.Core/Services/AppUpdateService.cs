@@ -21,13 +21,20 @@ using DLSSVersionToolkit.Core.Models;
 /// </summary>
 public class AppUpdateService
 {
-    private static readonly HttpClient _http;
+    private static readonly HttpClient _defaultHttp;
+    private readonly HttpClient _http;
 
     static AppUpdateService()
     {
         var handler = new HttpClientHandler { AllowAutoRedirect = true };
-        _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(120) };
+        _defaultHttp = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(120) };
     }
+
+    /// <summary>Production constructor — uses the shared static HttpClient.</summary>
+    public AppUpdateService() => _http = _defaultHttp;
+
+    /// <summary>Test constructor — inject a custom HttpClient (e.g. with a mock HttpMessageHandler).</summary>
+    public AppUpdateService(HttpClient http) => _http = http;
 
     private const string LatestReleaseApiUrl =
         "https://api.github.com/repos/scubamount/dlss-version-toolkit/releases/latest";
