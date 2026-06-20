@@ -132,6 +132,22 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     [ObservableProperty]
     private DlssPreset _selectedFgPreset = DlssPresetDisplay.FrameGenerationDefault;
 
+    // DLSSG generator mode + multiplier (the Fixed/Dynamic + 2x/3x/4x… knobs). SEPARATE from the
+    // FG preset above — these were previously unsettable from the toolkit, so users had to use the
+    // NVIDIA App ("Dynamic, up to 6x, at max refresh rate") to get FG behaving. Default mode =
+    // Dynamic, multiplier = 4x, target = AUTO (match max refresh rate).
+    [ObservableProperty]
+    private ObservableCollection<DlssgMode> _availableFgModes = new();
+
+    [ObservableProperty]
+    private DlssgMode _selectedFgMode = DlssPresetDisplay.FrameGenModeDefault;
+
+    [ObservableProperty]
+    private ObservableCollection<int> _availableFgMultipliers = new();
+
+    [ObservableProperty]
+    private int _selectedFgMultiplier = DlssPresetDisplay.FrameGenMultiplierDefault;
+
     [ObservableProperty]
     private string _currentPresetStatus = "";
 
@@ -329,6 +345,11 @@ private void LoadPresetDefaults()
 		AvailableFgPresets = new ObservableCollection<DlssPreset>(DlssPresetDisplay.FrameGenerationPresets);
 		SelectedFgPreset = DlssPresetDisplay.FrameGenerationDefault;  // B
 
+		AvailableFgModes = new ObservableCollection<DlssgMode>(DlssPresetDisplay.FrameGenModes);
+		SelectedFgMode = DlssPresetDisplay.FrameGenModeDefault;  // Dynamic
+		AvailableFgMultipliers = new ObservableCollection<int>(DlssPresetDisplay.FrameGenMultipliers);
+		SelectedFgMultiplier = DlssPresetDisplay.FrameGenMultiplierDefault;  // 4x
+
 		CurrentPresetStatus = "Detecting…";
 	}
 	catch (Exception ex)
@@ -404,6 +425,11 @@ private PresetApplyOptions BuildPresetOptions() => new()
 {
 	RayReconstructionPreset = SelectedRrPreset,
 	FrameGenerationPreset = SelectedFgPreset,
+	FrameGenerationMode = SelectedFgMode,
+	FrameGenerationMultiplier = SelectedFgMultiplier,
+	// Dynamic target FPS left null = AUTO ("match max refresh rate"). A future settings field
+	// can surface an explicit FPS target; null is the NVIDIA App default.
+	FrameGenerationDynamicTargetFps = null,
 };
 
 [RelayCommand]

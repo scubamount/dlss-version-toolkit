@@ -52,6 +52,28 @@ public sealed record PresetApplyOptions
     public DlssPreset FrameGenerationPreset { get; init; } = DlssPresetDisplay.FrameGenerationDefault;
 
     /// <summary>
+    /// DLSSG generator MODE (Fixed/Dynamic/Auto/Off). Distinct from <see cref="EnableFrameGeneration"/>:
+    /// that flag turns the FG override on; this picks HOW frames are generated. Default = Disabled,
+    /// which leaves the mode knob untouched (back-compat: existing callers don't change FG mode).
+    /// Set to On/Dynamic/Auto/Off to actually write NGX_DLSSG_MODE.
+    /// </summary>
+    public DlssgMode FrameGenerationMode { get; init; } = DlssgMode.Disabled;
+
+    /// <summary>
+    /// Frame multiplier (the "Nx" shown in the NVIDIA App: 2x..6x). Written as the DRS
+    /// generated-frame count (multiplier - 1) into either the FIXED count (mode On) or the
+    /// DYNAMIC max count (mode Dynamic). Ignored when the mode is Disabled/Off/Auto.
+    /// </summary>
+    public int FrameGenerationMultiplier { get; init; } = DlssPresetDisplay.FrameGenMultiplierDefault;
+
+    /// <summary>
+    /// In Dynamic mode, the target FPS the generator aims at. Null = AUTO ("match max refresh
+    /// rate", the NVIDIA App default). A positive value sets an explicit FPS target. Ignored
+    /// unless the mode is Dynamic.
+    /// </summary>
+    public int? FrameGenerationDynamicTargetFps { get; init; } = null;
+
+    /// <summary>
     /// Apply to every game profile (not just the global/base profile). This is what
     /// actually changes in-game behavior for games that have their own DRS profile.
     /// </summary>
@@ -276,7 +298,61 @@ public sealed class PresetOverrideService : IPresetOverrideService
             // NEW (v0.0.35): FG previously had no preset selection set at all.
             profile.SetSetting(DlssPresetSettingIds.FG_OVERRIDE_ENABLE, DRSSettingType.Integer, onOff);
             if (enable)
+            {
                 profile.SetSetting(DlssPresetSettingIds.FG_RENDER_PRESET, DRSSettingType.Integer, (uint)options.FrameGenerationPreset);
+
+                // DLSSG generator MODE + MULTIPLIER (the Fixed/Dynamic + 2x/3x/4x… knobs).
+                // SEPARATE setting family from the enable flag + render preset above. Without
+                // these, enabling the FG override does NOT select Fixed vs Dynamic or the frame
+                // multiplier — which is why in-game toggles and the toolkit couldn't change them
+                // and the NVIDIA App was the only way (it writes these IDs). Only written when the
+                // caller explicitly picks a mode (Disabled = leave the driver/app value alone, the
+                // back-compat default).
+                ApplyDlssgMode(profile, options);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes the DLSSG mode + multiplier (+ dynamic target FPS) for a profile. No-op when the
+    /// mode is Disabled so existing callers that don't set a mode leave the driver value untouched.
+    /// </summary>
+    private static void ApplyDlssgMode(DriverSettingsProfile profile, PresetApplyOptions options)
+    {
+        var mode = options.FrameGenerationMode;
+        if (mode == DlssgMode.Disabled)
+            return; // caller didn't ask to change the mode — leave it as-is
+
+        profile.SetSetting(DlssPresetSettingIds.DLSSG_MODE, DRSSettingType.Integer, (uint)mode);
+
+        switch (mode)
+        {
+            case DlssgMode.On:
+                // Fixed multiplier: write the generated-frame COUNT (multiplier - 1).
+                profile.SetSetting(
+                    DlssPresetSettingIds.DLSSG_MULTI_FRAME_COUNT,
+                    DRSSettingType.Integer,
+                    DlssPresetDisplay.MultiplierToFrameCount(options.FrameGenerationMultiplier));
+                break;
+
+            case DlssgMode.Dynamic:
+                // Dynamic: cap the generated-frame count (multiplier - 1) and set the target FPS.
+                profile.SetSetting(
+                    DlssPresetSettingIds.DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX,
+                    DRSSettingType.Integer,
+                    DlssPresetDisplay.MultiplierToFrameCount(options.FrameGenerationMultiplier));
+
+                // null target = AUTO ("match max refresh rate"); a positive value = explicit FPS.
+                var targetFps = options.FrameGenerationDynamicTargetFps is int fps && fps > 0
+                    ? (uint)fps
+                    : DlssPresetSettingIds.DLSSG_DYNAMIC_TARGET_FRAME_RATE_AUTO;
+                profile.SetSetting(
+                    DlssPresetSettingIds.DLSSG_DYNAMIC_TARGET_FRAME_RATE,
+                    DRSSettingType.Integer,
+                    targetFps);
+                break;
+
+            // Off / Auto: the mode value alone is sufficient; no multiplier/target to write.
         }
     }
 
