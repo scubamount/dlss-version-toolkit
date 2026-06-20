@@ -6,13 +6,15 @@
         xmlns:local="clr-namespace:DLSSVersionToolkit"
         xmlns:vm="clr-namespace:DLSSVersionToolkit.ViewModels"
         xmlns:converters="clr-namespace:DLSSVersionToolkit.Converters"
-        Title="DLSS Version Toolkit — by scubamount" Height="760" Width="1120"
-        MinHeight="620" MinWidth="1080"
+        Title="DLSS Version Toolkit — by scubamount" Height="810" Width="1120"
+        MinHeight="660" MinWidth="1080"
         Background="{StaticResource CanvasBrush}"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <converters:DlssPresetDescriptionConverter x:Key="DlssPresetDescriptionConverter"/>
         <converters:DlssPresetShortLabelConverter x:Key="DlssPresetShortLabelConverter"/>
+        <converters:DlssgModeLabelConverter x:Key="DlssgModeLabelConverter"/>
+        <converters:FrameGenMultiplierLabelConverter x:Key="FrameGenMultiplierLabelConverter"/>
 
         <!-- DataGrid cell that turns green for the newest DLSS build -->
         <Style x:Key="NewestCellStyle" TargetType="DataGridCell">
@@ -434,6 +436,50 @@
                                         <ComboBox.ItemTemplate>
                                             <DataTemplate>
                                                 <TextBlock Text="{Binding Converter={StaticResource DlssPresetShortLabelConverter}}" FontSize="12"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- DLSS-FG generator MODE + MULTIPLIER (Fixed/Dynamic + 2x..6x).
+                                 Separate from the FG preset above; these are the knobs that the
+                                 NVIDIA App's "Dynamic, up to Nx, at max refresh rate" sets. -->
+                            <Grid Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- FG generator mode -->
+                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                    <TextBlock Text="DLSS-FG MODE" Foreground="{StaticResource Text3Brush}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"
+                                               ToolTip="Frame Generation mode. Dynamic adapts the multiplier to hit the target FPS (recommended); Fixed uses a constant multiplier. 'Don't change' leaves the driver/NVIDIA App value untouched."/>
+                                    <ComboBox ItemsSource="{Binding AvailableFgModes}" SelectedItem="{Binding SelectedFgMode}"
+                                              MinWidth="140" FontSize="12"
+                                              Background="{StaticResource Panel2Brush}" Foreground="{StaticResource NvidiaGreenBrush}"
+                                              BorderBrush="{StaticResource HairlineStrongBrush}" Padding="8,5" VerticalAlignment="Center"
+                                              IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource DlssgModeLabelConverter}}" FontSize="12"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </StackPanel>
+
+                                <!-- FG multiplier (Nx) -->
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="DLSS-FG MULTIPLIER" Foreground="{StaticResource Text3Brush}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"
+                                               ToolTip="Frame multiplier (the 'Nx'). In Fixed mode this is the constant multiplier; in Dynamic mode it's the cap. Ignored when mode is Off/Auto/Don't change."/>
+                                    <ComboBox ItemsSource="{Binding AvailableFgMultipliers}" SelectedItem="{Binding SelectedFgMultiplier}"
+                                              MinWidth="100" FontSize="12"
+                                              Background="{StaticResource Panel2Brush}" Foreground="{StaticResource NvidiaGreenBrush}"
+                                              BorderBrush="{StaticResource HairlineStrongBrush}" Padding="8,5" VerticalAlignment="Center"
+                                              IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource FrameGenMultiplierLabelConverter}}" FontSize="12"/>
                                             </DataTemplate>
                                         </ComboBox.ItemTemplate>
                                     </ComboBox>

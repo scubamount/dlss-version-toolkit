@@ -84,6 +84,66 @@ public static class DlssPresetSettingIds
 
     /// <summary>NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION_ID — DLSS-FG preset selection.</summary>
     public const uint FG_RENDER_PRESET = 0x10E41DF1;
+
+    // --- DLSSG (Frame Generation generator) MODE + MULTIPLIER ---
+    // These are a SEPARATE setting family from the FG_OVERRIDE_ENABLE / FG_RENDER_PRESET pair
+    // above. Enabling the FG override and picking a render preset does NOT pick the generator
+    // mode (Fixed vs Dynamic) nor the frame multiplier (2x/3x/4x… i.e. MFG). The NVIDIA App's
+    // "DLSS Frame Generation = Dynamic, up to 6x, at max refresh rate" maps onto THESE IDs, which
+    // the toolkit previously never wrote — so neither in-game toggles nor the toolkit could switch
+    // Fixed/Dynamic or change the multiplier. IDs from NVIDIA's NvApiDriverSettings.h.
+
+    /// <summary>NGX_DLSSG_MODE_ID — DLSSG generator mode (Disabled/Off/On/Auto/Dynamic).</summary>
+    public const uint DLSSG_MODE = 0x10308298;
+
+    /// <summary>
+    /// NGX_DLSSG_MULTI_FRAME_COUNT_ID — FIXED multi-frame generated-frame count (0=off, 1..15).
+    /// This is generated frames per real frame; total displayed multiplier = count + 1
+    /// (count 1 = 2x, count 2 = 3x, … count 5 = 6x). Used when the mode is Fixed (On).
+    /// </summary>
+    public const uint DLSSG_MULTI_FRAME_COUNT = 0x104D6667;
+
+    /// <summary>
+    /// NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX_ID — DYNAMIC mode cap on generated-frame count
+    /// (0=off/unbounded by this knob, otherwise the max generated frames the driver may add).
+    /// Same count→multiplier relationship as the fixed count (count + 1 = multiplier). Used when
+    /// the mode is Dynamic.
+    /// </summary>
+    public const uint DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX = 0x10562D0F;
+
+    /// <summary>
+    /// NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE_ID — dynamic-mode target FPS the generator aims at.
+    /// 0 = disabled, 1..0x00FFFFFF = explicit target FPS, 0x01000000 = AUTO ("match max refresh
+    /// rate"). The NVIDIA App "at max refresh rate" option is AUTO.
+    /// </summary>
+    public const uint DLSSG_DYNAMIC_TARGET_FRAME_RATE = 0x10CF4125;
+
+    /// <summary>DLSSG dynamic target frame rate sentinel for AUTO ("match max refresh rate").</summary>
+    public const uint DLSSG_DYNAMIC_TARGET_FRAME_RATE_AUTO = 0x01000000;
+}
+
+/// <summary>
+/// DLSSG (DLSS Frame Generation generator) mode. Distinct from the FG override ENABLE flag:
+/// the override flag turns FG on at the driver level; this picks HOW it generates frames.
+/// uint-backed to match the DRS values directly (Enum.IsDefined requires matching underlying type).
+/// Values are from NVIDIA's NvApiDriverSettings.h EValues_NGX_DLSSG_MODE.
+/// </summary>
+public enum DlssgMode : uint
+{
+    /// <summary>NGX_DLSSG_MODE_DISABLED — no DLSSG mode override written (driver/app default).</summary>
+    Disabled = 0,
+
+    /// <summary>NGX_DLSSG_MODE_OFF — explicitly off.</summary>
+    Off = 1,
+
+    /// <summary>NGX_DLSSG_MODE_ON — fixed frame generation (use the fixed multi-frame count).</summary>
+    On = 2,
+
+    /// <summary>NGX_DLSSG_MODE_AUTO — driver decides.</summary>
+    Auto = 3,
+
+    /// <summary>NGX_DLSSG_MODE_DYNAMIC — dynamic frame generation (use the dynamic max count + target FPS).</summary>
+    Dynamic = 4,
 }
 
 /// <summary>
@@ -147,4 +207,56 @@ public static class DlssPresetDisplay
     /// with existing bindings; equal to <see cref="SuperResolutionPresets"/>.
     /// </summary>
     public static readonly DlssPreset[] AllPresets = SuperResolutionPresets;
+
+    // --- DLSSG (Frame Generation generator) mode + multiplier ---
+
+    /// <summary>User-selectable DLSSG modes in display order. Disabled = leave the mode knob untouched.</summary>
+    public static readonly DlssgMode[] FrameGenModes =
+        [DlssgMode.Disabled, DlssgMode.Off, DlssgMode.On, DlssgMode.Auto, DlssgMode.Dynamic];
+
+    /// <summary>Recommended default DLSSG mode (Dynamic — adapts the multiplier to hit the target FPS).</summary>
+    public const DlssgMode FrameGenModeDefault = DlssgMode.Dynamic;
+
+    /// <summary>Human-readable label for a DLSSG mode.</summary>
+    public static string GetModeLabel(DlssgMode mode) => mode switch
+    {
+        DlssgMode.Disabled => "Don't change",
+        DlssgMode.Off => "Off",
+        DlssgMode.On => "Fixed",
+        DlssgMode.Auto => "Auto",
+        DlssgMode.Dynamic => "Dynamic",
+        _ => mode.ToString()
+    };
+
+    /// <summary>
+    /// User-selectable frame multipliers (the "Nx" the NVIDIA App shows). 2x..6x today;
+    /// the underlying field allows more (count up to 15 = 16x) but consumer MFG tops out lower.
+    /// </summary>
+    public static readonly int[] FrameGenMultipliers = [2, 3, 4, 5, 6];
+
+    /// <summary>Recommended default multiplier when a fixed/dynamic-cap value is needed (4x).</summary>
+    public const int FrameGenMultiplierDefault = 4;
+
+    /// <summary>Minimum valid frame multiplier (2x = 1 generated frame).</summary>
+    public const int FrameGenMultiplierMin = 2;
+
+    /// <summary>Maximum frame multiplier the underlying count field allows (count 15 → 16x).</summary>
+    public const int FrameGenMultiplierMax = 16;
+
+    /// <summary>Label for a multiplier dropdown entry ("4x").</summary>
+    public static string GetMultiplierLabel(int multiplier) => $"{multiplier}x";
+
+    /// <summary>
+    /// Converts a user-facing multiplier ("Nx") to the DRS generated-frame COUNT (N-1).
+    /// 2x→1, 3x→2, … 6x→5. Clamped to the valid 1..15 count range.
+    /// </summary>
+    public static uint MultiplierToFrameCount(int multiplier)
+    {
+        if (multiplier < FrameGenMultiplierMin) multiplier = FrameGenMultiplierMin;
+        if (multiplier > FrameGenMultiplierMax) multiplier = FrameGenMultiplierMax;
+        return (uint)(multiplier - 1);
+    }
+
+    /// <summary>Inverse of <see cref="MultiplierToFrameCount"/>: count N → multiplier N+1.</summary>
+    public static int FrameCountToMultiplier(uint count) => (int)count + 1;
 }
