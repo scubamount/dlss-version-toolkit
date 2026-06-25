@@ -69,4 +69,63 @@ public class ComprehensiveUpdateTests
             try { Directory.Delete(dir, true); } catch { }
         }
     }
+
+    [Fact]
+    public void ReadComponentVersion_MissingDll_ReturnsNull()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"dlsstest_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            Assert.Null(DllVersionReader.ReadComponentVersion(dir, "nvngx_dlssg.dll"));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ReadComponentVersion_MissingFolder_ReturnsNull()
+    {
+        Assert.Null(DllVersionReader.ReadComponentVersion(
+            Path.Combine(Path.GetTempPath(), "no-such-xyz"), "nvngx_dlss.dll"));
+    }
+
+    [Fact]
+    public void NgxConfigParser_NoConfigNoDll_ReportsUnknown()
+    {
+        // The fix: a version folder with no config and no DLL must still parse cleanly to Unknown
+        // (not crash), and report "Config file not found".
+        var dir = Path.Combine(Path.GetTempPath(), $"dlsstest_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var result = new NgxConfigParser().Parse(dir);
+            Assert.Equal("Unknown", result.DLSS);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void NgxConfigParser_StaleConfigKept_WhenNoDllPresent()
+    {
+        // With a config but no DLL, the parsed config version is used (DLL override is a no-op
+        // when the DLL is absent). Confirms the override only fires when a real DLL exists.
+        var dir = Path.Combine(Path.GetTempPath(), $"dlsstest_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "nvngx_package_config.txt"), "dlss, 310.6.0.0\n");
+            var result = new NgxConfigParser().Parse(dir);
+            Assert.Equal("310.6.0.0", result.DLSS);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
 }

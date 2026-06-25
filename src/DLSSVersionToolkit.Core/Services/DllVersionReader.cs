@@ -67,6 +67,36 @@ public static class DllVersionReader
         return ReadFileVersion(dll);
     }
 
+    /// <summary>
+    /// Reads the version of a specific NGX component DLL inside a version folder, searching this
+    /// folder and its subfolders (NGX layouts sometimes nest the DLL one level deep). Used by the
+    /// scanner to report the REAL on-disk version from the DLL bytes — the authoritative source —
+    /// rather than a sidecar nvngx_package_config.txt that current SDK zips don't ship and that
+    /// goes stale when DLLs are swapped into an existing (differently-named) version folder.
+    /// </summary>
+    /// <param name="folder">The NGX version folder.</param>
+    /// <param name="dllName">e.g. "nvngx_dlss.dll", "nvngx_dlssg.dll".</param>
+    public static string? ReadComponentVersion(string folder, string dllName)
+    {
+        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+            return null;
+        try
+        {
+            // Direct child first (the common case), then a shallow recursive search.
+            var direct = Path.Combine(folder, dllName);
+            if (File.Exists(direct))
+                return ReadFileVersion(direct);
+
+            var found = Directory.GetFiles(folder, dllName, SearchOption.AllDirectories).FirstOrDefault();
+            return found != null ? ReadFileVersion(found) : null;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"DllVersionReader.ReadComponentVersion failed for {folder}/{dllName}: {ex.Message}");
+            return null;
+        }
+    }
+
     // Some version resources use comma separators ("310,7,0,0"); normalize to dots.
     private static string NormalizeCommaVersion(string v) => v.Replace(',', '.').Trim();
 }
