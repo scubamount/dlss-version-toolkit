@@ -739,7 +739,39 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             }
         }
 
- // Step 1: Download latest DLSS SDK from NVIDIA (skips if already cached)
+ // Step 1a: Download + sync the Streamline SDK FIRST. It is the COMPREHENSIVE source — it
+		// bundles all four NGX DLLs (nvngx_dlss/dlssg/dlssd/deepdvc), whereas the NVIDIA/DLSS
+		// demo zip ships ONLY nvngx_dlss.dll. Syncing Streamline first populates FrameGen / Ray
+		// Reconstruction / DeepDVC; the DLSS demo sync (Step 1b) then lays the latest SR DLL on
+		// top. This is why a DLSS-only Update All never updated Streamline-provided components.
+		// Non-fatal: if Streamline can't be fetched we still proceed with the DLSS SDK.
+		string? streamlineVersion = null;
+		UpgradeOperation? streamlineOp = null;
+		try
+		{
+			DownloadStatus = "Checking for latest Streamline SDK...";
+			var slPath = await _streamlineDownloadService.DownloadLatestAsync(null);
+			if (slPath != null)
+			{
+				streamlineVersion = _streamlineDownloadService.GetCachedSdkVersion();
+				CachedStreamlineVersion = streamlineVersion ?? "";
+				HasCachedStreamline = true;
+				DownloadStatus = $"Applying Streamline SDK v{streamlineVersion} to NGX...";
+				streamlineOp = await _streamlineDownloadService.SyncFromCachedSdkAsync(null);
+				if (streamlineOp != null && streamlineOp.Status == OperationStatus.Failed)
+					Debug.WriteLine($"OneClickUpdateAll: Streamline NGX sync non-fatal failure: {streamlineOp.ErrorMessage}");
+			}
+			else
+			{
+				Debug.WriteLine("OneClickUpdateAll: Streamline download returned null (offline or no asset); skipping.");
+			}
+		}
+		catch (Exception ex)
+		{
+			Debug.WriteLine($"OneClickUpdateAll: Streamline step threw (non-fatal): {ex.Message}");
+		}
+
+ // Step 1b: Download latest DLSS SDK from NVIDIA (skips if already cached)
 		DownloadStatus = "Checking for latest DLSS SDK...";
 		var downloadPath = await _dlssDownloadService.DownloadLatestAsync(null);
 
@@ -839,8 +871,12 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                         : "  (no files needed)";
                     var anWaveFiles = string.Join("\n  • ", anWaveOp.FilesCopied);
                     var appliedVer = anWaveOp.AppliedVersion ?? sdkVersion;
+                    var slLine = !string.IsNullOrEmpty(streamlineVersion)
+                        ? $"✅ Streamline SDK: v{streamlineVersion} synced ({(streamlineOp?.FilesCopied.Count ?? 0)} files)\n"
+                        : "ℹ️ Streamline SDK: not updated (offline or unavailable)\n";
                     MessageBox.Show(
                         $"All done!\n\n" +
+                        slLine +
                         $"✅ NGX Release: {ngxStatus}\n" +
                         $"  {ngxDetail}\n\n" +
                         $"✅ AnWave: v{appliedVer} applied ({anWaveOp.FilesCopied.Count} files)\n" +

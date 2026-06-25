@@ -260,9 +260,24 @@ var targetDllExists = File.Exists(Path.Combine(operation.TargetPath, "nvngx_dlss
 
     private static string? FindDllFolder(string rootDir)
     {
-        // Try DLSS/bin/Win64/ first
-        var dllPath = Path.Combine(rootDir, "DLSS", "bin", "Win64", "nvngx_dlss.dll");
-        if (File.Exists(dllPath)) return Path.Combine(rootDir, "DLSS", "bin", "Win64");
+        // Known layouts, newest first:
+        //   - NVIDIA/DLSS demo zip (v310.7.0): DLSS_Sample_App/bin/ngx_dlss_demo/nvngx_dlss.dll
+        //   - older demo zips:                 DLSS/bin/Win64/nvngx_dlss.dll
+        //   - NVIDIA-RTX/Streamline SDK:        bin/x64/nvngx_dlss.dll (handled by StreamlineDownloadService)
+        // Verified against the actual v310.7.0 artifact — the demo zip ships ONLY nvngx_dlss.dll
+        // (no dlssg/dlssd) under DLSS_Sample_App/bin/ngx_dlss_demo/.
+        var knownRelative = new[]
+        {
+            Path.Combine("DLSS_Sample_App", "bin", "ngx_dlss_demo"),
+            Path.Combine("DLSS", "bin", "Win64"),
+            Path.Combine("bin", "x64"),
+        };
+        foreach (var rel in knownRelative)
+        {
+            var candidate = Path.Combine(rootDir, rel);
+            if (File.Exists(Path.Combine(candidate, "nvngx_dlss.dll")))
+                return candidate;
+        }
 
         // Fall back: find any nvngx_dlss.dll anywhere in the extracted folder
         var found = Directory.GetFiles(rootDir, "nvngx_dlss.dll", SearchOption.AllDirectories).FirstOrDefault();
