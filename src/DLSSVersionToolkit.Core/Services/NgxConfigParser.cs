@@ -45,7 +45,10 @@ public class NgxConfigParser : INgxConfigParser
         string? configPath = FindConfigFile(folderPath);
         if (configPath == null)
         {
-            result.Message = "Config file not found";
+            // No sidecar config (current SDK zips ship none). Fall back to the authoritative
+            // DLL FileVersionInfo so a folder containing only DLLs still reports a real version.
+            OverrideVersionsFromDlls(folderPath, result);
+            result.Message = result.DLSS != "Unknown" ? "Version from DLL (no config)" : "Config file not found";
             return result;
         }
 
@@ -82,7 +85,7 @@ public class NgxConfigParser : INgxConfigParser
                 result.Message = "Config file large, parsing may be slow";
             }
 
-            // Parse each component
+            // Parse each component from the config (legacy/sidecar source).
             result.DLSS = ParseComponent(content, "dlss");
             result.FrameGen = ParseComponent(content, "dlssg");
             result.DLSSD = ParseComponent(content, "dlssd");
@@ -98,7 +101,38 @@ public class NgxConfigParser : INgxConfigParser
             result.Message = $"Read error: {ex.Message}";
         }
 
+        // AUTHORITATIVE OVERRIDE: the actual DLL bytes are the source of truth for the installed
+        // version. The nvngx_package_config.txt goes stale when newer DLLs are copied into an
+        // existing version folder (the SDK zips ship no config to overwrite it with), which made
+        // the scanner keep reporting the OLD version after a successful sync — and "update
+        // available" never cleared. Read each component's version from its DLL's FileVersionInfo
+        // when present; fall back to the parsed config value otherwise.
+        OverrideVersionsFromDlls(folderPath, result);
+
         return result;
+    }
+
+    // Replaces parsed component versions with the real DLL FileVersionInfo when the DLL exists.
+    private static void OverrideVersionsFromDlls(string folderPath, NgxConfigResult result)
+    {
+        try
+        {
+            var dlss = DllVersionReader.ReadComponentVersion(folderPath, "nvngx_dlss.dll");
+            if (!string.IsNullOrEmpty(dlss)) result.DLSS = dlss;
+
+            var dlssg = DllVersionReader.ReadComponentVersion(folderPath, "nvngx_dlssg.dll");
+            if (!string.IsNullOrEmpty(dlssg)) result.FrameGen = dlssg;
+
+            var dlssd = DllVersionReader.ReadComponentVersion(folderPath, "nvngx_dlssd.dll");
+            if (!string.IsNullOrEmpty(dlssd)) result.DLSSD = dlssd;
+
+            var deepdvc = DllVersionReader.ReadComponentVersion(folderPath, "nvngx_deepdvc.dll");
+            if (!string.IsNullOrEmpty(deepdvc)) result.DeepDVC = deepdvc;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"NgxConfigParser.OverrideVersionsFromDlls failed for {folderPath}: {ex.Message}");
+        }
     }
 
     private static string? FindConfigFile(string folderPath)
