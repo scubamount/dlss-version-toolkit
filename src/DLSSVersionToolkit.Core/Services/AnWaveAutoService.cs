@@ -431,7 +431,11 @@ progress?.Report(30);
 
         progress?.Report(20);
 
-        // Find the DLLs in the NGX Release folder
+        // Find the DLLs in the NGX Release folder. latestRelease.Path is the EXACT version
+        // folder (NgxScanner sets Path = the per-version directory), so search only there and
+        // its immediate children — NOT recursively into the whole versions/ tree, which would
+        // let a sibling (older) version's DLL bleed in. That sibling-bleed was a root cause of
+        // AnWave applying 310.6 right after NGX synced 310.7.
         var ngxDll = Directory.GetFiles(latestRelease.Path, "nvngx_dlss.dll", SearchOption.AllDirectories).FirstOrDefault();
         var ngxFolder = ngxDll != null ? Path.GetDirectoryName(ngxDll) : null;
 
@@ -441,13 +445,16 @@ progress?.Report(30);
             return result;
         }
 
-        // Copy DLLs and config to the AnWave folder
-        var dllsToCopy = new[] { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll" };
+        // Copy whichever NGX DLLs actually exist in the source folder. The set varies by source:
+        // the NVIDIA/DLSS demo zip ships ONLY nvngx_dlss.dll, while the Streamline SDK ships all
+        // of dlss/dlssg/dlssd/deepdvc. Copy what's present; never fail because an optional one is
+        // absent. (Verified against v310.7.0 / Streamline v2.12.0 artifacts.)
+        var dllsToCopy = new[] { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll", "nvngx_deepdvc.dll" };
 
 	foreach (var dllName in dllsToCopy)
 	{
-		var srcDll = Directory.GetFiles(ngxFolder, dllName, SearchOption.AllDirectories).FirstOrDefault();
-		if (srcDll != null && File.Exists(srcDll))
+		var srcDll = Path.Combine(ngxFolder, dllName);
+		if (File.Exists(srcDll))
 		{
 			// Pre-copy: verify source DLL has valid PE signature
 			if (!OperationGuard.VerifyDllSignature(srcDll))
@@ -468,20 +475,35 @@ progress?.Report(30);
             }
         }
 
-        // Copy config
-        var srcConfig = Directory.GetFiles(ngxFolder, "nvngx_package_config.txt", SearchOption.AllDirectories).FirstOrDefault();
-        if (srcConfig != null)
+        // Derive the applied version from the DLL we just copied — its FileVersionInfo is the
+        // authoritative source. The SDK zips do NOT ship nvngx_package_config.txt, so the old
+        // config-parse path always missed and fell back to a hardcoded "310.6.0". Read the real
+        // version from nvngx_dlss.dll instead.
+        result.AppliedVersion = DllVersionReader.ReadDlssVersionFromFolder(ngxFolder);
+
+        // Copy the package config too IF the source happens to provide one (older NGX layouts do;
+        // SDK zips do not). Never the version source anymore — purely a passthrough artifact.
+        var srcConfig = Path.Combine(ngxFolder, "nvngx_package_config.txt");
+        if (File.Exists(srcConfig))
         {
             var destConfig = Path.Combine(anWavePath, "nvngx_package_config.txt");
             File.Copy(srcConfig, destConfig, true);
             result.FilesCopied.Add("nvngx_package_config.txt");
 
-            // Read version from config
-            var content = File.ReadAllText(srcConfig);
-            var match = Regex.Match(content, @"dlss,\s+([\d.]+)", RegexOptions.IgnoreCase);
-            if (match.Success)
-                result.AppliedVersion = match.Groups[1].Value;
+            // Last-resort version source only if the DLL had no readable version resource.
+            if (string.IsNullOrEmpty(result.AppliedVersion))
+            {
+                var content = File.ReadAllText(srcConfig);
+                var match = Regex.Match(content, @"dlss,\s+([\d.]+)", RegexOptions.IgnoreCase);
+                if (match.Success)
+                    result.AppliedVersion = match.Groups[1].Value;
+            }
         }
+
+        // Final fallback: the scanned NGX entry's parsed version (from NgxScanner). Still never a
+        // hardcoded literal.
+        if (string.IsNullOrEmpty(result.AppliedVersion) && latestRelease.DLSS != "Unknown")
+            result.AppliedVersion = latestRelease.DLSS;
 
         progress?.Report(70);
 
@@ -525,6 +547,12 @@ progress?.Report(30);
     }
     private string GetDlssVersionString()
     {
+        // Authoritative source: the actual nvngx_dlss.dll in the AnWave install dir.
+        var dllVersion = DllVersionReader.ReadDlssVersionFromFolder(InstallDir);
+        if (!string.IsNullOrEmpty(dllVersion))
+            return dllVersion;
+
+        // Legacy fallback: a package config, if one was ever placed alongside.
         var configPath = Path.Combine(InstallDir, "nvngx_package_config.txt");
         if (File.Exists(configPath))
         {
@@ -539,7 +567,10 @@ progress?.Report(30);
         }
         if (!string.IsNullOrEmpty(_dllVersion))
             return _dllVersion;
-        return "310.6.0";
+
+        // No version discoverable. Return empty rather than a hardcoded literal — a stale
+        // hardcoded "310.6.0" here was the bug that wrote a wrong override after a 310.7 copy.
+        return "";
     }
 
 
@@ -548,6 +579,22 @@ progress?.Report(30);
         try
         {
             var version = versionOverride ?? GetDlssVersionString();
+            // Normalize comma-form version resources ("310,7,0,0") to dotted form.
+            if (!string.IsNullOrEmpty(version))
+                version = version.Replace(',', '.').Trim();
+
+            if (string.IsNullOrEmpty(version))
+            {
+                // No discoverable version — do NOT write a blank/garbage override line (the driver
+                // would point at "" and silently ignore the override). Skip the write and surface
+                // it so the caller can report a partial result instead of a false "applied".
+                System.Diagnostics.Debug.WriteLine(
+                    "WriteNgXConfig: no DLSS version discoverable; skipping override config write.");
+                throw new InvalidOperationException(
+                    "Could not determine the DLSS version to activate. The DLLs were copied but the " +
+                    "override was not written. Re-run Update All, or use 'Sync NGX from DLSS'.");
+            }
+
             var ngxDir = Path.GetDirectoryName(ConfigFilePath);
             if (ngxDir != null && !Directory.Exists(ngxDir))
                 Directory.CreateDirectory(ngxDir);
