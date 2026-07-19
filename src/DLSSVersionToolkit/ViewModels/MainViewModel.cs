@@ -95,6 +95,13 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     [ObservableProperty]
     private bool _hasCachedStreamline;
 
+    // Streamline SDK version shown in the hero strip (v0.0.38). NGX version folders contain
+    // only nvngx_*.dll — never sl.common.dll — so a per-NGX-row Streamline version cannot
+    // exist; this surfaces the best available signal instead: the scanned Streamline SDK
+    // entry (sl.common.dll FileVersionInfo) or, failing that, the cached SDK download version.
+    [ObservableProperty]
+    private string _streamlineVersion = "—";
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DlssIndicatorStatus))]
     private bool _isDlssIndicatorEnabled;
@@ -225,6 +232,14 @@ IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
         try
         {
             var settings = await _settingsService.LoadAsync();
+
+            // Restore the persisted preset selections (v0.0.38). These are scalar properties,
+            // so setting them from this background task is safe (WPF marshals scalar INPC).
+            // Precedence: driver truth (DetectCurrentPresetSafeAsync, when it succeeds) >
+            // saved selection (here) > recommended default (LoadPresetDefaults). Detection
+            // runs concurrently and overwrites SelectedPreset only on SUCCESS, so a failed
+            // or unavailable NvAPI probe no longer resets the user's choice to L on launch.
+            RestorePresetSelections(settings);
 
             if (!settings.HasSeenQuickGuide)
                 IsQuickGuideVisible = true;
@@ -432,6 +447,52 @@ private PresetApplyOptions BuildPresetOptions() => new()
 	FrameGenerationDynamicTargetFps = null,
 };
 
+/// <summary>
+/// Restores saved preset selections from settings (v0.0.38). Unknown/empty stored values
+/// leave the recommended defaults from LoadPresetDefaults() untouched.
+/// </summary>
+private void RestorePresetSelections(AppSettings settings)
+{
+	try
+	{
+		if (PresetSelectionPersistence.ParsePreset(settings.SelectedSrPreset) is { } sr)
+			SelectedPreset = sr;
+		if (PresetSelectionPersistence.ParsePreset(settings.SelectedRrPreset) is { } rr)
+			SelectedRrPreset = rr;
+		if (PresetSelectionPersistence.ParsePreset(settings.SelectedFgPreset) is { } fg)
+			SelectedFgPreset = fg;
+		if (PresetSelectionPersistence.ParseMode(settings.SelectedFgMode) is { } mode)
+			SelectedFgMode = mode;
+		if (PresetSelectionPersistence.ParseMultiplier(settings.SelectedFgMultiplier) is { } mult)
+			SelectedFgMultiplier = mult;
+	}
+	catch (Exception ex)
+	{
+		Debug.WriteLine($"RestorePresetSelections failed (non-fatal, keeping defaults): {ex.Message}");
+	}
+}
+
+/// <summary>
+/// Persists the current preset selections (v0.0.38). Called after a successful Apply — the
+/// durable point of user intent — rather than on every dropdown click, so transient browsing
+/// through the list never overwrites the last applied choice. Non-fatal on failure.
+/// </summary>
+private async Task SavePresetSelectionsAsync()
+{
+	try
+	{
+		var settings = await _settingsService.LoadAsync();
+		PresetSelectionPersistence.ApplyTo(settings,
+			SelectedPreset, SelectedRrPreset, SelectedFgPreset,
+			SelectedFgMode, SelectedFgMultiplier);
+		await _settingsService.SaveAsync(settings);
+	}
+	catch (Exception ex)
+	{
+		Debug.WriteLine($"SavePresetSelections failed (non-fatal): {ex.Message}");
+	}
+}
+
 [RelayCommand]
 private async Task ApplyPresetAsync()
 {
@@ -452,6 +513,10 @@ private async Task ApplyPresetAsync()
 		if (presetResult.Success)
 		{
 			CurrentPresetStatus = $"Current: {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}";
+
+			// Persist the applied selections so they survive an app restart (v0.0.38 —
+			// fixes "preset resets to L on relaunch").
+			await SavePresetSelectionsAsync();
 			MessageBox.Show(
 				$"DLSS Override Preset set to {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}.\n\n" +
 				$"Applied to {presetResult.ProfilesUpdated} driver profile(s), including " +
@@ -729,7 +794,12 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(presetToApply)} to all games...";
                 var pr = await _presetOverrideService.ApplyPresetAsync(presetToApply, BuildPresetOptions());
                 if (pr.Success)
+                {
                     Debug.WriteLine($"OneClickUpdateAll: preset applied to {pr.GameProfilesUpdated} game profile(s)");
+                    // Persist the applied selections (v0.0.38) — Update All is the main apply
+                    // path for most users, so it must save too, not just the Apply button.
+                    await SavePresetSelectionsAsync();
+                }
                 else
                     Debug.WriteLine($"OneClickUpdateAll: preset apply non-fatal failure: {pr.ErrorMessage}");
             }
@@ -1026,6 +1096,15 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             {
                 CurrentDlssVersion = "Not installed";
             }
+
+            // Streamline version for the hero strip (v0.0.38). Best signal wins: the scanned
+            // Streamline SDK entry (real sl.common.dll on disk) → cached SDK download version.
+            var slEntry = result.Sources.FirstOrDefault(s => s.Source == "StreamlineSDK");
+            StreamlineVersion =
+                slEntry != null && slEntry.Streamline != "Unknown" ? slEntry.Streamline
+                : !string.IsNullOrEmpty(CachedStreamlineVersion) ? $"{CachedStreamlineVersion} (cached)"
+                : _streamlineDownloadService.GetCachedSdkVersion() is { Length: > 0 } cachedSl ? $"{cachedSl} (cached)"
+                : "—";
 
             // Show dialog once when NGX versions were not found at any checked path
             var hasNgxSources = result.Sources.Any(s => s.Source?.StartsWith("NGX_") == true);

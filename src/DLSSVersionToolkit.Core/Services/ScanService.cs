@@ -49,29 +49,10 @@ public class ScanService : IScanService
 	if (!string.IsNullOrEmpty(slPath) && !Directory.Exists(slPath))
 		slPath = null;
 
-        // Collect all NGX base paths to scan
-        var ngxCandidates = new List<string>();
-
-        // 1. Explicitly configured path (settings or parameter)
-        if (!string.IsNullOrEmpty(explicitNgxPath))
-            ngxCandidates.Add(explicitNgxPath);
-
-        // 2. Default known paths
-        var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-
-        if (!string.IsNullOrEmpty(programData))
-        {
-            var programDataPath = Path.Combine(programData, "NVIDIA", "NGX");
-            if (!ngxCandidates.Contains(programDataPath, StringComparer.OrdinalIgnoreCase))
-                ngxCandidates.Add(programDataPath);
-        }
-        if (!string.IsNullOrEmpty(appData))
-        {
-            var appDataPath = Path.Combine(appData, "NVIDIA", "NGX");
-            if (!ngxCandidates.Contains(appDataPath, StringComparer.OrdinalIgnoreCase))
-                ngxCandidates.Add(appDataPath);
-        }
+        // Collect all NGX base paths to scan: explicit (settings/param) → driver registry
+        // (HKLM\SOFTWARE\NVIDIA Corporation\Global\NGXCore|NGX) → default filesystem paths.
+        // Centralized in NgxPathResolver (v0.0.38) so scan/sync/AnWave probe identically.
+        var ngxCandidates = NgxPathResolver.GetCandidatePaths(explicitNgxPath);
 
         result.NgxPathsChecked = ngxCandidates;
 
@@ -91,7 +72,10 @@ public class ScanService : IScanService
             result.Warnings.Add("No NGX versions found at any known path");
         }
 
-	// Auto-detect AnWave path if not configured
+	// Auto-detect AnWave path if not configured (v0.0.38: probe chain instead of a single
+	// hardcoded dir). Order: toolkit's own install dir → user's Downloads folder (manual
+	// AnWave/nvidiaDlssGlom unpack). FindAnWaveInDownloads existed since the AnWave feature
+	// landed but was never wired into the chain — dead code until now.
 	if (string.IsNullOrEmpty(globalPath))
 	{
 		var anWaveAppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -101,6 +85,9 @@ public class ScanService : IScanService
 			if (Directory.Exists(defaultAnWave))
 				globalPath = defaultAnWave;
 		}
+
+		if (string.IsNullOrEmpty(globalPath))
+			globalPath = FindAnWaveInDownloads();
 	}
 
 	// Scan AnWave

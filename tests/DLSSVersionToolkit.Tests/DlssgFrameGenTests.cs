@@ -92,10 +92,11 @@ public class DlssgFrameGenTests
     }
 
     [Fact]
-    public void Defaults_AreDynamic4xMatchRefresh()
+    public void Defaults_AreDynamic6xMatchRefresh()
     {
         Assert.Equal(DlssgMode.Dynamic, DlssPresetDisplay.FrameGenModeDefault);
-        Assert.Equal(4, DlssPresetDisplay.FrameGenMultiplierDefault);
+        // v0.0.38: default multiplier raised 4x -> 6x to match the NVIDIA App default.
+        Assert.Equal(6, DlssPresetDisplay.FrameGenMultiplierDefault);
     }
 
     [Fact]
