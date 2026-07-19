@@ -234,8 +234,11 @@ public static class DlssPresetDisplay
     /// </summary>
     public static readonly int[] FrameGenMultipliers = [2, 3, 4, 5, 6];
 
-    /// <summary>Recommended default multiplier when a fixed/dynamic-cap value is needed (4x).</summary>
-    public const int FrameGenMultiplierDefault = 4;
+    /// <summary>
+    /// Recommended default multiplier when a fixed/dynamic-cap value is needed (6x — matches the
+    /// NVIDIA App's "Dynamic, up to 6x, at max refresh rate" default; was 4x before v0.0.38).
+    /// </summary>
+    public const int FrameGenMultiplierDefault = 6;
 
     /// <summary>Minimum valid frame multiplier (2x = 1 generated frame).</summary>
     public const int FrameGenMultiplierMin = 2;

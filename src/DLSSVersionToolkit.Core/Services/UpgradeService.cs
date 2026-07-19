@@ -232,30 +232,8 @@ var targetDllExists = File.Exists(Path.Combine(operation.TargetPath, "nvngx_dlss
 
     private static List<string> GetNgxCandidatePaths(string? ngxBasePath)
     {
-        var candidates = new List<string>();
-
-        // 1. Explicitly configured path (settings or parameter)
-        if (!string.IsNullOrEmpty(ngxBasePath))
-            candidates.Add(ngxBasePath);
-
-        // 2. Default known paths, matching ScanService.ScanAllAsync behavior
-        var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        if (!string.IsNullOrEmpty(programData))
-        {
-            var programDataPath = Path.Combine(programData, "NVIDIA", "NGX");
-            if (!candidates.Contains(programDataPath, StringComparer.OrdinalIgnoreCase))
-                candidates.Add(programDataPath);
-        }
-
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        if (!string.IsNullOrEmpty(appData))
-        {
-            var appDataPath = Path.Combine(appData, "NVIDIA", "NGX");
-            if (!candidates.Contains(appDataPath, StringComparer.OrdinalIgnoreCase))
-                candidates.Add(appDataPath);
-        }
-
-        return candidates;
+        // Delegates to the shared resolver (v0.0.38): explicit → driver registry → defaults.
+        return NgxPathResolver.GetCandidatePaths(ngxBasePath);
     }
 
     private static string? FindDllFolder(string rootDir)

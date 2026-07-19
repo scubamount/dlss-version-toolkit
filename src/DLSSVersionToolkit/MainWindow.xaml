@@ -334,6 +334,16 @@
                                 <TextBlock Text="{Binding AvailableDlssVersion, FallbackValue='—'}" FontFamily="Consolas"
                                            FontSize="20" FontWeight="Bold" Foreground="{StaticResource Text1Brush}" Margin="0,3,0,0"/>
                             </StackPanel>
+                            <!-- Streamline SDK version (v0.0.38). Sits in the flexible column so the
+                                 status pill stays pinned right. NGX folders can't carry a Streamline
+                                 version (no sl.common.dll there) — this shows the scanned SDK or the
+                                 cached download instead of the old always-N/A grid column. -->
+                            <StackPanel Grid.Column="4" Margin="24,0,0,0" HorizontalAlignment="Left"
+                                        ToolTip="Streamline SDK version detected on this machine (scanned SDK folder, or the toolkit's cached download). Streamline ships the full NGX DLL set that Update All syncs.">
+                                <TextBlock Text="STREAMLINE SDK" Style="{StaticResource HeroKey}"/>
+                                <TextBlock Text="{Binding StreamlineVersion, FallbackValue='—'}" FontFamily="Consolas"
+                                           FontSize="20" FontWeight="Bold" Foreground="{StaticResource Text1Brush}" Margin="0,3,0,0"/>
+                            </StackPanel>
                             <!-- status pill -->
                             <Border Grid.Column="5" VerticalAlignment="Center" CornerRadius="2" Padding="10,4"
                                     BorderThickness="1" BorderBrush="{StaticResource NvidiaGreenBrush}">
