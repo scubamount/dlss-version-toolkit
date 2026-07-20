@@ -487,9 +487,7 @@ var targetDllExists = File.Exists(Path.Combine(operation.TargetPath, "nvngx_dlss
 	operation.BackupPath = backupPath;
         try
         {
-            var binPath = operation.SourceType == "StreamlineSDK"
-                ? Path.Combine(operation.SourcePath, "bin", "x64")
-                : operation.SourcePath;
+            var binPath = ResolveBinPath(operation.SourcePath);
 
 			foreach (var dll in NgxDllNames)
 			{
@@ -562,11 +560,23 @@ return false;
         return true;
     }
 
+    /// <summary>
+    /// Resolves the folder that actually contains nvngx_dlss.dll. Accepts either the SDK
+    /// root or the bin\x64 folder itself (v0.0.41: callers pass bin\x64 directly, and the
+    /// old unconditional Path.Combine(sourcePath, "bin", "x64") for StreamlineSDK produced
+    /// ...\bin\x64\bin\x64 — so every Streamline sync failed silently with "Required DLLs
+    /// not found" and dlssg/dlssd/deepdvc were never updated).
+    /// </summary>
+    internal static string ResolveBinPath(string sourcePath)
+    {
+        if (File.Exists(Path.Combine(sourcePath, "nvngx_dlss.dll"))) return sourcePath;
+        var sub = Path.Combine(sourcePath, "bin", "x64");
+        return File.Exists(Path.Combine(sub, "nvngx_dlss.dll")) ? sub : sourcePath;
+    }
+
     private static DLSSVersionEntry? ReadSourceVersions(string sourcePath, string sourceType)
     {
-        var binPath = sourceType == "StreamlineSDK"
-            ? Path.Combine(sourcePath, "bin", "x64")
-            : sourcePath;
+        var binPath = ResolveBinPath(sourcePath);
 
         var mainDll = Path.Combine(binPath, "nvngx_dlss.dll");
         if (!File.Exists(mainDll))

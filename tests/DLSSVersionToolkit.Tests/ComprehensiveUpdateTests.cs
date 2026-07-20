@@ -342,4 +342,31 @@ public class StreamlineVersionTests
         Assert.Null(StreamlineDownloadService.ParseVersionFromZipName("streamline-sdk-.zip"));
         Assert.Null(StreamlineDownloadService.ParseVersionFromZipName("streamline-sdk-2.12.0.txt"));
     }
+
+    /// <summary>
+    /// v0.0.41 root-cause guard: StreamlineSDK callers pass the bin\x64 folder itself; the
+    /// old code appended bin\x64 unconditionally → ...\bin\x64\bin\x64 → every Streamline
+    /// sync silently failed and dlssg/dlssd/deepdvc never updated.
+    /// </summary>
+    [Fact]
+    public void ResolveBinPath_AcceptsRootOrBinX64_NoDoubling()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"slt_{Guid.NewGuid():N}");
+        var binX64 = Path.Combine(root, "bin", "x64");
+        Directory.CreateDirectory(binX64);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(binX64, "nvngx_dlss.dll"), new byte[] { 1 });
+
+            // DLL folder passed directly (the real Streamline call path) — no doubling.
+            Assert.Equal(binX64, UpgradeService.ResolveBinPath(binX64));
+            // SDK root passed — descends into bin\x64.
+            Assert.Equal(binX64, UpgradeService.ResolveBinPath(root));
+            // Folder with no DLL anywhere — returned as-is (caller's File.Exists check fails it).
+            var empty = Path.Combine(root, "empty");
+            Directory.CreateDirectory(empty);
+            Assert.Equal(empty, UpgradeService.ResolveBinPath(empty));
+        }
+        finally { try { Directory.Delete(root, true); } catch { } }
+    }
 }
