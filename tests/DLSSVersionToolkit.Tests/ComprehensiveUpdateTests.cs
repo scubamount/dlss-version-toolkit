@@ -250,3 +250,78 @@ public class PresetPersistenceAndPathsTests
         Assert.Null(ex);
     }
 }
+
+/// <summary>
+/// Tests for the v0.0.39 profile-index cache (fast Apply/Update All). The index stores the
+/// game-profile names + the driver version it was built against; a driver change silently
+/// invalidates it so the next apply falls back to a full scan and rebuilds.
+/// </summary>
+public class ProfileIndexTests
+{
+    private static string TempIndexPath() =>
+        Path.Combine(Path.GetTempPath(), $"dlsstest_index_{Guid.NewGuid():N}.json");
+
+    [Fact]
+    public void Index_RoundTrips_WhenDriverVersionMatches()
+    {
+        var path = TempIndexPath();
+        try
+        {
+            ProfileIndexStore.Save(new ProfileIndex
+            {
+                DriverVersion = "572.16",
+                IndexedAt = DateTime.UtcNow,
+                GameProfileNames = new List<string> { "Cyberpunk 2077", "Alan Wake 2" }
+            }, path);
+
+            var loaded = ProfileIndexStore.LoadValid("572.16", path);
+            Assert.NotNull(loaded);
+            Assert.Equal(2, loaded!.GameProfileNames.Count);
+            Assert.Contains("Cyberpunk 2077", loaded.GameProfileNames);
+        }
+        finally { try { File.Delete(path); } catch { } }
+    }
+
+    [Fact]
+    public void Index_Invalidated_OnDriverVersionMismatch()
+    {
+        var path = TempIndexPath();
+        try
+        {
+            ProfileIndexStore.Save(new ProfileIndex
+            {
+                DriverVersion = "572.16",
+                GameProfileNames = new List<string> { "Cyberpunk 2077" }
+            }, path);
+
+            // Driver upgraded — index must be treated as absent, forcing a full rescan.
+            Assert.Null(ProfileIndexStore.LoadValid("580.01", path));
+        }
+        finally { try { File.Delete(path); } catch { } }
+    }
+
+    [Fact]
+    public void Index_MissingCorruptOrEmpty_ReturnsNull()
+    {
+        // Missing file.
+        Assert.Null(ProfileIndexStore.LoadValid("572.16", TempIndexPath()));
+
+        // Corrupt JSON.
+        var corrupt = TempIndexPath();
+        try
+        {
+            File.WriteAllText(corrupt, "{not json!");
+            Assert.Null(ProfileIndexStore.LoadValid("572.16", corrupt));
+        }
+        finally { try { File.Delete(corrupt); } catch { } }
+
+        // Empty name list — useless index, treat as absent.
+        var empty = TempIndexPath();
+        try
+        {
+            ProfileIndexStore.Save(new ProfileIndex { DriverVersion = "572.16" }, empty);
+            Assert.Null(ProfileIndexStore.LoadValid("572.16", empty));
+        }
+        finally { try { File.Delete(empty); } catch { } }
+    }
+}

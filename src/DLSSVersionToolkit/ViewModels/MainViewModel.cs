@@ -89,6 +89,17 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     [ObservableProperty]
     private bool _isApplyingPreset;
 
+    // Determinate apply progress (v0.0.39). Value 0-100; indeterminate only until the first
+    // progress report arrives (profile total unknown before enumeration).
+    [ObservableProperty]
+    private int _applyProgressValue;
+
+    [ObservableProperty]
+    private bool _applyProgressIndeterminate = true;
+
+    [ObservableProperty]
+    private bool _isIndexingProfiles;
+
     [ObservableProperty]
     private string _cachedStreamlineVersion = "";
 
@@ -493,12 +504,28 @@ private async Task SavePresetSelectionsAsync()
 	}
 }
 
+/// <summary>
+/// Stops all Update All progress indicators (v0.0.39). MUST be called immediately before any
+/// terminal MessageBox inside OneClickUpdateAllAsync: the dialogs are modal, so the finally
+/// block that clears these flags doesn't run until the user dismisses the popup — the bar
+/// kept animating behind "All done!", hiding when the work actually finished.
+/// </summary>
+private void EndUpdateAllProgress()
+{
+	IsUpdatingAll = false;
+	ScanStatus = "Ready";
+	DownloadStatus = "";
+}
+
 [RelayCommand]
 private async Task ApplyPresetAsync()
 {
 	if (SelectedPreset == null) return;
 
 	IsApplyingPreset = true;
+	ApplyProgressValue = 0;
+	ApplyProgressIndeterminate = true;
+	PresetOverrideResult? presetResult = null;
 	try
 	{
 		// Step 0: Apply whitelist to bypass NVIDIA override blocking
@@ -506,10 +533,9 @@ private async Task ApplyPresetAsync()
 		await ApplyWhitelistInternalAsync(restartServices: true, showRestartWarning: true);
 
 		// Step 1: Apply the selected DLSS preset via NVIDIA driver settings.
-		// This iterates every game profile, so it can take several seconds — the
-		// status-bar progress indicator (bound to IsApplyingPreset) covers the wait.
 		DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(SelectedPreset.Value)} to all game profiles...";
-		var presetResult = await _presetOverrideService.ApplyPresetAsync(SelectedPreset.Value, BuildPresetOptions());
+		presetResult = await _presetOverrideService.ApplyPresetAsync(
+			SelectedPreset.Value, BuildPresetOptions(), MakeApplyProgress());
 		if (presetResult.Success)
 		{
 			CurrentPresetStatus = $"Current: {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}";
@@ -517,32 +543,7 @@ private async Task ApplyPresetAsync()
 			// Persist the applied selections so they survive an app restart (v0.0.38 —
 			// fixes "preset resets to L on relaunch").
 			await SavePresetSelectionsAsync();
-			MessageBox.Show(
-				$"DLSS Override Preset set to {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}.\n\n" +
-				$"Applied to {presetResult.ProfilesUpdated} driver profile(s), including " +
-				$"{presetResult.GameProfilesUpdated} game profile(s).\n\n" +
-				"For every affected game the DLSS Super Resolution override was ENABLED " +
-				"(\"Custom\") and the render preset set, plus the Ray Reconstruction and " +
-				"Frame Generation DLL overrides enabled. This sets each game directly rather " +
-				"than relying on the global default, which is what makes the preset actually " +
-				"take effect in-game.\n\n" +
-				"Fully restart the game; the on-screen DLSS indicator (bottom-left) should then " +
-				"show the new preset and DLL version.",
-				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
 		}
-		else
-		{
-			var errMsg = presetResult.PermissionIssue
-				? "Admin privileges required. Run as administrator."
-				: presetResult.ErrorMessage ?? "Unknown error";
-			MessageBox.Show(
-				$"Failed to apply DLSS Preset {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}.\n\n" +
-				$"Error: {errMsg}\n\n" +
-				"What to do: Ensure NVIDIA drivers are installed and try running as Administrator.",
-				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-		}
-
-		await ScanAsync();
 	}
 	catch (Exception ex)
 	{
@@ -550,7 +551,106 @@ private async Task ApplyPresetAsync()
 	}
 	finally
 	{
+		// Stop the progress indicator BEFORE any dialog (v0.0.39). Previously the success
+		// MessageBox fired inside the try block with IsApplyingPreset still true, so the
+		// indeterminate bar kept animating behind the "done" popup — the user couldn't
+		// tell when the work actually finished.
 		IsApplyingPreset = false;
+		DownloadStatus = "";
+	}
+
+	if (presetResult == null) return;
+
+	if (presetResult.Success)
+	{
+		MessageBox.Show(
+			$"DLSS Override Preset set to {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}.\n\n" +
+			$"Applied to {presetResult.ProfilesUpdated} driver profile(s), including " +
+			$"{presetResult.GameProfilesUpdated} game profile(s), in {presetResult.ElapsedMs / 1000.0:F1}s" +
+			(presetResult.UsedIndex ? " (fast path — profile index)" : " (full scan — index rebuilt for next time)") + ".\n\n" +
+			"For every affected game the DLSS Super Resolution override was ENABLED " +
+			"(\"Custom\") and the render preset set, plus the Ray Reconstruction and " +
+			"Frame Generation DLL overrides enabled.\n\n" +
+			"Fully restart the game; the on-screen DLSS indicator (bottom-left) should then " +
+			"show the new preset and DLL version.",
+			"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+	}
+	else
+	{
+		var errMsg = presetResult.PermissionIssue
+			? "Admin privileges required. Run as administrator."
+			: presetResult.ErrorMessage ?? "Unknown error";
+		MessageBox.Show(
+			$"Failed to apply DLSS Preset {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}.\n\n" +
+			$"Error: {errMsg}\n\n" +
+			"What to do: Ensure NVIDIA drivers are installed and try running as Administrator.",
+			"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+	}
+
+	await ScanAsync();
+}
+
+/// <summary>
+/// Progress adapter for ApplyPresetAsync (v0.0.39): first report switches the bar from
+/// indeterminate to determinate; subsequent reports map (done,total) onto 0-100.
+/// </summary>
+private Progress<(int Done, int Total)> MakeApplyProgress() => new(p =>
+{
+	if (p.Total <= 0) return;
+	ApplyProgressIndeterminate = false;
+	ApplyProgressValue = (int)(p.Done * 100L / p.Total);
+	DownloadStatus = $"Applying to game profiles... {p.Done}/{p.Total}";
+});
+
+/// <summary>
+/// Manual "Index Game Profiles" action (v0.0.39). Scans the ~8000 driver profiles once and
+/// persists the game set, so Apply/Update All take the fast path. Auto-invalidated on
+/// driver change; also rebuilt automatically whenever an apply runs the full scan — this
+/// button exists for users who want to pay the scan cost up front.
+/// </summary>
+[RelayCommand]
+private async Task IndexProfilesAsync()
+{
+	if (IsIndexingProfiles || IsApplyingPreset || IsUpdatingAll) return;
+
+	var confirm = MessageBox.Show(
+		"Index game profiles now?\n\n" +
+		"This scans all NVIDIA driver profiles once (a few seconds) and remembers which ones " +
+		"belong to installed games. Future 'Apply to all games' and 'Update All' runs will use " +
+		"this index and be significantly faster.\n\n" +
+		"The index refreshes automatically when your NVIDIA driver changes.",
+		"DLSS Version Toolkit", MessageBoxButton.YesNo, MessageBoxImage.Question);
+	if (confirm != MessageBoxResult.Yes) return;
+
+	IsIndexingProfiles = true;
+	DownloadStatus = "Indexing game profiles...";
+	try
+	{
+		var result = await _presetOverrideService.RebuildProfileIndexAsync();
+		DownloadStatus = "";
+		if (result.Success)
+		{
+			MessageBox.Show(
+				$"Indexed {result.GameProfilesUpdated} game profile(s) in {result.ElapsedMs / 1000.0:F1}s.\n\n" +
+				"Apply to all games and Update All will now use the fast path.",
+				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+		}
+		else
+		{
+			MessageBox.Show(
+				$"Indexing failed: {result.ErrorMessage}\n\n" +
+				"Applies will keep working — they just use the full scan.",
+				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+		}
+	}
+	catch (Exception ex)
+	{
+		MessageBox.Show($"Indexing failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+	}
+	finally
+	{
+		IsIndexingProfiles = false;
+		DownloadStatus = "";
 	}
 }
 
@@ -792,10 +892,10 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             try
             {
                 DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(presetToApply)} to all games...";
-                var pr = await _presetOverrideService.ApplyPresetAsync(presetToApply, BuildPresetOptions());
+                var pr = await _presetOverrideService.ApplyPresetAsync(presetToApply, BuildPresetOptions(), MakeApplyProgress());
                 if (pr.Success)
                 {
-                    Debug.WriteLine($"OneClickUpdateAll: preset applied to {pr.GameProfilesUpdated} game profile(s)");
+                    Debug.WriteLine($"OneClickUpdateAll: preset applied to {pr.GameProfilesUpdated} game profile(s) in {pr.ElapsedMs}ms (index={pr.UsedIndex})");
                     // Persist the applied selections (v0.0.38) — Update All is the main apply
                     // path for most users, so it must save too, not just the Apply button.
                     await SavePresetSelectionsAsync();
@@ -923,6 +1023,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     var ngxFiles = ngxOp.FilesCopied.Count > 0
                         ? string.Join("\n  • ", ngxOp.FilesCopied)
                         : "  (no files needed copying)";
+                    EndUpdateAllProgress();
                     MessageBox.Show(
                         $"Partial update — NGX succeeded but AnWave failed.\n\n" +
                         $"✅ NGX Release: v{sdkVersion} applied ({ngxOp.FilesCopied.Count} files)\n" +
@@ -944,6 +1045,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     var slLine = !string.IsNullOrEmpty(streamlineVersion)
                         ? $"✅ Streamline SDK: v{streamlineVersion} synced ({(streamlineOp?.FilesCopied.Count ?? 0)} files)\n"
                         : "ℹ️ Streamline SDK: not updated (offline or unavailable)\n";
+                    EndUpdateAllProgress();
                     MessageBox.Show(
                         $"All done!\n\n" +
                         slLine +
@@ -1008,6 +1110,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
 				if (!anWaveOp.Success)
 				{
+					EndUpdateAllProgress();
 					MessageBox.Show(
 						$"Partial update — NGX succeeded but AnWave apply failed after setup.\n\n" +
 						$"✅ NGX Release: {ngxStatus}\n" +
@@ -1020,6 +1123,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 				{
 					var anWaveFiles = string.Join("\n • ", anWaveOp.FilesCopied);
 					var appliedVer = anWaveOp.AppliedVersion ?? sdkVersion;
+					EndUpdateAllProgress();
 					MessageBox.Show(
 						$"All done!\n\n" +
 						$"✅ NGX Release: {ngxStatus}\n" +
@@ -1039,6 +1143,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 				var versionStatus = ngxOp.FilesCopied.Count > 0
 					? $"NGX Release updated to v{sdkVersion}."
 					: $"NGX Release already at v{sdkVersion}.";
+				EndUpdateAllProgress();
 				MessageBox.Show(
 					$"{versionStatus}\n\n" +
 					$"Files copied ({ngxOp.FilesCopied.Count}):\n" +
