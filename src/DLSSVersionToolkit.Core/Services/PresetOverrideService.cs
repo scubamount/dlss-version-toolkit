@@ -22,7 +22,12 @@ public sealed record PresetOverrideResult(
     string? ErrorMessage,
     bool PermissionIssue = false,
     int ProfilesUpdated = 0,
-    int GameProfilesUpdated = 0);
+    int GameProfilesUpdated = 0,
+    long ElapsedMs = 0,
+    long EnumerateMs = 0,
+    long WriteMs = 0,
+    long SaveMs = 0,
+    bool UsedIndex = false);
 
 /// <summary>
 /// Options controlling which DLSS feature overrides are enabled when applying a preset.
@@ -96,9 +101,15 @@ public interface IPresetOverrideService
     /// <summary>
     /// Applies a DLSS preset override across the global profile and (by default) every
     /// game profile, enabling the SR override ("Custom") plus optionally RR and FG
-    /// overrides. Requires admin privileges.
+    /// overrides. Requires admin privileges. Reports (done, total) game-profile progress.
     /// </summary>
-    Task<PresetOverrideResult> ApplyPresetAsync(DlssPreset preset, PresetApplyOptions? options = null, CancellationToken ct = default);
+    Task<PresetOverrideResult> ApplyPresetAsync(DlssPreset preset, PresetApplyOptions? options = null, IProgress<(int Done, int Total)>? progress = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Rebuilds the persisted game-profile index (full driver-profile scan) without writing
+    /// any settings. GameProfilesUpdated carries the indexed count.
+    /// </summary>
+    Task<PresetOverrideResult> RebuildProfileIndexAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Checks whether the NVIDIA DRS API is available (i.e., NVIDIA drivers are installed).
@@ -169,11 +180,14 @@ public sealed class PresetOverrideService : IPresetOverrideService
         }, ct);
     }
 
-    public async Task<PresetOverrideResult> ApplyPresetAsync(DlssPreset preset, PresetApplyOptions? options = null, CancellationToken ct = default)
+    public async Task<PresetOverrideResult> ApplyPresetAsync(DlssPreset preset, PresetApplyOptions? options = null, IProgress<(int Done, int Total)>? progress = null, CancellationToken ct = default)
     {
         options ??= new PresetApplyOptions();
         return await Task.Run(() =>
         {
+            var total = Stopwatch.StartNew();
+            var enumerateMs = 0L;
+            var writeMs = 0L;
             try
             {
                 EnsureInitialized();
@@ -183,63 +197,120 @@ public sealed class PresetOverrideService : IPresetOverrideService
                 bool enable = preset != DlssPreset.Default;
                 int profilesUpdated = 0;
                 int gameProfilesUpdated = 0;
+                bool usedIndex = false;
 
                 // 1) Base profile = the global default inherited by profiles that don't
                 //    override these settings themselves.
+                var sw = Stopwatch.StartNew();
                 var baseProfile = session.BaseProfile;
                 if (baseProfile is not null)
                 {
                     ApplyToProfile(baseProfile, presetValue, enable, options);
                     profilesUpdated++;
                 }
+                writeMs += sw.ElapsedMilliseconds;
 
-                // 2) Every game profile that actually exists on THIS system. This is the key
-                //    fix: games with their own DRS profile do NOT inherit the base setting, so
-                //    the preset only takes effect in-game when we set it on each game's profile.
+                // 2) Game profiles. Two paths (v0.0.39):
                 //
-                //    PERF (root-cause): NvAPIWrapper's DriverSettingsProfile re-fetches the full
-                //    NVDRS_PROFILE struct via NvAPI_DRS_GetProfileInfo on EVERY property access
-                //    (NumberOfApplications, IsPredefined, Name all call GetProfileInfo with no
-                //    caching). NVIDIA ships ~8000 predefined profiles, so reading a property per
-                //    profile = ~8000 P/Invokes + struct marshals, most for games the user doesn't
-                //    own. We minimise this two ways:
-                //      (a) materialise the profile list once (EnumProfiles is a single call);
-                //      (b) read NumberOfApplications EXACTLY ONCE per profile into a local — never
-                //          touch a second GetProfileInfo-backed property in the loop.
-                //    A profile with 0 applications affects no game on this machine, so writing to
-                //    it is pointless (and for NVIDIA's predefined DB entries, actively wrong — it
-                //    would override NVIDIA's per-game tuning for games not installed here).
+                //    FAST PATH — a valid persisted index exists (see ProfileIndexStore).
+                //    The index is the set of profile names with applications installed, i.e.
+                //    exactly the shadow set: since v0.0.35 we write the override IDs to every
+                //    such profile, so they no longer inherit from base and MUST be written
+                //    directly. FindProfileByName per cached name skips the ~8000-profile
+                //    GetProfileInfo filter scan that dominated apply time.
+                //
+                //    SLOW PATH — no/stale index. Full scan (pre-v0.0.39 behavior), and the
+                //    surviving names are captured to (re)build the index as a side effect,
+                //    so the slow path is paid at most once per driver version.
                 if (options.ApplyToAllGameProfiles)
                 {
-                    foreach (var profile in session.Profiles)
+                    var driverVersion = GetDriverVersionString();
+                    var index = ProfileIndexStore.LoadValid(driverVersion);
+
+                    if (index != null)
                     {
-                        ct.ThrowIfCancellationRequested();
-                        try
+                        usedIndex = true;
+                        var names = index.GameProfileNames;
+                        sw.Restart();
+                        for (int i = 0; i < names.Count; i++)
                         {
-                            if (profile is null || !profile.IsValid)
-                                continue;
-
-                            // Single GetProfileInfo-backed read per profile (cached in a local).
-                            int appCount = profile.NumberOfApplications;
-                            if (appCount <= 0)
-                                continue;
-
-                            ApplyToProfile(profile, presetValue, enable, options);
-                            profilesUpdated++;
-                            gameProfilesUpdated++;
+                            ct.ThrowIfCancellationRequested();
+                            try
+                            {
+                                var profile = session.FindProfileByName(names[i]);
+                                if (profile is null || !profile.IsValid)
+                                    continue; // profile removed since indexing — harmless skip
+                                ApplyToProfile(profile, presetValue, enable, options);
+                                profilesUpdated++;
+                                gameProfilesUpdated++;
+                            }
+                            catch (NVIDIAApiException pex)
+                            {
+                                Debug.WriteLine($"PresetOverrideService: indexed profile '{names[i]}' skipped: {pex.Status}");
+                            }
+                            // ponytail: throttle UI marshaling — report every 25, not every profile
+                            if (progress != null && (i % 25 == 0 || i == names.Count - 1))
+                                progress.Report((i + 1, names.Count));
                         }
-                        catch (NVIDIAApiException pex)
+                        writeMs += sw.ElapsedMilliseconds;
+                    }
+                    else
+                    {
+                        var indexedNames = new List<string>();
+                        sw.Restart();
+                        var profiles = session.Profiles.ToList(); // single EnumProfiles call
+                        enumerateMs = sw.ElapsedMilliseconds;
+
+                        sw.Restart();
+                        int done = 0;
+                        foreach (var profile in profiles)
                         {
-                            // Don't let one stubborn profile abort the whole sweep.
-                            Debug.WriteLine($"PresetOverrideService: skipped a profile: {pex.Status}");
+                            ct.ThrowIfCancellationRequested();
+                            done++;
+                            try
+                            {
+                                if (profile is null || !profile.IsValid)
+                                    continue;
+
+                                // Single GetProfileInfo-backed read per profile (cached in a local).
+                                int appCount = profile.NumberOfApplications;
+                                if (appCount <= 0)
+                                    continue;
+
+                                ApplyToProfile(profile, presetValue, enable, options);
+                                profilesUpdated++;
+                                gameProfilesUpdated++;
+                                indexedNames.Add(profile.Name);
+                            }
+                            catch (NVIDIAApiException pex)
+                            {
+                                // Don't let one stubborn profile abort the whole sweep.
+                                Debug.WriteLine($"PresetOverrideService: skipped a profile: {pex.Status}");
+                            }
+                            if (progress != null && (done % 250 == 0 || done == profiles.Count))
+                                progress.Report((done, profiles.Count));
                         }
+                        writeMs += sw.ElapsedMilliseconds;
+
+                        // Rebuild the index from this scan so the next apply takes the fast path.
+                        if (indexedNames.Count > 0)
+                            ProfileIndexStore.Save(new ProfileIndex
+                            {
+                                DriverVersion = driverVersion,
+                                IndexedAt = DateTime.UtcNow,
+                                GameProfileNames = indexedNames
+                            });
                     }
                 }
 
+                sw.Restart();
                 session.Save();
+                var saveMs = sw.ElapsedMilliseconds;
+                total.Stop();
 
-                Debug.WriteLine($"PresetOverrideService: Applied preset {preset} (0x{presetValue:X}) enable={enable} to {profilesUpdated} profile(s) ({gameProfilesUpdated} game).");
-                return new PresetOverrideResult(true, preset, null, false, profilesUpdated, gameProfilesUpdated);
+                Debug.WriteLine($"PresetOverrideService: Applied preset {preset} (0x{presetValue:X}) enable={enable} to {profilesUpdated} profile(s) ({gameProfilesUpdated} game) in {total.ElapsedMilliseconds}ms [enum {enumerateMs}ms, write {writeMs}ms, save {saveMs}ms, index={usedIndex}].");
+                return new PresetOverrideResult(true, preset, null, false, profilesUpdated, gameProfilesUpdated,
+                    total.ElapsedMilliseconds, enumerateMs, writeMs, saveMs, usedIndex);
             }
             catch (NVIDIAApiException ex)
             {
@@ -262,6 +333,73 @@ public sealed class PresetOverrideService : IPresetOverrideService
                 return new PresetOverrideResult(false, null, $"Error writing preset: {ex.Message}");
             }
         }, ct);
+    }
+
+    public async Task<PresetOverrideResult> RebuildProfileIndexAsync(CancellationToken ct = default)
+    {
+        return await Task.Run(() =>
+        {
+            var total = Stopwatch.StartNew();
+            try
+            {
+                EnsureInitialized();
+                using var session = DriverSettingsSession.CreateAndLoad();
+
+                var names = new List<string>();
+                foreach (var profile in session.Profiles)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    try
+                    {
+                        if (profile is null || !profile.IsValid)
+                            continue;
+                        if (profile.NumberOfApplications <= 0)
+                            continue;
+                        names.Add(profile.Name);
+                    }
+                    catch (NVIDIAApiException pex)
+                    {
+                        Debug.WriteLine($"RebuildProfileIndex: skipped a profile: {pex.Status}");
+                    }
+                }
+
+                ProfileIndexStore.Save(new ProfileIndex
+                {
+                    DriverVersion = GetDriverVersionString(),
+                    IndexedAt = DateTime.UtcNow,
+                    GameProfileNames = names
+                });
+
+                total.Stop();
+                Debug.WriteLine($"RebuildProfileIndex: {names.Count} game profiles indexed in {total.ElapsedMilliseconds}ms.");
+                return new PresetOverrideResult(true, null, null, false, 0, names.Count, total.ElapsedMilliseconds);
+            }
+            catch (NVIDIAApiException ex)
+            {
+                var permissionIssue = ex.Status == Status.InvalidUserPrivilege;
+                return new PresetOverrideResult(false, null,
+                    permissionIssue ? "Admin privileges required. Run as administrator." : $"NVIDIA API error: {ex.Status}",
+                    permissionIssue);
+            }
+            catch (Exception ex)
+            {
+                return new PresetOverrideResult(false, null, $"Error indexing profiles: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    /// <summary>Driver version string used to invalidate the profile index. Never throws.</summary>
+    private static string GetDriverVersionString()
+    {
+        try
+        {
+            return NVIDIA.DriverVersion.ToString();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"GetDriverVersionString failed: {ex.Message}");
+            return "unknown";
+        }
     }
 
     /// <summary>

@@ -244,6 +244,10 @@
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadStreamlineCommand}" Content="⤓   Download Streamline"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromDlssSdkCommand}" Content="⟳   Sync NGX from DLSS"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromAnWaveCommand}" Content="⟳   Sync NGX from AnWave"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding IndexProfilesCommand}"
+                                IsEnabled="{Binding IsIndexingProfiles, Converter={StaticResource InverseBoolConverter}}"
+                                Content="⚡   Index Game Profiles"
+                                ToolTip="Scan the NVIDIA driver profile database once and remember which profiles belong to installed games. Makes 'Apply to all games' and 'Update All' significantly faster. Auto-refreshes when the driver changes."/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ExportCommand}" Content="⤴   Export Report"/>
 
                         <TextBlock Text="HELP" Style="{StaticResource NavGroupLabel}"/>
@@ -631,7 +635,9 @@
                             </Style.Triggers>
                         </Style>
                     </StackPanel.Style>
-                    <ProgressBar IsIndeterminate="True" Width="120" Height="6"
+                    <ProgressBar Width="120" Height="6"
+                                 IsIndeterminate="{Binding ApplyProgressIndeterminate}"
+                                 Value="{Binding ApplyProgressValue}" Maximum="100"
                                  Foreground="{StaticResource NvidiaGreenBrush}" Background="{StaticResource Panel3Brush}"/>
                     <TextBlock Text="{Binding DownloadStatus}" Foreground="{StaticResource NvidiaGreenBrush}" FontSize="10" Margin="8,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
