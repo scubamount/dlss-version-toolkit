@@ -204,26 +204,52 @@ public class StreamlineDownloadService : IStreamlineDownloadService
 
     public string? GetCachedDownloadPath() => _cachedDownloadPath;
 
-    public string? GetCachedSdkVersion()
+    /// <summary>Parses "streamline-sdk-2.12.0.zip" → "2.12.0". Null if not that shape.</summary>
+    public static string? ParseVersionFromZipName(string fileName)
     {
-        if (_cachedDownloadPath != null && File.Exists(_cachedDownloadPath))
+        if (fileName.StartsWith("streamline-sdk-", StringComparison.OrdinalIgnoreCase)
+            && fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+            && fileName.Length > 19)
         {
-            var fileName = Path.GetFileName(_cachedDownloadPath); // e.g. "streamline-sdk-2.11.1.zip"
-            if (fileName.StartsWith("streamline-sdk-") && fileName.EndsWith(".zip"))
-            {
-                return fileName.Substring(15, fileName.Length - 15 - 4); // "2.11.1"
-            }
+            return fileName.Substring(15, fileName.Length - 15 - 4).TrimStart('v');
         }
         return null;
     }
 
+    /// <summary>
+    /// Newest cached SDK zip on disk (v0.0.40). Fixes cache amnesia: _cachedDownloadPath is
+    /// session state, so after an app restart the cached 2.12.0 zip was invisible and the UI
+    /// fell back to a stale scanned folder.
+    /// </summary>
+    private string? ResolveNewestCachedZip()
+    {
+        if (_cachedDownloadPath != null && File.Exists(_cachedDownloadPath))
+            return _cachedDownloadPath;
+
+        if (!Directory.Exists(CacheDir)) return null;
+        return Directory.GetFiles(CacheDir, "streamline-sdk-*.zip")
+            .OrderByDescending(f =>
+                Version.TryParse(ParseVersionFromZipName(Path.GetFileName(f)) ?? "", out var v)
+                    ? v : new Version(0, 0))
+            .FirstOrDefault();
+    }
+
+    public string? GetCachedSdkVersion()
+    {
+        var zip = ResolveNewestCachedZip();
+        return zip != null ? ParseVersionFromZipName(Path.GetFileName(zip)) : null;
+    }
+
     public Task<UpgradeOperation?> SyncFromCachedSdkAsync(IProgress<int>? progress = null, CancellationToken ct = default)
     {
-        if (_cachedDownloadPath == null || !File.Exists(_cachedDownloadPath))
+        // Session download first, else newest zip already on disk (survives restart).
+        var zipPath = ResolveNewestCachedZip();
+        if (zipPath == null)
         {
             Console.Error.WriteLine("No cached Streamline SDK download found.");
             return Task.FromResult<UpgradeOperation?>(null);
         }
+        _cachedDownloadPath = zipPath;
 
         var ngxBasePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),

@@ -98,8 +98,15 @@ public class StreamlineScanner : IStreamlineScanner
 
         try
         {
+            // v0.0.40: order by parsed version DESC — first-match used to return whichever
+            // old manual extract happened to enumerate first (e.g. 2.11.1 shadowing 2.12.0).
             var candidates = Directory.GetDirectories(downloadsPath)
                 .Where(d => System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(d), "streamline-sdk", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                .OrderByDescending(d =>
+                {
+                    var m = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(d), @"(\d+(?:\.\d+)+)");
+                    return m.Success && Version.TryParse(m.Groups[1].Value, out var v) ? v : new Version(0, 0);
+                })
                 .ToList();
 
             foreach (var candidate in candidates)

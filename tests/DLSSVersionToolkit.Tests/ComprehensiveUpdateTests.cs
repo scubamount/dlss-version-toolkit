@@ -325,3 +325,21 @@ public class ProfileIndexTests
         finally { try { File.Delete(empty); } catch { } }
     }
 }
+
+/// <summary>
+/// Tests for the v0.0.40 Streamline staleness fixes: cached-zip version parsing must be
+/// filename-shape-safe (it now backs the restart-surviving cache resolution that feeds both
+/// the hero display and SyncFromCachedSdkAsync).
+/// </summary>
+public class StreamlineVersionTests
+{
+    [Fact]
+    public void ParseVersionFromZipName_ValidAndInvalidShapes()
+    {
+        Assert.Equal("2.12.0", StreamlineDownloadService.ParseVersionFromZipName("streamline-sdk-2.12.0.zip"));
+        Assert.Equal("2.12.0", StreamlineDownloadService.ParseVersionFromZipName("streamline-sdk-v2.12.0.zip"));
+        Assert.Null(StreamlineDownloadService.ParseVersionFromZipName("not-a-streamline.zip"));
+        Assert.Null(StreamlineDownloadService.ParseVersionFromZipName("streamline-sdk-.zip"));
+        Assert.Null(StreamlineDownloadService.ParseVersionFromZipName("streamline-sdk-2.12.0.txt"));
+    }
+}
