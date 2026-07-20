@@ -567,7 +567,7 @@ return false;
     /// ...\bin\x64\bin\x64 — so every Streamline sync failed silently with "Required DLLs
     /// not found" and dlssg/dlssd/deepdvc were never updated).
     /// </summary>
-    internal static string ResolveBinPath(string sourcePath)
+    public static string ResolveBinPath(string sourcePath)
     {
         if (File.Exists(Path.Combine(sourcePath, "nvngx_dlss.dll"))) return sourcePath;
         var sub = Path.Combine(sourcePath, "bin", "x64");
