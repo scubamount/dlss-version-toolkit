@@ -504,6 +504,13 @@ private async Task SavePresetSelectionsAsync()
 	}
 }
 
+/// <summary>Pads a dotted version to 4 parts for display ("310.7.0" → "310.7.0.0").</summary>
+private static string PadVersionTo4(string v)
+{
+	var parts = v.Split('.');
+	return parts.Length >= 4 ? v : v + string.Concat(Enumerable.Repeat(".0", 4 - parts.Length));
+}
+
 /// <summary>
 /// Stops all Update All progress indicators (v0.0.39). MUST be called immediately before any
 /// terminal MessageBox inside OneClickUpdateAllAsync: the dialogs are modal, so the finally
@@ -1202,14 +1209,41 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 CurrentDlssVersion = "Not installed";
             }
 
-            // Streamline version for the hero strip (v0.0.38). Best signal wins: the scanned
-            // Streamline SDK entry (real sl.common.dll on disk) → cached SDK download version.
+            // Streamline hero value (v0.0.40: NEWEST known wins, not scanned-first). A stale
+            // manually-extracted SDK folder in ~/Downloads used to shadow a newer cached
+            // download because the scanned entry took priority unconditionally.
             var slEntry = result.Sources.FirstOrDefault(s => s.Source == "StreamlineSDK");
-            StreamlineVersion =
-                slEntry != null && slEntry.Streamline != "Unknown" ? slEntry.Streamline
-                : !string.IsNullOrEmpty(CachedStreamlineVersion) ? $"{CachedStreamlineVersion} (cached)"
-                : _streamlineDownloadService.GetCachedSdkVersion() is { Length: > 0 } cachedSl ? $"{cachedSl} (cached)"
-                : "—";
+            var slScanned = slEntry != null && slEntry.Streamline != "Unknown" ? slEntry.Streamline : null;
+            var slCached = _streamlineDownloadService.GetCachedSdkVersion();
+            var slInstalled = slScanned != null && (slCached == null || !_versionComparer.IsNewer(slCached, slScanned))
+                ? slScanned
+                : slCached != null ? $"{slCached} (cached)" : null;
+
+            // Latest Streamline upstream (v0.0.40: previously never queried during scan, so
+            // the "UP TO DATE" pill ignored Streamline entirely — 2.11.1 showed green while
+            // 2.12.0 sat on GitHub).
+            string? slLatest = null;
+            try
+            {
+                var slReleases = await _streamlineDownloadService.GetAvailableReleasesAsync();
+                slLatest = slReleases
+                    .Where(r => !string.IsNullOrEmpty(r.DownloadUrl))
+                    .Select(r => r.Version)
+                    .OrderBy(v => v, Comparer<string>.Create((a, b) =>
+                        _versionComparer.IsNewer(a, b) ? 1 : _versionComparer.IsNewer(b, a) ? -1 : 0))
+                    .LastOrDefault();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ScanAsync: could not query latest Streamline releases (offline?): {ex.Message}");
+            }
+
+            var slBestKnown = slScanned ?? slCached;
+            var slUpdateAvailable = slLatest != null &&
+                (slBestKnown == null || _versionComparer.IsNewer(slLatest, slBestKnown));
+            StreamlineVersion = slUpdateAvailable
+                ? $"{slInstalled ?? "—"} → {slLatest}"
+                : slInstalled ?? "—";
 
             // Show dialog once when NGX versions were not found at any checked path
             var hasNgxSources = result.Sources.Any(s => s.Source?.StartsWith("NGX_") == true);
@@ -1268,17 +1302,26 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
             if (!string.IsNullOrWhiteSpace(latestAvailable))
             {
-                AvailableDlssVersion = latestAvailable!;
-                UpdateAvailable = installedVer == null || _versionComparer.IsNewer(latestAvailable!, installedVer);
-                VersionStatusMessage = UpdateAvailable
-                    ? $"v{latestAvailable} available (current: {CurrentDlssVersion})"
+                // Display normalization (v0.0.40): GitHub tags are 3-part ("310.7.0") while
+                // DLL FileVersionInfo is 4-part ("310.7.0.0"). They compare equal numerically;
+                // pad the display so CURRENT and LATEST don't look mismatched.
+                AvailableDlssVersion = PadVersionTo4(latestAvailable!);
+                var dlssUpdate = installedVer == null || _versionComparer.IsNewer(latestAvailable!, installedVer);
+
+                // v0.0.40: the pill now covers Streamline too — DLSS current while Streamline
+                // is behind upstream means we are NOT up to date.
+                UpdateAvailable = dlssUpdate || slUpdateAvailable;
+                VersionStatusMessage =
+                    dlssUpdate && slUpdateAvailable ? $"DLSS v{latestAvailable} + Streamline v{slLatest} available"
+                    : dlssUpdate ? $"v{latestAvailable} available (current: {CurrentDlssVersion})"
+                    : slUpdateAvailable ? $"Streamline v{slLatest} available (installed: {slBestKnown ?? "none"}) — run Update All"
                     : "Already up to date";
             }
             else
             {
                 AvailableDlssVersion = "—";
-                UpdateAvailable = false;
-                VersionStatusMessage = "";
+                UpdateAvailable = slUpdateAvailable;
+                VersionStatusMessage = slUpdateAvailable ? $"Streamline v{slLatest} available — run Update All" : "";
             }
             // Check AnWave detection — and now also reflect an EXISTING install (issue D).
             // The scan source tells us if AnWave was seen; DetectInstalled() reads the toolkit's
