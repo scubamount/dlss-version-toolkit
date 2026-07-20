@@ -1049,9 +1049,15 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                         : "  (no files needed)";
                     var anWaveFiles = string.Join("\n  • ", anWaveOp.FilesCopied);
                     var appliedVer = anWaveOp.AppliedVersion ?? sdkVersion;
-                    var slLine = !string.IsNullOrEmpty(streamlineVersion)
-                        ? $"✅ Streamline SDK: v{streamlineVersion} synced ({(streamlineOp?.FilesCopied.Count ?? 0)} files)\n"
-                        : "ℹ️ Streamline SDK: not updated (offline or unavailable)\n";
+                    // v0.0.42: honest Streamline line. The old one showed "✅ synced (0 files)"
+                    // even when the sync FAILED — which hid the bin\x64 doubling bug for 5 releases.
+                    var slLine =
+                        string.IsNullOrEmpty(streamlineVersion) ? "ℹ️ Streamline SDK: not updated (offline or unavailable)\n"
+                        : streamlineOp == null || streamlineOp.Status == OperationStatus.Failed
+                            ? $"⚠️ Streamline SDK: v{streamlineVersion} downloaded but NGX sync FAILED: {streamlineOp?.ErrorMessage ?? "no cached zip"}\n"
+                        : streamlineOp.FilesCopied.Count > 0
+                            ? $"✅ Streamline SDK: v{streamlineVersion} synced ({streamlineOp.FilesCopied.Count} files)\n"
+                            : $"✅ Streamline SDK: v{streamlineVersion} already applied (no files needed)\n";
                     EndUpdateAllProgress();
                     MessageBox.Show(
                         $"All done!\n\n" +
@@ -1238,7 +1244,17 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 Debug.WriteLine($"ScanAsync: could not query latest Streamline releases (offline?): {ex.Message}");
             }
 
-            var slBestKnown = slScanned ?? slCached;
+            // v0.0.42: compare against the NEWEST known Streamline, same rule as the display.
+            // slScanned ?? slCached let a stale ~/Downloads extract (a SOURCE folder that
+            // never updates when Update All syncs) win the comparison — so "update available"
+            // could never clear even after a successful 2.12.0 sync.
+            var slBestKnown =
+                slScanned != null && slCached != null
+                    ? (_versionComparer.IsNewer(slCached, slScanned) ? slCached : slScanned)
+                    : slScanned ?? slCached;
+            // ponytail: slCached is a PROXY for "applied to NGX" — NGX folders carry no
+            // Streamline version (their DLLs are 310.x DLSS-family), and Update All syncs
+            // from exactly this zip. If a future sync path bypasses the cache, revisit.
             var slUpdateAvailable = slLatest != null &&
                 (slBestKnown == null || _versionComparer.IsNewer(slLatest, slBestKnown));
             StreamlineVersion = slUpdateAvailable
