@@ -17,7 +17,9 @@ public class UpgradeService : IUpgradeService
     private readonly IBackupService _backupService;
     private static readonly string ReleaseSubPath = @"models\dlss_override\versions";
     
-    private static readonly string[] NgxDllNames = { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll" };
+    // Public so tests can assert coverage: v0.0.43 audit found nvngx_deepdvc.dll missing
+    // here, so DeepDVC was never synced and stayed stale forever while the other three updated.
+    public static readonly string[] NgxDllNames = { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll", "nvngx_deepdvc.dll" };
     private static readonly string[] AllowedPrefixes;
 
     static UpgradeService()
@@ -347,12 +349,10 @@ var targetDllExists = File.Exists(Path.Combine(operation.TargetPath, "nvngx_dlss
 
         try
         {
-            // Copy DLSS DLLs to AnWave folder (root level)
-            var dllsToCopy = new[] {
-                ("nvngx_dlss.dll", Path.Combine(anWavePath, "nvngx_dlss.dll")),
-                ("nvngx_dlssg.dll", Path.Combine(anWavePath, "nvngx_dlssg.dll")),
-                ("nvngx_dlssd.dll", Path.Combine(anWavePath, "nvngx_dlssd.dll")),
-            };
+            // Copy DLSS DLLs to AnWave folder (root level) — same component set as NGX sync.
+            var dllsToCopy = NgxDllNames
+                .Select(n => (n, Path.Combine(anWavePath, n)))
+                .ToArray();
 
             foreach (var (dllName, destPath) in dllsToCopy)
             {

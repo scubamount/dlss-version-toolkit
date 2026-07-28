@@ -256,29 +256,50 @@ public class DlssDownloadService : IDlssDownloadService
             }
     }
 
-    public string? GetCachedDownloadPath() => _cachedDownloadPath;
+    public string? GetCachedDownloadPath() => ResolveNewestCachedZip();
+
+    /// <summary>Parses "dlss-sdk-310.7.0.zip" → "310.7.0"; null when not a cache zip name.</summary>
+    public static string? ParseVersionFromZipName(string fileName)
+    {
+        if (!fileName.StartsWith("dlss-sdk-", StringComparison.OrdinalIgnoreCase) ||
+            !fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            return null;
+        return fileName.Substring(9, fileName.Length - 9 - 4);
+    }
+
+    /// <summary>
+    /// Session download first, else newest dlss-sdk-*.zip on disk by PARSED version.
+    /// v0.0.43: same restart-amnesia bug class fixed for Streamline in v0.0.40 — the DLSS
+    /// side still forgot its cache on every app restart (offline fallback and the pill's
+    /// cached-version comparison both saw "no cache" despite the zip sitting on disk).
+    /// </summary>
+    private string? ResolveNewestCachedZip()
+    {
+        if (_cachedDownloadPath != null && File.Exists(_cachedDownloadPath))
+            return _cachedDownloadPath;
+        if (!Directory.Exists(CacheDir)) return null;
+        return Directory.GetFiles(CacheDir, "dlss-sdk-*.zip")
+            .OrderByDescending(f =>
+                Version.TryParse(ParseVersionFromZipName(Path.GetFileName(f)) ?? "", out var v)
+                    ? v : new Version(0, 0))
+            .FirstOrDefault();
+    }
 
     public string? GetCachedSdkVersion()
     {
-        if (_cachedDownloadPath != null && File.Exists(_cachedDownloadPath))
-        {
-            var fileName = Path.GetFileName(_cachedDownloadPath); // e.g. "dlss-sdk-310.6.0.zip"
-            if (fileName.StartsWith("dlss-sdk-") && fileName.EndsWith(".zip"))
-            {
-                // Prefix "dlss-sdk-" is 9 chars, suffix ".zip" is 4 chars
-                return fileName.Substring(9, fileName.Length - 9 - 4);
-            }
-        }
-        return null;
+        var zip = ResolveNewestCachedZip();
+        return zip != null ? ParseVersionFromZipName(Path.GetFileName(zip)) : null;
     }
 
     public Task<UpgradeOperation?> SyncFromCachedSdkAsync(IProgress<int>? progress = null, CancellationToken ct = default)
     {
-        if (_cachedDownloadPath == null || !File.Exists(_cachedDownloadPath))
+        var zipPath = ResolveNewestCachedZip();
+        if (zipPath == null)
         {
             Console.Error.WriteLine("No cached SDK download found.");
             return Task.FromResult<UpgradeOperation?>(null);
         }
+        _cachedDownloadPath = zipPath;
 
         var ngxBasePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -325,10 +346,11 @@ foreach (var file in files.Skip(keepCount))
             return new List<string>();
 
         return Directory.GetFiles(CacheDir, "dlss-sdk-*.zip")
-            .Select(f => Path.GetFileName(f))
-            .Where(name => name.StartsWith("dlss-sdk-") && name.EndsWith(".zip"))
-            .Select(name => name.Substring(9, name.Length - 9 - 4)) // strip "dlss-sdk-" prefix and ".zip" suffix
-            .OrderByDescending(v => v)
+            .Select(f => ParseVersionFromZipName(Path.GetFileName(f)))
+            .Where(v => v != null)
+            .Select(v => v!)
+            // Numeric ordering — lexical OrderByDescending put "310.6.0" above "310.10.0".
+            .OrderByDescending(v => Version.TryParse(v, out var p) ? p : new Version(0, 0))
             .ToList();
     }
 }

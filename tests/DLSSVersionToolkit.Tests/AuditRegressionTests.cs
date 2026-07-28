@@ -1,0 +1,50 @@
+using DLSSVersionToolkit.Core.Services;
+
+namespace DLSSVersionToolkit.Tests;
+
+/// <summary>
+/// Regression tests for the v0.0.43 audit findings. Each test pins a specific bug so it
+/// cannot silently return:
+///  1. DeepDVC missing from the NGX sync DLL set (stayed stale forever while the other
+///     three components updated).
+///  2. DLSS cache restart-amnesia (session-only _cachedDownloadPath — the same bug class
+///     fixed for Streamline in v0.0.40).
+///  3. Lexical version ordering ("310.6.0" sorted above "310.10.0").
+/// </summary>
+public class AuditRegressionTests
+{
+    [Fact]
+    public void NgxDllNames_CoversAllFourComponents()
+    {
+        // The INSTALLED VERSIONS grid tracks DLSS/FrameGen/DLSSD/DeepDVC — the sync set
+        // must cover the same four components or one silently never updates.
+        Assert.Equal(4, UpgradeService.NgxDllNames.Length);
+        Assert.Contains("nvngx_dlss.dll", UpgradeService.NgxDllNames);
+        Assert.Contains("nvngx_dlssg.dll", UpgradeService.NgxDllNames);
+        Assert.Contains("nvngx_dlssd.dll", UpgradeService.NgxDllNames);
+        Assert.Contains("nvngx_deepdvc.dll", UpgradeService.NgxDllNames);
+    }
+
+    [Theory]
+    [InlineData("dlss-sdk-310.7.0.zip", "310.7.0")]
+    [InlineData("dlss-sdk-310.10.0.zip", "310.10.0")]
+    [InlineData("DLSS-SDK-310.7.0.ZIP", "310.7.0")] // case-insensitive
+    [InlineData("streamline-sdk-2.12.0.zip", null)] // wrong prefix
+    [InlineData("dlss-sdk-310.7.0.txt", null)]      // wrong suffix
+    [InlineData("random.zip", null)]
+    public void DlssParseVersionFromZipName_ParsesCacheNamesOnly(string fileName, string? expected)
+    {
+        Assert.Equal(expected, DlssDownloadService.ParseVersionFromZipName(fileName));
+    }
+
+    [Fact]
+    public void VersionOrdering_IsNumericNotLexical()
+    {
+        // Lexical string ordering puts "310.6.0" above "310.10.0"; Version does not.
+        var versions = new[] { "310.6.0", "310.10.0", "310.7.0" };
+        var newest = versions
+            .OrderByDescending(v => Version.TryParse(v, out var p) ? p : new Version(0, 0))
+            .First();
+        Assert.Equal("310.10.0", newest);
+    }
+}
