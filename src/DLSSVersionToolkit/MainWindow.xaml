@@ -6,8 +6,10 @@
         xmlns:local="clr-namespace:DLSSVersionToolkit"
         xmlns:vm="clr-namespace:DLSSVersionToolkit.ViewModels"
         xmlns:converters="clr-namespace:DLSSVersionToolkit.Converters"
-        Title="DLSS Version Toolkit — by scubamount" Height="810" Width="1120"
-        MinHeight="660" MinWidth="1080"
+        Title="DLSS Version Toolkit — by scubamount" Height="880" Width="1320"
+        MinHeight="660" MinWidth="1140"
+        MaxWidth="{x:Static SystemParameters.MaximizedPrimaryScreenWidth}"
+        MaxHeight="{x:Static SystemParameters.MaximizedPrimaryScreenHeight}"
         Background="{StaticResource CanvasBrush}"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
@@ -132,7 +134,7 @@
         <!-- ===== BODY: SIDEBAR + MAIN ===== -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="212"/>
+                <ColumnDefinition Width="264"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -242,7 +244,7 @@
                         </Button>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding UnlockUnsupportedGamesCommand}"
                                 Content="🔓   Unlock Unsupported Games"
-                                ToolTip="For games the NVIDIA App shows as &quot;not supported&quot; (e.g. Star Citizen): marks them as override-capable so DLSS override options appear. Backs up ApplicationStorage.json first. Run after Apply Whitelist."/>
+                                ToolTip="For games the NVIDIA App shows as &quot;not supported&quot; (e.g. Star Citizen): marks them as override-capable so DLSS override options appear. Backs up ApplicationStorage.json first. Update All runs this for you — click only to re-apply after the NVIDIA App updates its library."/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadLatestCommand}" Content="⤓   Download DLSS SDK"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadStreamlineCommand}" Content="⤓   Download Streamline"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromDlssSdkCommand}" Content="⟳   Sync NGX from DLSS"/>
