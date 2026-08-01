@@ -240,6 +240,9 @@
                                 </Style>
                             </Button.Style>
                         </Button>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding UnlockUnsupportedGamesCommand}"
+                                Content="🔓   Unlock Unsupported Games"
+                                ToolTip="For games the NVIDIA App shows as &quot;not supported&quot; (e.g. Star Citizen): marks them as override-capable so DLSS override options appear. Backs up ApplicationStorage.json first. Run after Apply Whitelist."/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadLatestCommand}" Content="⤓   Download DLSS SDK"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadStreamlineCommand}" Content="⤓   Download Streamline"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromDlssSdkCommand}" Content="⟳   Sync NGX from DLSS"/>
