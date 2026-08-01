@@ -4,7 +4,6 @@ namespace DLSSVersionToolkit.Core.Services;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
-using System.Xml.Linq;
 
 public sealed record WhitelistResult(
     bool Success,
@@ -47,10 +46,6 @@ public sealed class WhitelistService : IWhitelistService
         "NVIDIA Corporation", "NVIDIA app", "NvBackend");
 
     private static readonly string ApplicationStoragePath = Path.Combine(NvBackendBasePath, "ApplicationStorage.json");
-
-    private static readonly string ApplicationOntologyPath = Path.Combine(NvBackendBasePath, "ApplicationOntology", "data", "fingerprint.db");
-
-    private static readonly string DaoBasePath = Path.Combine(NvBackendBasePath, "DAO");
 
     private static readonly string[] DisableOverrideKeys =
     {
@@ -185,51 +180,68 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
         return count;
     }
 
-    /// <summary>True if any <c>&lt;Disable_*_Override&gt;1&lt;/...&gt;</c> element exists (read-only twin
-    /// of the fingerprint.db modify path's detection).</summary>
-    private static bool FingerprintDbHasFlagOn(string xmlContent)
+    /// <summary>
+    /// Flips every <c>&lt;Disable_*_Override&gt;1&lt;/...&gt;</c> to <c>0</c> by targeted text
+    /// replacement, exactly like the reference script.
+    /// v0.0.44: replaces an XDocument.Parse + XmlWriter round-trip that (a) threw and changed
+    /// NOTHING whenever fingerprint.db was not strict XML, and (b) when it did parse, rewrote
+    /// the ENTIRE document (Indent=false collapsed formatting, self-closing tags normalized) —
+    /// far more mutation than the one-byte edit NVIDIA's file needs.
+    /// </summary>
+    public static string FlipFingerprintDbFlags(string content, out int flagsFlipped)
     {
-        try
+        int flipped = 0;
+        var result = content;
+        foreach (var key in DisableOverrideKeys)
         {
-            var doc = XDocument.Parse(xmlContent);
-            foreach (var tagName in DisableOverrideKeys)
-            {
-                if (doc.Descendants(tagName).Any(el => el.Value == "1"))
-                    return true;
-            }
-            return false;
+            var esc = System.Text.RegularExpressions.Regex.Escape(key);
+            // Tolerates attributes and inner whitespace: <Key ...> 1 </Key>
+            var pattern = $"(<{esc}(?:\\s[^>]*)?>\\s*)1(\\s*</{esc}>)";
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result, pattern,
+                m => { flipped++; return m.Groups[1].Value + "0" + m.Groups[2].Value; },
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         }
-        catch (System.Xml.XmlException)
-        {
-            // Unparseable — treat as "can't confirm applied", caller leaves it as NotApplied/NotApplicable.
-            return false;
-        }
+        flagsFlipped = flipped;
+        return result;
     }
 
-    /// <summary>Enumerates the fingerprint.db paths the apply path also touches (primary + DAO copies).</summary>
+    /// <summary>True if any <c>&lt;Disable_*_Override&gt;1&lt;/...&gt;</c> remains ON. Text-based —
+    /// read-only twin of <see cref="FlipFingerprintDbFlags"/>, so detection and apply agree even
+    /// on files that are not strict XML (the old XDocument version reported "no flags on" for an
+    /// unparseable file, which surfaced as a FALSE "whitelist applied").</summary>
+    private static bool FingerprintDbHasFlagOn(string content)
+    {
+        FlipFingerprintDbFlags(content, out int wouldFlip);
+        return wouldFlip > 0;
+    }
+
+    /// <summary>
+    /// Enumerates every fingerprint.db under the NvBackend root, RECURSIVELY.
+    /// v0.0.44: previously this only looked at two hardcoded locations
+    /// (ApplicationOntology\data and DAO\**). The reference script recurses the whole
+    /// NvBackend tree — NVIDIA has moved/added these files across App and driver releases
+    /// (581.80 notably), so any fingerprint.db outside our two guesses kept its
+    /// Disable_*_Override flags ON and the whitelist stayed effectively off.
+    /// </summary>
     private static IEnumerable<string> EnumerateFingerprintDbPaths()
     {
-        if (File.Exists(ApplicationOntologyPath))
-            yield return ApplicationOntologyPath;
+        if (!Directory.Exists(NvBackendBasePath))
+            yield break;
 
-        if (Directory.Exists(DaoBasePath))
+        string[] found;
+        try
         {
-            string[] daoDbs;
-            try
-            {
-                daoDbs = Directory.GetFiles(DaoBasePath, "fingerprint.db", SearchOption.AllDirectories);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"EnumerateFingerprintDbPaths: DAO search failed: {ex.Message}");
-                yield break;
-            }
-            foreach (var db in daoDbs)
-            {
-                if (!string.Equals(db, ApplicationOntologyPath, StringComparison.OrdinalIgnoreCase))
-                    yield return db;
-            }
+            found = Directory.GetFiles(NvBackendBasePath, "fingerprint.db", SearchOption.AllDirectories);
         }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"EnumerateFingerprintDbPaths: recursive search failed: {ex.Message}");
+            yield break;
+        }
+
+        foreach (var db in found)
+            yield return db;
     }
 
     public async Task<(bool Success, string? ErrorMessage)> RestartNvidiaServicesAsync(CancellationToken ct = default)
@@ -366,7 +378,11 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
 
         try
         {
-            await File.WriteAllTextAsync(ApplicationStoragePath, updated, ct);
+            // UTF-8 without BOM, matching the reference script's Utf8NoBomEncoding. The default
+            // File.WriteAllTextAsync encoding is also BOM-less UTF-8, but pin it explicitly —
+            // NVIDIA App fails to parse this file if a BOM appears.
+            await File.WriteAllTextAsync(ApplicationStoragePath, updated,
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct);
             modifiedFiles.Add(ApplicationStoragePath);
             Debug.WriteLine($"ModifyApplicationStorageJsonAsync: flipped {flagsFlipped} override flag(s) to false");
             return (true, flagsFlipped, null, modifiedFiles, true);
@@ -429,85 +445,75 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
         if (!File.Exists(fpdbPath))
             return (false, null);
 
-        string xmlContent;
+        // NVIDIA App sets fingerprint.db read-only precisely to keep it from being edited —
+        // the reference script clears the flag, edits, then RE-ARMS it. Clearing must happen
+        // before the read/write, or the write throws and the whitelist silently no-ops.
         try
         {
-            xmlContent = File.ReadAllText(fpdbPath);
+            var pre = File.GetAttributes(fpdbPath);
+            if ((pre & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(fpdbPath, pre & ~FileAttributes.ReadOnly);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Could not clear ReadOnly on {fpdbPath}: {ex.Message}");
+        }
+
+        string content;
+        try
+        {
+            content = File.ReadAllText(fpdbPath);
         }
         catch (Exception ex)
         {
             return (false, $"Could not read {fpdbPath}: {ex.Message}");
         }
 
-        if (string.IsNullOrWhiteSpace(xmlContent))
+        if (string.IsNullOrWhiteSpace(content))
             return (false, null);
+
+        var updated = FlipFingerprintDbFlags(content, out int flagsFlipped);
+
+        if (flagsFlipped == 0)
+        {
+            Debug.WriteLine($"ModifySingleFingerprintDb: all override flags already 0 in {fpdbPath}");
+            // Still re-arm read-only — NVIDIA relies on it and we may have just cleared it.
+            TrySetReadOnly(fpdbPath);
+            return (false, null);
+        }
 
         try
         {
-            var doc = XDocument.Parse(xmlContent);
+            // UTF-8 without BOM, matching the reference script's WriteAllLines + Utf8NoBomEncoding.
+            File.WriteAllText(fpdbPath, updated, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-            bool anyNeedChange = false;
-            foreach (var tagName in DisableOverrideKeys)
-            {
-                var elements = doc.Descendants(tagName).ToList();
-                foreach (var el in elements)
-                {
-                    if (el.Value == "1")
-                    {
-                        anyNeedChange = true;
-                        break;
-                    }
-                }
-                if (anyNeedChange)
-                    break;
-            }
+            // Re-arm read-only so NVIDIA App does not rewrite the flags back to 1.
+            TrySetReadOnly(fpdbPath);
 
-            if (!anyNeedChange)
-            {
-                Debug.WriteLine($"ModifySingleFingerprintDb: all override flags already 0 in {fpdbPath}");
-                return (false, null);
-            }
-
-            // Apply changes
-            foreach (var tagName in DisableOverrideKeys)
-            {
-                var elements = doc.Descendants(tagName).ToList();
-                foreach (var el in elements)
-                {
-                    if (el.Value == "1")
-                        el.Value = "0";
-                }
-            }
-
-            // Write as UTF-8 without BOM
-            var writerSettings = new System.Xml.XmlWriterSettings
-            {
-                Indent = false,
-                Encoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-                OmitXmlDeclaration = false
-            };
-
-            using var stream = new FileStream(fpdbPath, FileMode.Create, FileAccess.Write, FileShare.None);
-            using var writer = System.Xml.XmlWriter.Create(stream, writerSettings);
-            doc.Save(writer);
-
-            // Set Read-Only to prevent NVIDIA from reverting
-            var attrs = File.GetAttributes(fpdbPath);
-            if ((attrs & FileAttributes.ReadOnly) == 0)
-            {
-                File.SetAttributes(fpdbPath, attrs | FileAttributes.ReadOnly);
-            }
-
-            Debug.WriteLine($"ModifySingleFingerprintDb: modified {fpdbPath}");
+            Debug.WriteLine($"ModifySingleFingerprintDb: flipped {flagsFlipped} flag(s) in {fpdbPath}");
             return (true, null);
         }
-        catch (System.Xml.XmlException ex)
+        catch (UnauthorizedAccessException)
         {
-            return (false, $"XML parse error in {fpdbPath}: {ex.Message}");
+            return (false, $"Access denied writing {fpdbPath}. Run as Administrator and try again.");
         }
         catch (Exception ex)
         {
             return (false, $"Error writing {fpdbPath}: {ex.Message}");
+        }
+    }
+
+    private static void TrySetReadOnly(string path)
+    {
+        try
+        {
+            var attrs = File.GetAttributes(path);
+            if ((attrs & FileAttributes.ReadOnly) == 0)
+                File.SetAttributes(path, attrs | FileAttributes.ReadOnly);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"TrySetReadOnly: {path} — {ex.Message}");
         }
     }
 
