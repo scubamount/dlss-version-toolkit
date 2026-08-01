@@ -953,6 +953,28 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         DownloadStatus = "Applying whitelist...";
         await ApplyWhitelistInternalAsync(restartServices: true, showRestartWarning: false);
 
+        // Step 0a: Unlock games the NVIDIA App reports as "not supported" (IsOpsSupported).
+        // Non-fatal, but NOT silent — v0.0.42 taught us a swallowed Debug-only failure can hide
+        // a broken step for releases. The outcome goes in the summary either way.
+        string unlockLine;
+        try
+        {
+            DownloadStatus = "Unlocking unsupported games...";
+            var unlockResult = await _whitelistService.UnlockUnsupportedGamesAsync();
+            unlockLine =
+                !unlockResult.IsApplicable ? ""
+                : !unlockResult.Success
+                    ? $"⚠️ Unlock unsupported games FAILED: {unlockResult.ErrorMessage}\n"
+                : unlockResult.GamesModified > 0
+                    ? $"✅ Unlocked {unlockResult.GamesModified} game(s) the NVIDIA App reported as not supported\n"
+                    : "✅ Unsupported games: none needed unlocking\n";
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"OneClickUpdateAll: unlock threw (non-fatal): {ex.Message}");
+            unlockLine = $"⚠️ Unlock unsupported games FAILED: {ex.Message}\n";
+        }
+
         // Step 0b: Push the selected DLSS preset to every game profile (enables the
         // SR/RR/FG overrides as "Custom"). Without this the games keep their own
         // per-profile defaults and ignore the global preset. Non-fatal.
@@ -1124,6 +1146,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     EndUpdateAllProgress();
                     MessageBox.Show(
                         $"All done!\n\n" +
+                        unlockLine +
                         slLine +
                         $"✅ NGX Release: {ngxStatus}\n" +
                         $"  {ngxDetail}\n\n" +
@@ -1189,6 +1212,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 					EndUpdateAllProgress();
 					MessageBox.Show(
 						$"Partial update — NGX succeeded but AnWave apply failed after setup.\n\n" +
+						unlockLine +
 						$"✅ NGX Release: {ngxStatus}\n" +
 						$" {ngxFiles}\n\n" +
 						$"❌ AnWave apply: {anWaveOp.ErrorMessage}\n\n" +
@@ -1202,6 +1226,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 					EndUpdateAllProgress();
 					MessageBox.Show(
 						$"All done!\n\n" +
+						unlockLine +
 						$"✅ NGX Release: {ngxStatus}\n" +
 						$" {ngxFiles}\n\n" +
 						$"✅ AnWave setup + apply: v{appliedVer} ({anWaveOp.FilesCopied.Count} files)\n" +
@@ -1222,6 +1247,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 				EndUpdateAllProgress();
 				MessageBox.Show(
 					$"{versionStatus}\n\n" +
+					unlockLine +
 					$"Files copied ({ngxOp.FilesCopied.Count}):\n" +
 					$" {ngxFiles}\n\n" +
 					$"❌ AnWave auto-setup failed: {setupResult.ErrorMessage}\n\n" +
