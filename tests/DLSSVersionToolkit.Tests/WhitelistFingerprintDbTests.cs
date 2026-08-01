@@ -9,7 +9,7 @@ namespace DLSSVersionToolkit.Tests;
 /// The reference script (JPersson77/nVAppAppApp.ps1) does plain text replacement, which works
 /// regardless of the file's exact shape. These tests pin the text-replacement semantics.
 /// </summary>
-public class WhitelistFlagFlipTests
+public class WhitelistFingerprintDbTests
 {
     [Fact]
     public void FingerprintDb_FlipsAllFiveFlags()
@@ -75,20 +75,5 @@ public class WhitelistFlagFlipTests
         Assert.Equal(1, flipped);
         Assert.Contains("<SomeOtherSetting>1</SomeOtherSetting>", result);
         Assert.Contains("<Disable_FG_Override>0</Disable_FG_Override>", result);
-    }
-
-    [Fact]
-    public void Json_FlipAndCount_Agree()
-    {
-        // Detection and apply must never disagree — same key set, same matching rules.
-        var json = "{\"Disable_SR_Override\": true, \"Disable_FG_Override\":true, \"Other\":true}";
-
-        Assert.Equal(2, WhitelistService.CountTrueJsonDisableFlags(json));
-
-        var updated = WhitelistService.FlipDisableOverrideFlags(json, out int flipped);
-
-        Assert.Equal(2, flipped);
-        Assert.Equal(0, WhitelistService.CountTrueJsonDisableFlags(updated));
-        Assert.Contains("\"Other\":true", updated); // unrelated flag untouched
     }
 }
