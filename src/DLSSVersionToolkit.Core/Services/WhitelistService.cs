@@ -32,6 +32,14 @@ public interface IWhitelistService
     Task<(bool Success, string? ErrorMessage)> RestartNvidiaServicesAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Flips <c>"IsOpsSupported":false</c> to <c>true</c> for NVIDIA-identified apps, which
+    /// unlocks NVIDIA App's DLSS Override UI for titles it labels "not supported".
+    /// Separate from <see cref="ApplyWhitelistAsync"/> on purpose — see
+    /// <see cref="WhitelistService.UnlockUnsupportedGamesAsync"/> for the risk rationale.
+    /// </summary>
+    Task<WhitelistResult> UnlockUnsupportedGamesAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Reads the current whitelist state from disk without changing anything. Used at startup /
     /// scan time so the UI reflects reality (e.g. a whitelist a previous run already applied)
     /// instead of always showing "Not applied" until the user clicks Apply this session.
@@ -47,6 +55,12 @@ public sealed class WhitelistService : IWhitelistService
 
     private static readonly string ApplicationStoragePath = Path.Combine(NvBackendBasePath, "ApplicationStorage.json");
 
+    // Explicit allowlist, NOT a blanket match on keys ending in "_Override". A comparable tool
+    // (horovodovodo4ka/dlss-overrides-enabler) does `replace("_Override\":true", ...)` across the
+    // whole file, which silently flips any future key NVIDIA adds. Keep this list explicit.
+    // This is the complete verified set (cross-checked against JPersson77's reference script and
+    // kaanaldemir/DLSS-Override-For-All-Games). Disable_MFG_Override / Disable_DFG_Override do
+    // NOT exist — no tool and no NVIDIA source references them.
     private static readonly string[] DisableOverrideKeys =
     {
         "Disable_FG_Override",
@@ -314,6 +328,170 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
         }
         flagsFlipped = flipped;
         return result;
+    }
+
+    /// <summary>
+    /// Flips <c>"IsOpsSupported":false</c> → <c>true</c> for every app entry NVIDIA has actually
+    /// identified (<c>"CmsId"</c> non-zero), and returns the app names it changed.
+    /// </summary>
+    /// <remarks>
+    /// WHY: NVIDIA App gates its DLSS Override UI on this flag. Titles for which NVIDIA never
+    /// published Optimal Playable Settings ("OPS") ship <c>IsOpsSupported:false</c> and show
+    /// "not supported" — even after the five <c>Disable_*_Override</c> flags are all false.
+    /// Star Citizen is the canonical case: real CmsId, detected by the App, permanently gated.
+    /// Evidence: on a real 53-app ApplicationStorage.json every app with a working override UI
+    /// had <c>IsOpsSupported:true</c> (35/35, no counterexamples), and the only independent tool
+    /// that models this field (innerthoughtgames/dlss-override-plus v2.7.5, KEY_SPECS) also
+    /// targets <c>true</c>. NVIDIA does not document it.
+    ///
+    /// CmsId gate: entries with <c>"CmsId":0</c> are user-added bare executables NVIDIA cannot
+    /// identify — claiming OPS support for those is meaningless, so they are skipped. This is
+    /// also why the edit must be per-app rather than a whole-file replace.
+    ///
+    /// ponytail: regex over per-app text slices, not a real JSON parse — matches the existing
+    /// text-replacement strategy in this file (and the reference script's) and avoids rewriting
+    /// a file NVIDIA App re-reads. Switch to a parsed round-trip only if we ever need to write
+    /// nested values.
+    /// </remarks>
+    public static string FlipIsOpsSupported(string json, out List<string> appsFlipped)
+    {
+        var flipped = new List<string>();
+        var sb = new System.Text.StringBuilder(json.Length);
+
+        // Slice the document on app-entry boundaries so CmsId/IsOpsSupported/DisplayName are
+        // evaluated per entry. "LocalId" opens each element of the Applications array.
+        var bounds = System.Text.RegularExpressions.Regex
+            .Matches(json, "\"LocalId\"\\s*:", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            .Select(m => m.Index)
+            .ToList();
+
+        if (bounds.Count == 0)
+        {
+            appsFlipped = flipped;
+            return json;
+        }
+
+        sb.Append(json, 0, bounds[0]); // preamble before the first entry
+        for (int i = 0; i < bounds.Count; i++)
+        {
+            int start = bounds[i];
+            int end = (i + 1 < bounds.Count) ? bounds[i + 1] : json.Length;
+            var slice = json.Substring(start, end - start);
+
+            // Skip entries NVIDIA cannot identify (no CMS record).
+            var cms = System.Text.RegularExpressions.Regex.Match(
+                slice, "\"CmsId\"\\s*:\\s*(\\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            bool identified = cms.Success && cms.Groups[1].Value.TrimStart('0').Length > 0;
+
+            if (identified)
+            {
+                var updated = System.Text.RegularExpressions.Regex.Replace(
+                    slice, "(\"IsOpsSupported\"\\s*:\\s*)false", m => m.Groups[1].Value + "true",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                if (!string.Equals(updated, slice, StringComparison.Ordinal))
+                {
+                    var name = System.Text.RegularExpressions.Regex.Match(
+                        slice, "\"DisplayName\"\\s*:\\s*\"([^\"]*)\"",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    flipped.Add(name.Success ? name.Groups[1].Value : "(unnamed)");
+                    slice = updated;
+                }
+            }
+
+            sb.Append(slice);
+        }
+
+        appsFlipped = flipped;
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Counts app entries that <see cref="FlipIsOpsSupported"/> would change — read-only twin,
+    /// sharing the exact same function so detection and apply cannot disagree (the v0.0.44 lesson).
+    /// </summary>
+    public static int CountUnlockableApps(string json)
+    {
+        FlipIsOpsSupported(json, out var apps);
+        return apps.Count;
+    }
+
+    /// <summary>
+    /// Unlocks NVIDIA App's DLSS Override UI for identified games it reports as "not supported"
+    /// by setting <c>IsOpsSupported:true</c>. Writes a <c>.bak</c> next to the file first.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately NOT part of <see cref="ApplyWhitelistAsync"/>: the five Disable_*_Override
+    /// flags are what every comparable tool writes, whereas IsOpsSupported is undocumented and
+    /// asserts a capability NVIDIA's CMS says the title lacks. Different risk class ⇒ its own
+    /// opt-in action, so it can never ride along silently with the safe operation.
+    /// NVIDIA App may restore this flag on CMS sync / library change — re-run if that happens.
+    /// </remarks>
+    public async Task<WhitelistResult> UnlockUnsupportedGamesAsync(CancellationToken ct = default)
+    {
+        var modifiedFiles = new List<string>();
+
+        if (!File.Exists(ApplicationStoragePath))
+            return new WhitelistResult(false, 0, "ApplicationStorage.json not found — is the NVIDIA App installed?", modifiedFiles, IsApplicable: false);
+
+        try
+        {
+            var attrs = File.GetAttributes(ApplicationStoragePath);
+            if ((attrs & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(ApplicationStoragePath, attrs & ~FileAttributes.ReadOnly);
+        }
+        catch (Exception ex)
+        {
+            return new WhitelistResult(false, 0,
+                $"Could not clear the read-only attribute on ApplicationStorage.json: {ex.Message}. Run as Administrator and try again.",
+                modifiedFiles);
+        }
+
+        string json;
+        try
+        {
+            json = await File.ReadAllTextAsync(ApplicationStoragePath, ct);
+        }
+        catch (Exception ex)
+        {
+            return new WhitelistResult(false, 0, $"Could not read ApplicationStorage.json: {ex.Message}", modifiedFiles);
+        }
+
+        if (string.IsNullOrWhiteSpace(json))
+            return new WhitelistResult(false, 0, "ApplicationStorage.json is empty.", modifiedFiles);
+
+        var updated = FlipIsOpsSupported(json, out var appsFlipped);
+        if (appsFlipped.Count == 0)
+            return new WhitelistResult(true, 0, null, modifiedFiles);
+
+        // Undocumented field on a file NVIDIA App rewrites — always leave a rollback point.
+        try
+        {
+            File.Copy(ApplicationStoragePath, ApplicationStoragePath + ".bak", overwrite: true);
+        }
+        catch (Exception ex)
+        {
+            return new WhitelistResult(false, 0, $"Could not create a backup, so nothing was changed: {ex.Message}", modifiedFiles);
+        }
+
+        try
+        {
+            await File.WriteAllTextAsync(ApplicationStoragePath, updated,
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct);
+            modifiedFiles.Add(ApplicationStoragePath);
+            Debug.WriteLine($"UnlockUnsupportedGamesAsync: set IsOpsSupported=true for {appsFlipped.Count} app(s): {string.Join(", ", appsFlipped)}");
+            return new WhitelistResult(true, appsFlipped.Count, null, modifiedFiles);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new WhitelistResult(false, 0,
+                "Could not write ApplicationStorage.json (access denied). Run the app as Administrator and try again.",
+                modifiedFiles);
+        }
+        catch (Exception ex)
+        {
+            return new WhitelistResult(false, 0, $"Failed to write ApplicationStorage.json: {ex.Message}", modifiedFiles);
+        }
     }
 
     private async Task<(bool Success, int GamesModified, string? ErrorMessage, List<string> ModifiedFiles, bool IsApplicable)> ModifyApplicationStorageJsonAsync(CancellationToken ct)

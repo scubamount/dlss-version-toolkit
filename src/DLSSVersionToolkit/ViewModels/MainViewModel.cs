@@ -716,6 +716,69 @@ private async Task ApplyWhitelistAsync()
 private enum WhitelistOutcome { Applied, AlreadyApplied, NotApplicable, Failed }
 
 /// <summary>
+/// Unlocks NVIDIA App's DLSS Override UI for games it reports as "not supported" by setting
+/// IsOpsSupported:true on NVIDIA-identified entries. Separate from Apply Whitelist because the
+/// field is undocumented — the user opts in explicitly and is told a .bak was written.
+/// </summary>
+[RelayCommand]
+private async Task UnlockUnsupportedGamesAsync()
+{
+	try
+	{
+		DownloadStatus = "Unlocking unsupported games...";
+		var result = await _whitelistService.UnlockUnsupportedGamesAsync();
+
+		if (!result.IsApplicable)
+		{
+			MessageBox.Show(
+				"The NVIDIA App does not appear to be installed, so there is nothing to unlock.",
+				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
+			return;
+		}
+
+		if (!result.Success)
+		{
+			MessageBox.Show(
+				$"Could not unlock unsupported games.\n\nDetails: {result.ErrorMessage}\n\n" +
+				"What to do: close the NVIDIA App completely (including the system tray icon), " +
+				"then run this app as Administrator and try again.",
+				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+			return;
+		}
+
+		if (result.GamesModified == 0)
+		{
+			MessageBox.Show(
+				"No games needed unlocking — every game the NVIDIA App has detected already " +
+				"reports DLSS override support.",
+				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+			return;
+		}
+
+		var restart = await _whitelistService.RestartNvidiaServicesAsync();
+		var restartNote = restart.Success
+			? "The NVIDIA services were restarted."
+			: $"NVIDIA services could not be restarted ({restart.ErrorMessage}) — reboot for the change to take effect.";
+
+		MessageBox.Show(
+			$"Unlocked {result.GamesModified} game(s) that the NVIDIA App reported as not supported.\n\n" +
+			$"{restartNote}\n\n" +
+			"Open the NVIDIA App → Graphics → Program Settings to set DLSS overrides for them.\n\n" +
+			"Note: a backup was saved as ApplicationStorage.json.bak. The NVIDIA App may undo this " +
+			"when it re-scans your library or updates — just run this again if a game reverts.",
+			"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+	}
+	catch (Exception ex)
+	{
+		MessageBox.Show($"Unlock unsupported games failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+	}
+	finally
+	{
+		DownloadStatus = "";
+	}
+}
+
+/// <summary>
 /// Shared whitelist logic used by ApplyPreset, ApplyWhitelist, and Update All.
 /// Updates WhitelistStatus / IsWhitelistApplied and optionally restarts NVIDIA services.
 /// Never throws — failures are reflected in the returned outcome and WhitelistStatus.
