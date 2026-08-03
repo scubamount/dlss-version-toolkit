@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-06-11
+Auto-generated from all feature plans. Last updated: 2026-08-03 (v0.0.46)
 
 ## Active Technologies
 
@@ -16,7 +16,7 @@ src/
 │   └── Services/                      # NgxScanner, UpgradeService, AppUpdateService, etc.
 ├── DLSSVersionToolkit/               # WPF application
 │   ├── ViewModels/                   # MainViewModel
-│   ├── Views/                        # SettingsDialog
+│   ├── Views/                        # SettingsDialog, dialogs
 │   ├── Converters/                   # UI converters
 │   ├── MainWindow.xaml               # Sidebar-dashboard UI
 │   └── App.xaml                      # Theme, styles, startup
@@ -31,6 +31,10 @@ attached to the GitHub release — it is not committed to the repo.
 
 ## Commands
 
+**Windows only.** The app targets `net9.0-windows` with `UseWPF`, so it cannot be built or tested
+on macOS or Linux — the `windows-latest` GitHub Actions runners are the only build/test path.
+`ci.yml` runs build + tests on every push and PR; `release.yml` publishes the exe on a `v*` tag.
+
 ```bash
 # Build
 dotnet build src/DLSSVersionToolkit.sln
@@ -42,6 +46,12 @@ dotnet publish src/DLSSVersionToolkit/DLSSVersionToolkit.csproj --configuration 
 dotnet test
 ```
 
+CA1416 warnings ("only supported on: windows") from `DllVersionReader` call sites are expected and
+benign — the app is win-x64 only.
+
+Version bumps touch three lines in `src/DLSSVersionToolkit/DLSSVersionToolkit.csproj`:
+`AssemblyVersion`, `FileVersion`, `Version`.
+
 ## Code Style
 
 - **C# / .NET 9**: Use CommunityToolkit.Mvvm `[ObservableProperty]` and `[RelayCommand]` source generators
@@ -49,6 +59,35 @@ dotnet test
 
 ## Recent Changes
 
+> Per-release detail lives in `git log` and the GitHub releases. Entries below v0.0.36 are kept
+> only for the design rationale they carry.
+
+- **v0.0.36 → v0.0.46** (condensed — full detail in `git log`): comprehensive Update All
+  (Streamline + DLSS SDK + NGX + AnWave in one run); NGX versions now read from DLL
+  `FileVersionInfo` rather than `nvngx_package_config.txt`; `UpgradeService.ResolveBinPath` fixed
+  `bin\x64` path doubling that made Streamline sync copy zero files for five releases;
+  `ProfileIndexStore` fast path skips the ~8,000-profile NvAPI scan; DLSS-FG mode + multiplier
+  (2x–6x) with persisted preset selections; NVIDIA App whitelist rewritten to match JPersson77's
+  reference script (plain text replace, full `NvBackend` recursion, clear ReadOnly before write);
+  `IsOpsSupported` unlock for games the NVIDIA App reports as "not supported"; sidebar widened to
+  264px with the window default at 1320x880.
+
+  **Recurring bug class — read this before touching version logic.** Six separate bugs came from
+  deriving a version or status from a stale non-DLL source (a sidecar config, a folder name, a
+  session field, a source-folder scan) instead of the DLL bytes on disk. DLL `FileVersionInfo` is
+  the authority. Corollary: when a fix changes which source wins, audit every other consumer of
+  those sources in the same pass.
+
+  **Other standing lessons:**
+  - Porting behavior from a known-working reference script? Every deviation from it is a suspect —
+    match its mechanics first, optimize after.
+  - A detector and its applier must call one shared function, or they drift into a false
+    "already applied."
+  - Non-fatal steps must still be *reported* in the result summary. A `Debug.WriteLine`-only
+    failure is compiled out of Release and hid a broken sync for five releases.
+  - Tests live in a separate assembly with no `InternalsVisibleTo` — helpers under test must be
+    `public`, and `search_files "class <Name>"` before adding a test class (the test files are not
+    one-class-per-file, so CS0101 collisions are easy).
 - **v0.0.35.5**: Download/swap flow tests (#8 from audit). Refactored `AppUpdateService`: static `HttpClient _http` → instance field with two constructors — parameterless (production, uses shared static client) + `AppUpdateService(HttpClient)` (test-injectable). Backward compatible — `MainViewModel` still uses `new()`. 6 new tests with mock `HttpMessageHandler`: (1) `CheckForUpdateAsync` finds newer version + sha256 asset, (2) API 500 → graceful no-update, (3) no exe asset → no-update, (4) **SHA256 mismatch refuses to execute** (the security gate from v0.0.35.3 now tested), (5) exe 404 → download failure, (6) no-update-available → early fail. 111→117 tests.
 - **v0.0.35.4**: Robustness + test coverage. **#6** `DetectCurrentPresetSafe` → `DetectCurrentPresetSafeAsync` (async Task, `await` instead of `.GetAwaiter().GetResult()`). Was on a thread-pool thread via `Task.Run` (not UI thread — no deadlock/freeze), but sync-over-async wasted a thread-pool thread. Now properly async. **#7** audit finding was largely a false positive — download-service catches already log via `Console.Error.WriteLine`; the only truly empty catches were cleanup paths (fine) and 3 AnWaveAutoService detection methods (now have `System.Diagnostics.Debug.WriteLine`). **#4** first UpgradeService tests: 7 tests covering decision logic (disallowed path, no release, no staging, already-up-to-date, backup fail, backup-verify fail) + end-to-end file-copy success (real temp dirs, fake PE DLLs, backup→signature→copy→verify). Mock `INgxScanner`/`IBackupService` classes nested in test. **#8** deferred — AppUpdateService uses static HttpClient (not injectable without refactoring). 104→111 tests.
 - **v0.0.35.3**: Auto-updater security + runtime forward-compat. **#1** SHA256 integrity gate: `release.yml` now publishes `DLSSVersionToolkit.exe.sha256` (sha256sum format) alongside the exe. `AppUpdateService.DownloadAndApplyAsync` downloads the checksum after the exe, computes `SHA256.Create().ComputeHashAsync()`, and refuses to execute on mismatch (deletes staged file, returns error with expected/actual hashes). Defense-in-depth against MITM/corruption — full RCE-from-compromised-release still needs code-signing (deferred). `AppUpdateInfo.Sha256Url` field added; `CheckForUpdateAsync` finds `.sha256` asset in the release assets array (no `break` — scans all assets). Backward compatible: older releases without the hash asset are skipped gracefully. **#3** README self-contradiction fixed: 3 spots said "self-contained" (false — app is framework-dependent, needs .NET 9 Desktop Runtime). Now accurately says "single-file" + prominent runtime requirement + winget install command + troubleshooting entry. Added `<RollForward>LatestMajor</RollForward>` to csproj so the app runs on .NET 10+ when .NET 9 is no longer installed. +1 test assertion (`Sha256Url` default).

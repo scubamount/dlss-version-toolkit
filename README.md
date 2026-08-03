@@ -29,12 +29,13 @@
 **DLSS Version Toolkit** is a Windows app that keeps your NVIDIA DLSS DLLs up to date and
 forces the render preset you want — across every game — in one click.
 
-> **Pick a preset → click Update All → restart your game.** The toolkit scans every place DLSS
+> **Pick your presets → click Update All → restart your game.** The toolkit scans every place DLSS
 > lives on your system — NGX Release, the driver's OTA/staged versions, Streamline, and AnWave —
-> finds the newest build of each DLL (Super Resolution, Frame Generation, Ray Reconstruction),
-> downloads the latest official DLSS SDK, syncs those DLLs into NGX Release (and mirrors them to
-> AnWave), whitelists the NVIDIA App so it stops reverting your choice, and applies your preset
-> to every game profile. It also updates itself.
+> finds the newest build of each DLL (Super Resolution, Frame Generation, Ray Reconstruction,
+> DeepDVC), downloads the latest official Streamline and DLSS SDKs, syncs those DLLs into NGX
+> Release (and mirrors them to AnWave), whitelists the NVIDIA App so it stops reverting your
+> choice, unlocks games it marks "not supported", and applies your presets to every game profile.
+> It also updates itself.
 
 Single-file `.exe`. No installer. Your DLLs, your machine.
 
@@ -73,13 +74,16 @@ DLSS override enabled.
 
 | Action | What happens |
 |---|---|
-| **Update All** | The one button: whitelist → apply preset to all games → download latest DLSS SDK → sync to NGX Release → set up AnWave |
-| **Override Preset** | Pick a DLSS render preset (J / K / L / M) and apply it to the base profile **and every game profile** |
+| **Update All** | The one button: whitelist → unlock "not supported" games → apply presets to all games → download Streamline + DLSS SDK → sync to NGX Release → set up AnWave |
+| **Override Presets** | Separate **DLSS-SR**, **DLSS-RR** and **DLSS-FG** preset pickers (Default, A–M, or Latest) applied to the base profile **and every game profile** |
+| **Frame Generation control** | DLSS-FG **mode** (Off / Fixed / Auto / Dynamic) and **multiplier** (2x–6x) — your selections persist between launches |
+| **Unlock Unsupported Games** | For titles the NVIDIA App marks "not supported" (e.g. Star Citizen) — makes the DLSS override options appear. Included in Update All |
 | **Auto-scan on launch** | Opens straight to your installed versions, newest-build highlight, and live whitelist / AnWave status — no clicking required |
+| **Index Game Profiles** | Caches which driver profiles belong to installed games, so applying presets skips the ~8,000-profile scan. Auto-refreshes when the driver changes |
 | **App auto-update** | Checks this repo on launch and offers a one-click in-place update |
 | **AnWave auto-setup** | Downloads + installs nvidiaDlssGlom, fetches the latest DLSS DLLs, activates the global override |
 | **Export** | Save a snapshot of your DLSS setup as CSV or JSON |
-| **Advanced (manual)** | Each step Update All runs is also available on its own for recovery: whitelist, downloads, NGX syncs |
+| **Advanced (manual)** | Every step Update All runs is also available on its own for recovery: whitelist, unlock, downloads, NGX syncs, profile indexing |
 
 **Supported components:** DLSS, Frame Generation (dlssg), DLSSD (Ray Reconstruction), DeepDVC, Streamline SDK.
 
@@ -107,10 +111,15 @@ NVIDIA DLSS DLLs live in several places. The toolkit scans, compares, and syncs 
 
 1. **Pre-flight** — network, ≥500 MB disk, and writable target checks
 2. **Whitelist** — removes the NVIDIA App override restrictions that otherwise revert your choice
-3. **Preset sweep** — applies your Override Preset to the base profile + every game profile on your system
-4. **Download** — latest DLSS SDK from NVIDIA/DLSS (skipped if already cached)
-5. **Sync** — copies the SDK DLLs to NGX Release with a verified backup + automatic rollback
-6. **AnWave** — installs it if missing, then applies the updated DLLs
+3. **Unlock** — flips `IsOpsSupported` on games the NVIDIA App reports as "not supported" (backs up `ApplicationStorage.json` first)
+4. **Preset sweep** — applies your SR / RR / FG presets, FG mode and multiplier to the base profile + every game profile
+5. **Streamline** — downloads the Streamline SDK and syncs it to NGX first: it is the comprehensive source, carrying Frame Generation, Ray Reconstruction and DeepDVC DLLs
+6. **DLSS SDK** — downloads the latest official SDK from NVIDIA/DLSS (skipped if cached) and lays its newer Super Resolution DLL on top
+7. **Sync** — copies to NGX Release with a verified backup + automatic rollback
+8. **AnWave** — installs it if missing, then applies the updated DLLs
+
+Every step is non-fatal: a failure is reported in the completion summary rather than aborting the
+run, so one unavailable source can't block the rest.
 
 > After applying, **fully restart your game** (not just to the menu). The on-screen DLSS
 > indicator overlay appears in the **bottom-left** corner of supported games.
@@ -121,7 +130,9 @@ NVIDIA DLSS DLLs live in several places. The toolkit scans, compares, and syncs 
 
 Defense-in-depth for every file operation:
 
-- **Path allowlisting** — only `C:\ProgramData\NVIDIA\NGX` and `%APPDATA%\NVIDIA\NGX` are writable
+- **Path allowlisting** — DLL syncs only write under `C:\ProgramData\NVIDIA\NGX` and `%APPDATA%\NVIDIA\NGX`
+- **Backups before NVIDIA App edits** — the whitelist and unlock steps write a `.bak` of
+  `ApplicationStorage.json` before modifying it, and only touch an explicit list of known keys
 - **Pre-flight checks** — network, disk space, and write access verified before anything starts
 - **PE header verification** — DLLs checked for valid MZ/PE signatures before copy
 - **Post-copy validation** — file sizes verified after copy to catch truncated binaries
@@ -144,6 +155,8 @@ in place with rollback on failure, and prompts before restarting.
 | **DeepDVC shows "Unknown"** | Normal — some driver builds omit DeepDVC from the NGX config; handled gracefully |
 | **"AnWave not installed"** | Click **Update All** (it auto-installs), or **Setup AnWave** in Advanced |
 | **"Streamline SDK not found"** | Auto-downloaded when needed; or drop a manual SDK in Downloads / set its path in Settings |
+| **NVIDIA App says a game is "not supported"** | Run **Update All** (or **Unlock Unsupported Games**) as Administrator, then reopen the NVIDIA App. If it still doesn't appear, NVIDIA gates that title server-side and no local change will fix it |
+| **Overrides revert after an NVIDIA App update** | The App can rewrite its own config when its game library changes — re-run **Update All** |
 | **Changes don't show in-game** | Fully restart the game; the DLL version and preset both need a clean game launch |
 
 ---
@@ -159,7 +172,7 @@ dlss-version-toolkit/
 │   │                                 # WhitelistService, PresetOverrideService, AppUpdateService, …
 │   ├── DLSSVersionToolkit/           # WPF app
 │   │   ├── ViewModels/               # MainViewModel (CommunityToolkit.Mvvm)
-│   │   ├── Views/                    # SettingsDialog
+│   │   ├── Views/                    # SettingsDialog, dialogs
 │   │   ├── MainWindow.xaml           # Sidebar-dashboard UI
 │   │   └── App.xaml                  # Theme, styles, startup
 │   └── DLSSVersionToolkit.sln
@@ -167,7 +180,7 @@ dlss-version-toolkit/
 └── .github/workflows/                # ci.yml (build+test on push/PR) · release.yml (tag → exe)
 ```
 
-The single-file `DLSSVersionToolkit.exe` (~3.9 MB, framework-dependent) is built by CI on every
+The single-file `DLSSVersionToolkit.exe` (~3.9 MB, framework-dependent) is built and tested by CI on every
 `v*` tag and attached to the GitHub release — it is **not** committed to the repo.
 
 **Built with:** .NET 9 + WPF · CommunityToolkit.Mvvm · Hardcodet.NotifyIcon.Wpf ·
