@@ -49,7 +49,7 @@ public static class RunReportStore
             var target = dir ?? DefaultDir;
             Directory.CreateDirectory(target);
             var path = Path.Combine(target,
-                $"run-{report.StartedAt:yyyyMMdd-HHmmss}-{Guid.NewGuid():N[..8]}.json");
+                $"run-{report.StartedAt:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..8]}.json");
             File.WriteAllText(path, JsonSerializer.Serialize(report,
                 new JsonSerializerOptions { WriteIndented = true }));
 
