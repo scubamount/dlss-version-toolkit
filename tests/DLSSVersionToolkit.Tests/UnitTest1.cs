@@ -531,6 +531,60 @@ public class BackupServiceEdgeCaseTests
     }
 
     [Fact]
+    public void RestoreBackup_RoundTripsFilesAndLeavesNoAsideFolder()
+    {
+        // v0.0.47: restore is now a swap (rename-aside → copy → verify → delete-aside) so a
+        // failed copy can never truncate the release folder. Pin the success path: files land,
+        // the old state is gone, and no .restoring folder survives.
+        var root = Path.Combine(Path.GetTempPath(), $"dlss-restore-{Guid.NewGuid():N}");
+        var backupDir = Path.Combine(root, "backup");
+        var releaseDir = Path.Combine(root, "release");
+        Directory.CreateDirectory(backupDir);
+        Directory.CreateDirectory(releaseDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(backupDir, "nvngx_dlss.dll"), "new-bytes");
+            File.WriteAllText(Path.Combine(releaseDir, "nvngx_dlss.dll"), "old-bytes");
+            File.WriteAllText(Path.Combine(releaseDir, "stale-extra.dll"), "to-be-removed");
+
+            var service = new Core.Services.BackupService();
+            Assert.True(service.RestoreBackup(backupDir, releaseDir));
+
+            Assert.True(File.Exists(Path.Combine(releaseDir, "nvngx_dlss.dll")));
+            Assert.Equal("new-bytes", File.ReadAllText(Path.Combine(releaseDir, "nvngx_dlss.dll")));
+            // Old-state leftovers must not survive the restore.
+            Assert.False(File.Exists(Path.Combine(releaseDir, "stale-extra.dll")));
+            // No .restoring aside folder left behind.
+            Assert.False(Directory.Exists(releaseDir + ".restoring"));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void RestoreBackup_MissingBackupDir_ReturnsFalseAndLeavesReleaseIntact()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dlss-restore-missing-{Guid.NewGuid():N}");
+        var releaseDir = Path.Combine(root, "release");
+        Directory.CreateDirectory(releaseDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(releaseDir, "nvngx_dlss.dll"), "current-bytes");
+            var service = new Core.Services.BackupService();
+            Assert.False(service.RestoreBackup(Path.Combine(root, "no-such-backup"), releaseDir));
+            // The current state is untouched.
+            Assert.Equal("current-bytes", File.ReadAllText(Path.Combine(releaseDir, "nvngx_dlss.dll")));
+            Assert.False(Directory.Exists(releaseDir + ".restoring"));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public void CleanupOldBackups_NonExistentPath_DoesNotThrow()
     {
         var service = new Core.Services.BackupService();

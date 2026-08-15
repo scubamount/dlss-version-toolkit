@@ -11,14 +11,12 @@ public interface IGlobalScanner
 
 public class GlobalScanner : IGlobalScanner
 {
-    private static readonly Dictionary<string, string> DllToComponent = new()
-    {
-        { "nvngx_dlss.dll", "dlss" },
-        { "nvngx_dlssg.dll", "dlssg" },
-        { "nvngx_dlssd.dll", "dlssd" },
-        { "nvngx_deepdvc.dll", "deepdvc" },
-        { "sl.common.dll", "streamline" }
-    };
+    /// <summary>
+    /// AnWave/global DLL → component map. Same canonical-derivation rule as StreamlineScanner:
+    /// the NGX four must reconcile with <see cref="UpgradeService.NgxDllNames"/> so a new sync
+    /// DLL can never be invisible to the AnWave scan.
+    /// </summary>
+    private static readonly Dictionary<string, string> DllToComponent = StreamlineScanner.GetDllToComponent();
 
     public DLSSVersionEntry? Scan(string globalPath)
     {

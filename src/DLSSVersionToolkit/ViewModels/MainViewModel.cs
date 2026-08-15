@@ -164,7 +164,15 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     private ObservableCollection<int> _availableFgMultipliers = new();
 
     [ObservableProperty]
-    private int _selectedFgMultiplier = DlssPresetDisplay.FrameGenMultiplierDefault;
+    private int _selectedFgMultiplier = DlssPresetDisplay.FrameGenMultiplierDefault;  // 6x
+    private bool _fgMultiplierEnabled = true;
+    // FG multiplier only has meaning when the mode is Fixed or Dynamic — in Off/Auto/
+    // Don't change the driver ignores it. (v0.0.47) gate the secondary knob off its parent.
+    public bool FgMultiplierEnabled { get => _fgMultiplierEnabled; set { if (_fgMultiplierEnabled != value) { _fgMultiplierEnabled = value; OnPropertyChanged(); } } }
+    partial void OnSelectedFgModeChanged(DlssgMode value)
+    {
+        FgMultiplierEnabled = value == DlssgMode.Fixed || value == DlssgMode.Dynamic;
+    }
 
     [ObservableProperty]
     private string _currentPresetStatus = "";
@@ -195,6 +203,7 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
 
     private readonly AppUpdateService _appUpdateService = new();
     private readonly IVersionComparer _versionComparer;
+    private readonly UpdateRunReportManager _runReports = new();
 
 public MainViewModel(
  IScanService scanService,
@@ -903,8 +912,11 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         StatusMessage = "";
         DownloadStatus = "";
 
-	try
-	{
+        // Run report (v0.0.47): collect every step's outcome for the drawer and a persisted
+        // file, instead of a success dialog that vanishes on OK.
+        _runReports.Begin($"{AppUpdateService.GetCurrentVersion()}");
+        try
+        {
 		// Pre-flight: network check
 		DownloadStatus = "Checking network...";
 		if (!OperationGuard.IsNetworkAvailable())
@@ -951,7 +963,12 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
         // Step 0: Apply whitelist to bypass NVIDIA override blocking (non-fatal)
         DownloadStatus = "Applying whitelist...";
-        await ApplyWhitelistInternalAsync(restartServices: true, showRestartWarning: false);
+        var wlOutcome = await ApplyWhitelistInternalAsync(restartServices: true, showRestartWarning: false);
+        _runReports.Add("Whitelist", wlOutcome == WhitelistOutcome.Applied ? "ok" : "warn",
+            wlOutcome == WhitelistOutcome.Applied ? "NVIDIA App overrides removed"
+            : wlOutcome == WhitelistOutcome.AlreadyApplied ? "already applied"
+            : wlOutcome == WhitelistOutcome.Failed ? "could not modify the override file"
+            : "NVIDIA App not found");
 
         // Step 0a: Unlock games the NVIDIA App reports as "not supported" (IsOpsSupported).
         // Non-fatal, but NOT silent — v0.0.42 taught us a swallowed Debug-only failure can hide
@@ -961,6 +978,10 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         {
             DownloadStatus = "Unlocking unsupported games...";
             var unlockResult = await _whitelistService.UnlockUnsupportedGamesAsync();
+            _runReports.Add("Unlock", unlockResult.Success && unlockResult.GamesModified > 0 ? "warn" : "ok",
+                unlockResult.Success
+                    ? $"unlocked {unlockResult.GamesModified} game(s)"
+                    : "could not modify the App library file");
             unlockLine =
                 !unlockResult.IsApplicable ? ""
                 : !unlockResult.Success
@@ -991,13 +1012,18 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     // Persist the applied selections (v0.0.38) — Update All is the main apply
                     // path for most users, so it must save too, not just the Apply button.
                     await SavePresetSelectionsAsync();
+                    _runReports.Add("Presets", "ok", $"{DlssPresetDisplay.GetShortLabel(presetToApply)} applied to {pr.GameProfilesUpdated} game profile(s)");
                 }
                 else
+                {
                     Debug.WriteLine($"OneClickUpdateAll: preset apply non-fatal failure: {pr.ErrorMessage}");
+                    _runReports.Add("Presets", "warn", pr.ErrorMessage ?? "apply failed");
+                }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"OneClickUpdateAll: preset apply threw (non-fatal): {ex.Message}");
+                _runReports.Add("Presets", "warn", ex.Message);
             }
         }
 
@@ -1021,16 +1047,25 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 				DownloadStatus = $"Applying Streamline SDK v{streamlineVersion} to NGX...";
 				streamlineOp = await _streamlineDownloadService.SyncFromCachedSdkAsync(null);
 				if (streamlineOp != null && streamlineOp.Status == OperationStatus.Failed)
+				{
 					Debug.WriteLine($"OneClickUpdateAll: Streamline NGX sync non-fatal failure: {streamlineOp.ErrorMessage}");
+					_runReports.Add("Streamline", "fail", streamlineOp.ErrorMessage ?? "sync failed");
+				}
+				else
+				{
+					_runReports.Add("Streamline", "ok", $"latest v{streamlineVersion} synced");
+				}
 			}
 			else
 			{
 				Debug.WriteLine("OneClickUpdateAll: Streamline download returned null (offline or no asset); skipping.");
+				_runReports.Add("Streamline", "info", "no update available (offline or no newer asset)");
 			}
 		}
 		catch (Exception ex)
 		{
 			Debug.WriteLine($"OneClickUpdateAll: Streamline step threw (non-fatal): {ex.Message}");
+			_runReports.Add("Streamline", "warn", ex.Message);
 		}
 
  // Step 1b: Download latest DLSS SDK from NVIDIA (skips if already cached)
@@ -1072,6 +1107,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
             if (ngxOp.Status == OperationStatus.RolledBack)
             {
+                _runReports.Add("NGX sync", "fail",
+                    $"rolled back ({ngxOp.ErrorMessage}); backup at {ngxOp.BackupPath}");
                 MessageBox.Show(
                     $"DLSS SDK v{sdkVersion} sync to NGX failed and was rolled back.\n\n" +
                     $"Error: {ngxOp.ErrorMessage}\n" +
@@ -1080,6 +1117,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
+            _runReports.Add("DLSS SDK", "ok",
+                $"v{sdkVersion} synced to NGX ({ngxOp.FilesCopied.Count} file(s))");
 
             DownloadStatus = "Applying to AnWave...";
 
@@ -1112,6 +1151,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 var anWaveOp = await _anWaveAutoService.AutoApplyAsync(anWaveTarget, anWaveNgxSource, null);
                 if (!anWaveOp.Success)
                 {
+                    _runReports.Add("AnWave", "fail", anWaveOp.ErrorMessage ?? "apply failed");
                     var ngxFiles = ngxOp.FilesCopied.Count > 0
                         ? string.Join("\n  • ", ngxOp.FilesCopied)
                         : "  (no files needed copying)";
@@ -1126,6 +1166,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 }
                 else
                 {
+                    _runReports.Add("AnWave", "ok",
+                        $"v{anWaveOp.AppliedVersion ?? sdkVersion} applied ({anWaveOp.FilesCopied.Count} file(s))");
                     var ngxStatus = ngxOp.FilesCopied.Count > 0
                         ? $"v{sdkVersion} updated ({ngxOp.FilesCopied.Count} files)"
                         : "already up to date";
@@ -1209,6 +1251,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
 				if (!anWaveOp.Success)
 				{
+					_runReports.Add("AnWave", "fail", anWaveOp.ErrorMessage ?? "apply failed");
 					EndUpdateAllProgress();
 					MessageBox.Show(
 						$"Partial update — NGX succeeded but AnWave apply failed after setup.\n\n" +
@@ -1221,6 +1264,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 				}
 				else
 				{
+					_runReports.Add("AnWave", "ok",
+						$"v{anWaveOp.AppliedVersion ?? sdkVersion} applied ({anWaveOp.FilesCopied.Count} file(s))");
 					var anWaveFiles = string.Join("\n • ", anWaveOp.FilesCopied);
 					var appliedVer = anWaveOp.AppliedVersion ?? sdkVersion;
 					EndUpdateAllProgress();
@@ -1260,6 +1305,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
         catch (Exception ex)
         {
+            _runReports.Add("Update All", "fail", ex.Message);
             MessageBox.Show(
                 $"Update failed: {ex.Message}\n\n" +
                 "What to do: Check the error above. If it's a network issue, try again. If it's a file access issue, ensure no other programs are using the NGX or AnWave directories.",
@@ -1267,6 +1313,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
         finally
         {
+            _runReports.Finish();
             IsUpdatingAll = false;
             ScanStatus = "Ready";
             DownloadStatus = "";
@@ -1514,6 +1561,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         finally
         {
             IsScanning = false;
+            RefreshGamesSection();
         }
     }
 
@@ -1927,6 +1975,50 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             mainWindow.WindowState = WindowState.Normal;
             mainWindow.ShowInTaskbar = true;
             mainWindow.Activate();
+        }
+    }
+
+    // --- Games section (v0.0.47): profile names from the cached index, so the subject is
+    //     the user's games, not the plumbing inventory. Staleness is disclosed, not hidden.
+    public ObservableCollection<string> GameProfiles { get; } = new();
+    public bool HasGames => GameProfiles.Count > 0;
+    public string GamesFreshness { get; private set; } = "No profile index yet — run Index Game Profiles or Update All.";
+
+    private void RefreshGamesSection()
+    {
+        var index = ProfileIndexStore.LoadRaw();
+        GameProfiles.Clear();
+        if (index == null || index.GameProfileNames.Count == 0)
+        {
+            GamesFreshness = "No profile index yet — run Index Game Profiles or Update All.";
+            return;
+        }
+        foreach (var name in index.GameProfileNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).Take(40))
+            GameProfiles.Add(name);
+        GamesFreshness = $"{index.GameProfileNames.Count} game profile(s) · indexed {index.IndexedAt:yyyy-MM-dd HH:mm}";
+    }
+
+    // --- Run report drawer + backups (v0.0.47). The report manager lives on the VM so the
+    //     drawer can bind its steps; Backups opens a dialog over the existing BackupService.
+    public ObservableCollection<UpdateRunStep> RunSteps => _runReports.Steps;
+    public bool HasRunSteps => _runReports.HasSteps;
+
+    [RelayCommand]
+    private void OpenBackups()
+    {
+        try
+        {
+            var ngxBase = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "NVIDIA", "NGX");
+            var versionsParent = Path.Combine(ngxBase, NgxScanner.ReleaseSubPath);
+            var dialog = new BackupsDialog(_backupService, versionsParent);
+            dialog.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Could not open backups: {ex.Message}", "NGX Backups",
+                MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

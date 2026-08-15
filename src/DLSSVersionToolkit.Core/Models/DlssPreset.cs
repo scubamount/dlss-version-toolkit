@@ -163,6 +163,27 @@ public static class DlssPresetDisplay
         _ => $"Preset {preset}"
     };
 
+    /// <summary>
+    /// DLSS-RR outcome label. Only letters with a documented meaning get prose — inventing
+    /// quality claims NVIDIA never published is the IsOpsSupported trap in dropdown form.
+    /// </summary>
+    public static string GetRrDescription(DlssPreset preset) => preset switch
+    {
+        DlssPreset.Default => "Default (no override)",
+        DlssPreset.E => "Preset E — recommended (best quality)",
+        DlssPreset.Latest => "Latest — always use newest preset",
+        _ => $"Preset {preset}"
+    };
+
+    /// <summary>DLSS-FG outcome label; documented letters only, same rule as RR.</summary>
+    public static string GetFgDescription(DlssPreset preset) => preset switch
+    {
+        DlssPreset.Default => "Default (no override)",
+        DlssPreset.B => "Preset B — recommended (higher quality than A)",
+        DlssPreset.Latest => "Latest — always use newest preset",
+        _ => $"Preset {preset}"
+    };
+
     /// <summary>Short label for a preset in a compact dropdown ("Default", "Latest", or "Preset X").</summary>
     public static string GetShortLabel(DlssPreset preset) => preset switch
     {
