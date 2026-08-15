@@ -171,7 +171,7 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     public bool FgMultiplierEnabled { get => _fgMultiplierEnabled; set { if (_fgMultiplierEnabled != value) { _fgMultiplierEnabled = value; OnPropertyChanged(); } } }
     partial void OnSelectedFgModeChanged(DlssgMode value)
     {
-        FgMultiplierEnabled = value == DlssgMode.Fixed || value == DlssgMode.Dynamic;
+        FgMultiplierEnabled = value == DlssgMode.On || value == DlssgMode.Dynamic;
     }
 
     [ObservableProperty]
