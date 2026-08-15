@@ -29,6 +29,29 @@ public static class ProfileIndexStore
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "DLSSVersionToolkit", "profile-index.json");
 
+    /// <summary>
+    /// Loads the index for DISPLAY without the driver-version gate. The dashboard games list
+    /// shows the index's own DriverVersion/IndexedAt alongside the names, so staleness is
+    /// disclosed to the user instead of silently hidden. Apply paths must keep using
+    /// <see cref="LoadValid"/> — never this.
+    /// </summary>
+    public static ProfileIndex? LoadRaw(string? path = null)
+    {
+        try
+        {
+            var file = path ?? DefaultPath;
+            if (!File.Exists(file))
+                return null;
+            var index = JsonSerializer.Deserialize<ProfileIndex>(File.ReadAllText(file));
+            return index == null || index.GameProfileNames.Count == 0 ? null : index;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ProfileIndexStore.LoadRaw failed: {ex.Message}");
+            return null;
+        }
+    }
+
     /// <summary>Loads the index; returns null if missing, corrupt, or driver version mismatch.</summary>
     public static ProfileIndex? LoadValid(string currentDriverVersion, string? path = null)
     {

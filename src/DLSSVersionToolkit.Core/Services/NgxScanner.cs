@@ -11,7 +11,7 @@ public interface INgxScanner
 public class NgxScanner : INgxScanner
 {
     private readonly INgxConfigParser _configParser;
-    private static readonly string ReleaseSubPath = @"models\dlss_override\versions";
+    public const string ReleaseSubPath = @"models\dlss_override\versions";
     private static readonly string StagingSubPath = @"Staging\models\dlss_override\versions";
 
     public NgxScanner(INgxConfigParser configParser)
@@ -59,7 +59,9 @@ public class NgxScanner : INgxScanner
                     FrameGen = result.FrameGen,
                     DLSSD = result.DLSSD,
                     DeepDVC = result.DeepDVC,
-                    Streamline = source == "NGX_Release" ? "N/A" : "N/A",
+                    // Streamline version lives only in the SDK folder / cached zip (v0.0.38) —
+                    // NGX version folders contain no sl.common.dll, so this column is N/A here.
+                    Streamline = "N/A",
                     Path = versionFolder,
                     ScannedAt = DateTime.UtcNow
                 };

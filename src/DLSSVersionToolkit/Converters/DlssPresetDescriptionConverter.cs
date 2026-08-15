@@ -7,10 +7,19 @@ namespace DLSSVersionToolkit.Converters;
 
 public class DlssPresetDescriptionConverter : IValueConverter
 {
+    /// <summary>"", "Rr" or "Fg" — selects which documented-outcome label to render. The SR
+    /// picker keeps the full descriptions; RR/FG get their own (see <see cref="DlssPresetDisplay"/>).</summary>
+    public string Mode { get; set; } = "";
+
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         if (value is DlssPreset preset)
-            return DlssPresetDisplay.GetDescription(preset);
+            return Mode switch
+            {
+                "Rr" => DlssPresetDisplay.GetRrDescription(preset),
+                "Fg" => DlssPresetDisplay.GetFgDescription(preset),
+                _ => DlssPresetDisplay.GetDescription(preset)
+            };
         return value?.ToString() ?? "";
     }
 

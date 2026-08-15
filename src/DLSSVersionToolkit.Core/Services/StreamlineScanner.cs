@@ -12,14 +12,31 @@ public interface IStreamlineScanner
 
 public class StreamlineScanner : IStreamlineScanner
 {
-    private static readonly Dictionary<string, string> DllToComponent = new()
+    /// <summary>
+    /// NGX DLL → component map. The NGX four derive from <see cref="UpgradeService.NgxDllNames"/>
+    /// (canonical set — v0.0.43 proved hardcoded siblings silently drift); sl.common.dll is the
+    /// Streamline-only extra. Static so the UI/grid and scan agree forever.
+    /// </summary>
+    private static readonly Dictionary<string, string> DllToComponent = GetDllToComponent();
+
+    /// <summary>Shared by <see cref="StreamlineScanner"/> and <see cref="GlobalScanner"/> so the
+    /// AnWave/global scan and the Streamline scan can never disagree about component names.</summary>
+    public static Dictionary<string, string> GetDllToComponent()
     {
-        { "nvngx_dlss.dll", "dlss" },
-        { "nvngx_dlssg.dll", "dlssg" },
-        { "nvngx_dlssd.dll", "dlssd" },
-        { "nvngx_deepdvc.dll", "deepdvc" },
-        { "sl.common.dll", "streamline" }
-    };
+        var map = new Dictionary<string, string>
+        {
+            { "nvngx_dlss.dll", "dlss" },
+            { "nvngx_dlssg.dll", "dlssg" },
+            { "nvngx_dlssd.dll", "dlssd" },
+            { "nvngx_deepdvc.dll", "deepdvc" },
+            { "sl.common.dll", "streamline" }
+        };
+        // Reconcile with the canonical set: anything UpgradeService syncs must be mappable.
+        foreach (var dll in UpgradeService.NgxDllNames)
+            if (!map.ContainsKey(dll))
+                map[dll] = dll.Replace("nvngx_", "").Replace(".dll", "");
+        return map;
+    }
 
     public DLSSVersionEntry? Scan(string? streamlinePath)
     {

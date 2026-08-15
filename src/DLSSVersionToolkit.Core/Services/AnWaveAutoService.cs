@@ -449,7 +449,9 @@ progress?.Report(30);
         // the NVIDIA/DLSS demo zip ships ONLY nvngx_dlss.dll, while the Streamline SDK ships all
         // of dlss/dlssg/dlssd/deepdvc. Copy what's present; never fail because an optional one is
         // absent. (Verified against v310.7.0 / Streamline v2.12.0 artifacts.)
-        var dllsToCopy = new[] { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll", "nvngx_deepdvc.dll" };
+        // Derives from UpgradeService.NgxDllNames (the canonical set) so this list cannot drift
+        // from what UpgradeService syncs — v0.0.43's DeepDVC-missing bug was exactly that drift.
+        var dllsToCopy = UpgradeService.NgxDllNames;
 
 	foreach (var dllName in dllsToCopy)
 	{
