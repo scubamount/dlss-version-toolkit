@@ -100,10 +100,14 @@ public partial class BackupsDialog : Window
         {
             if (!Directory.Exists(_versionsParentPath))
                 return null;
-            return Directory.GetDirectories(_versionsParentPath)
-                .Where(d => System.Text.RegularExpressions.Regex.IsMatch(
-                    Path.GetFileName(d), @"^\d+(\.\d+)+$"))
-                .OrderByDescending(d => d, StringComparer.Ordinal)
+            // Same canonical predicate + numeric ordering the scanner uses. This used to filter
+            // with a local regex and order with StringComparer.Ordinal, which put 310.9.0.0
+            // above 310.10.0.0 — a restore would then overwrite the WRONG (older) folder and
+            // leave the real newest untouched. That is the v0.0.43 lexical-sort defect class
+            // reappearing in a sibling, which is why the rule now lives in exactly one place.
+            return NgxScanner.OrderVersionFoldersNewestFirst(
+                    Directory.GetDirectories(_versionsParentPath)
+                        .Where(d => NgxScanner.IsVersionFolderName(Path.GetFileName(d))))
                 .FirstOrDefault();
         }
         catch { return null; }

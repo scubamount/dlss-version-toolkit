@@ -7,11 +7,15 @@
         xmlns:vm="clr-namespace:DLSSVersionToolkit.ViewModels"
         xmlns:converters="clr-namespace:DLSSVersionToolkit.Converters"
         Title="DLSS Version Toolkit — by scubamount" Height="880" Width="1320"
-        MinHeight="660" MinWidth="1140"
-        MaxWidth="{x:Static SystemParameters.MaximizedPrimaryScreenWidth}"
-        MaxHeight="{x:Static SystemParameters.MaximizedPrimaryScreenHeight}"
+        MinHeight="560" MinWidth="900"
         Background="{StaticResource CanvasBrush}"
         WindowStartupLocation="CenterScreen">
+    <!-- Size is clamped to the ACTUAL monitor's work area in MainWindow.xaml.cs (FitToWorkArea,
+         called on SourceInitialized and DpiChanged). MaxWidth/MaxHeight are deliberately not
+         bound here: x:Static SystemParameters.MaximizedPrimaryScreen* reads the PRIMARY monitor
+         once at load, which was wrong on multi-monitor setups and never updated across a DPI
+         change. The values above are the preferred/floor sizes; code-behind lowers them when
+         the display cannot afford them. -->
     <Window.Resources>
         <converters:DlssPresetDescriptionConverter x:Key="DlssPresetDescriptionConverter"/>
         <converters:DlssPresetDescriptionConverter x:Key="DlssPresetRrDescriptionConverter" Mode="Rr"/>
