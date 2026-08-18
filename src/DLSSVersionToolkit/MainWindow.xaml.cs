@@ -53,8 +53,14 @@ public partial class MainWindow : Window
         var chromeHeight = SystemParameters.WindowCaptionHeight +
                            (SystemParameters.ResizeFrameHorizontalBorderHeight * 2);
 
-        var maxW = Math.Max(FloorWidth, availableWidth);
-        var maxH = Math.Max(FloorHeight, availableHeight - chromeHeight);
+        // The SCREEN always wins. An earlier version of this used Math.Max(Floor, available),
+        // which let the floor exceed the work area and reintroduced the very clipping this
+        // method exists to prevent (1920x1080 at 175% has a 1097x589 work area — smaller than
+        // the 900x560 floor once chrome is subtracted). The floor is a preference, not a
+        // guarantee: when the display cannot afford it, the window shrinks below it and the
+        // content scrolls, because a window that does not fit cannot be resized back.
+        var maxW = availableWidth;
+        var maxH = availableHeight - chromeHeight;
 
         // Never advertise a minimum the screen cannot satisfy — an unsatisfiable MinHeight is
         // what pushed the status bar off-screen at 1080p/150%.
