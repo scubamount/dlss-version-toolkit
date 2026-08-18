@@ -126,6 +126,51 @@ public class NgxVersionFolderPredicateTests
         }
     }
 
+    [Fact]
+    public void CleanupOldBackups_CountsOnlyBackupsTheUserCanSee()
+    {
+        // Retention used to glob the ".dlss-backup-*" prefix directly and order by name, while
+        // ListBackups (what the dialog shows) skips names whose timestamp will not parse. A
+        // stray unparseable folder therefore consumed a keepCount slot and pushed a real,
+        // listed backup over the edge — deleting a backup the user could see while keeping
+        // one they could not. Both paths now answer "what is a backup" with one function.
+        var parent = Path.Combine(Path.GetTempPath(), "dlssvt-keep-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(parent);
+
+            // Three real, listable backups (newest first: 03, 02, 01).
+            foreach (var stamp in new[] { "20260815-120001", "20260815-120002", "20260815-120003" })
+            {
+                var d = Path.Combine(parent, NgxScanner.BackupFolderPrefix + stamp);
+                Directory.CreateDirectory(d);
+                File.WriteAllBytes(Path.Combine(d, "nvngx_dlss.dll"), new byte[] { 0x4D, 0x5A });
+            }
+
+            // A stray folder carrying the prefix but no parseable timestamp.
+            var junk = Path.Combine(parent, NgxScanner.BackupFolderPrefix + "garbage");
+            Directory.CreateDirectory(junk);
+
+            var service = new BackupService();
+            service.CleanupOldBackups(parent, keepCount: 2);
+
+            var remaining = BackupService.ListBackups(parent);
+
+            // Exactly the two newest listable backups survive.
+            Assert.Equal(2, remaining.Count);
+            Assert.Contains(remaining, b => b.Path.EndsWith("20260815-120003", StringComparison.Ordinal));
+            Assert.Contains(remaining, b => b.Path.EndsWith("20260815-120002", StringComparison.Ordinal));
+            Assert.DoesNotContain(remaining, b => b.Path.EndsWith("20260815-120001", StringComparison.Ordinal));
+
+            // The unparseable folder is never counted and never deleted — it is not ours to judge.
+            Assert.True(Directory.Exists(junk));
+        }
+        finally
+        {
+            try { Directory.Delete(parent, true); } catch { /* temp cleanup */ }
+        }
+    }
+
     private sealed class StubConfigParser : INgxConfigParser
     {
         public NgxConfigResult Parse(string versionFolderPath) => new()

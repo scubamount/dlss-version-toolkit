@@ -191,14 +191,18 @@ public class BackupService : IBackupService
 
         try
         {
-            var backups = Directory.GetDirectories(versionsParentPath, $"{BackupPrefix}*", SearchOption.TopDirectoryOnly)
-                .OrderByDescending(d => d)
+            // Route through ListBackups so retention counts EXACTLY the backups the user can
+            // see. This used to glob the prefix directly, which counted unparseable names
+            // (.dlss-backup-garbage) that ListBackups skips — so a stray folder silently
+            // pushed a real, listed backup past keepCount and deleted it. Detector and applier
+            // must answer "what is a backup" with one function or they drift.
+            var backups = ListBackups(versionsParentPath)
                 .Skip(keepCount)
                 .ToList();
 
             foreach (var backup in backups)
             {
-                try { Directory.Delete(backup, true); }
+                try { Directory.Delete(backup.Path, true); }
                 catch (Exception ex_b) { Debug.WriteLine($"CleanupOldBackups: delete failed: {ex_b.Message}"); }
             }
         }
