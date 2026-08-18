@@ -15,7 +15,10 @@ public class UpgradeService : IUpgradeService
 {
     private readonly INgxScanner _ngxScanner;
     private readonly IBackupService _backupService;
-    private static readonly string ReleaseSubPath = @"models\dlss_override\versions";
+    // Canonical, shared with the scanner. Was a private duplicate of the same literal — if
+    // NVIDIA ever moves this subpath, one copy would be updated and the other would silently
+    // back up / sync the wrong directory.
+    private static readonly string ReleaseSubPath = NgxScanner.ReleaseSubPath;
     
     // Public so tests can assert coverage: v0.0.43 audit found nvngx_deepdvc.dll missing
     // here, so DeepDVC was never synced and stayed stale forever while the other three updated.

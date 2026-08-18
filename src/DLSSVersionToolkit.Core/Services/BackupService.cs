@@ -17,7 +17,11 @@ public sealed record BackupEntry(string Path, DateTime Timestamp, int FileCount)
 
 public class BackupService : IBackupService
 {
-    private const string BackupPrefix = ".dlss-backup-";
+    // Canonical backup-folder prefix and restore-aside suffix live on NgxScanner, because the
+    // SCANNER is the component that must skip these folders. Duplicating the literal here is
+    // how a producer and its skip-filter drift apart (rename the prefix, the scanner silently
+    // starts listing backups as installed versions).
+    private const string BackupPrefix = NgxScanner.BackupFolderPrefix;
 
     /// <summary>
     /// Enumerates backup folders under a versions parent, newest first. These folders have
@@ -120,7 +124,7 @@ public class BackupService : IBackupService
         // verified. The old delete-then-copy could truncate the release folder mid-failure —
         // if the copy died, the current DLLs were already gone. Renaming is atomic and
         // reversible, so a failed restore always leaves the previous state recoverable.
-        var asidePath = releaseFolderPath + ".restoring";
+        var asidePath = releaseFolderPath + NgxScanner.RestoreAsideSuffix;
         var failed = false;
         try
         {
@@ -187,14 +191,18 @@ public class BackupService : IBackupService
 
         try
         {
-            var backups = Directory.GetDirectories(versionsParentPath, $"{BackupPrefix}*", SearchOption.TopDirectoryOnly)
-                .OrderByDescending(d => d)
+            // Route through ListBackups so retention counts EXACTLY the backups the user can
+            // see. This used to glob the prefix directly, which counted unparseable names
+            // (.dlss-backup-garbage) that ListBackups skips — so a stray folder silently
+            // pushed a real, listed backup past keepCount and deleted it. Detector and applier
+            // must answer "what is a backup" with one function or they drift.
+            var backups = ListBackups(versionsParentPath)
                 .Skip(keepCount)
                 .ToList();
 
             foreach (var backup in backups)
             {
-                try { Directory.Delete(backup, true); }
+                try { Directory.Delete(backup.Path, true); }
                 catch (Exception ex_b) { Debug.WriteLine($"CleanupOldBackups: delete failed: {ex_b.Message}"); }
             }
         }
