@@ -63,12 +63,10 @@ public class BackupService : IBackupService
 
         var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var normalizedParent = Path.GetFullPath(versionsParentPath);
-
         bool isUnderProgramData = !string.IsNullOrEmpty(programData) &&
-            normalizedParent.StartsWith(Path.Combine(programData, "NVIDIA"), StringComparison.OrdinalIgnoreCase);
+            OperationGuard.IsPathWithin(versionsParentPath, Path.Combine(programData, "NVIDIA"));
         bool isUnderAppData = !string.IsNullOrEmpty(appData) &&
-            normalizedParent.StartsWith(Path.Combine(appData, "NVIDIA"), StringComparison.OrdinalIgnoreCase);
+            OperationGuard.IsPathWithin(versionsParentPath, Path.Combine(appData, "NVIDIA"));
         if (!isUnderProgramData && !isUnderAppData)
         {
             return null;

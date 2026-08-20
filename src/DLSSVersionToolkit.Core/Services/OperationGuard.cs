@@ -66,6 +66,31 @@ public static class OperationGuard
     }
 
     /// <summary>
+    /// Returns true when <paramref name="candidatePath"/> is <paramref name="rootPath"/>
+    /// or a descendant of it. Normalized, separator-aware comparison prevents lookalike
+    /// siblings such as <c>NGX-evil</c> from matching an <c>NGX</c> allowlist entry.
+    /// </summary>
+    public static bool IsPathWithin(string candidatePath, string rootPath)
+    {
+        if (string.IsNullOrWhiteSpace(candidatePath) || string.IsNullOrWhiteSpace(rootPath))
+            return false;
+
+        try
+        {
+            var candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidatePath));
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+
+            return string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase) ||
+                candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"IsPathWithin: {candidatePath} / {rootPath} — {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Checks if the specified directory has at least <paramref name="requiredBytes"/> free space.
     /// If the directory doesn't exist, walks up to the nearest existing parent.
     /// </summary>
