@@ -1431,6 +1431,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             {
                 var releases = await _dlssDownloadService.GetAvailableReleasesAsync();
                 latestAvailable = releases
+                    .Where(r => !string.IsNullOrWhiteSpace(r.DownloadUrl))
                     .Select(r => r.Version)
                     .Where(v => !string.IsNullOrWhiteSpace(v))
                     .OrderBy(v => v, Comparer<string>.Create((a, b) =>

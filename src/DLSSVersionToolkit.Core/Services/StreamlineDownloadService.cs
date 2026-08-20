@@ -311,14 +311,22 @@ public class StreamlineDownloadService : IStreamlineDownloadService
         return (files.Count, total);
     }
 
+    /// <summary>
+    /// Orders Streamline cache archive paths by parsed SDK version, newest first. Creation
+    /// timestamps describe when an archive entered the cache, not whether its SDK is newer.
+    /// </summary>
+    public static IEnumerable<string> OrderCachedZipPathsNewestFirst(IEnumerable<string> paths) =>
+        paths.OrderByDescending(path =>
+            Version.TryParse(ParseVersionFromZipName(Path.GetFileName(path)) ?? "", out var version)
+                ? version : new Version(0, 0));
+
     public void TrimCache(int keepCount = 3)
     {
         if (!Directory.Exists(CacheDir)) return;
 
-        var files = Directory.GetFiles(CacheDir, "streamline-sdk-*.zip")
+        var files = OrderCachedZipPathsNewestFirst(Directory.GetFiles(CacheDir, "streamline-sdk-*.zip"))
             .Select(f => new FileInfo(f))
             .Where(fi => fi.Exists)
-            .OrderByDescending(fi => fi.CreationTimeUtc)
             .ToList();
 
         foreach (var file in files.Skip(keepCount))
