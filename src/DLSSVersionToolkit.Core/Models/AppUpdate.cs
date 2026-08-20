@@ -9,7 +9,7 @@ public class AppUpdateInfo
     /// <summary>Newest version published on GitHub (e.g. "0.0.32"). Empty when unknown.</summary>
     public string LatestVersion { get; set; } = "";
 
-    /// <summary>True when LatestVersion is strictly newer AND a downloadable exe asset exists.</summary>
+    /// <summary>True when LatestVersion is strictly newer and both the executable and its SHA256 checksum asset are available.</summary>
     public bool IsUpdateAvailable { get; set; }
 
     /// <summary>browser_download_url of the DLSSVersionToolkit.exe release asset.</summary>
@@ -18,9 +18,9 @@ public class AppUpdateInfo
     /// <summary>Size in bytes of the exe asset, used as a download integrity check.</summary>
     public long AssetSize { get; set; }
 
-    /// <summary>browser_download_url of the DLSSVersionToolkit.exe.sha256 checksum asset.
-    /// Empty when the release doesn't publish a checksum (older releases). When present,
-    /// the updater verifies the downloaded exe against this hash before executing it.</summary>
+    /// <summary>browser_download_url of the required DLSSVersionToolkit.exe.sha256 checksum asset.
+    /// The updater refuses automatic updates when this asset is unavailable and verifies the
+    /// downloaded executable against this hash before swapping it into place.</summary>
     public string Sha256Url { get; set; } = "";
 
     /// <summary>Release notes body from the GitHub release.</summary>
