@@ -700,14 +700,30 @@ public class OperationGuardTests
 	[Fact]
 	public void VerifyDllSignature_ValidPeFile_ReturnsTrue()
 	{
-		// Create a minimal PE-like file: MZ header + enough bytes
 		var tempFile = Path.Combine(Path.GetTempPath(), $"dlss-guard-pe-{Guid.NewGuid()}.dll");
+		var data = new byte[2048];
+		data[0] = (byte)'M';
+		data[1] = (byte)'Z';
+		data[0x3C] = 0x80;
+		data[0x80] = (byte)'P';
+		data[0x81] = (byte)'E';
+		File.WriteAllBytes(tempFile, data);
+
+		Assert.True(Core.Services.OperationGuard.VerifyDllSignature(tempFile));
+
+		File.Delete(tempFile);
+	}
+
+	[Fact]
+	public void VerifyDllSignature_MzWithoutPeSignature_ReturnsFalse()
+	{
+		var tempFile = Path.Combine(Path.GetTempPath(), $"dlss-guard-mz-only-{Guid.NewGuid()}.dll");
 		var data = new byte[2048];
 		data[0] = (byte)'M';
 		data[1] = (byte)'Z';
 		File.WriteAllBytes(tempFile, data);
 
-		Assert.True(Core.Services.OperationGuard.VerifyDllSignature(tempFile));
+		Assert.False(Core.Services.OperationGuard.VerifyDllSignature(tempFile));
 
 		File.Delete(tempFile);
 	}
@@ -1391,6 +1407,9 @@ public class UpgradeServiceTests
 		var data = new byte[2048];
 		data[0] = (byte)'M';
 		data[1] = (byte)'Z';
+		data[0x3C] = 0x80;
+		data[0x80] = (byte)'P';
+		data[0x81] = (byte)'E';
 		File.WriteAllBytes(path, data);
 	}
 }

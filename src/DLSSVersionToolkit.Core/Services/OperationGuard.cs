@@ -97,8 +97,8 @@ public static class OperationGuard
     }
 
     /// <summary>
-    /// Verifies that a file at <paramref name="filePath"/> has a valid MZ/PE header
-    /// (minimum 1024 bytes, first two bytes are 'M' and 'Z').
+    /// Verifies that a file at <paramref name="filePath"/> has a valid DOS and PE signature
+    /// (minimum 1024 bytes, <c>MZ</c> at offset 0, and <c>PE\0\0</c> at the DOS-header offset).
     /// </summary>
     public static bool VerifyDllSignature(string filePath)
     {
@@ -108,13 +108,21 @@ public static class OperationGuard
             if (!fi.Exists || fi.Length < 1024)
                 return false;
 
-#pragma warning disable CA2022
             using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            var header = new byte[2];
-            _ = fs.Read(header, 0, 2);
-#pragma warning restore CA2022
+            var dosHeader = new byte[64];
+            fs.ReadExactly(dosHeader);
+            if (dosHeader[0] != 'M' || dosHeader[1] != 'Z')
+                return false;
 
-            return header[0] == 'M' && header[1] == 'Z';
+            var peOffset = BitConverter.ToInt32(dosHeader, 0x3C);
+            if (peOffset < dosHeader.Length || peOffset > fs.Length - 4)
+                return false;
+
+            fs.Position = peOffset;
+            var peSignature = new byte[4];
+            fs.ReadExactly(peSignature);
+            return peSignature[0] == 'P' && peSignature[1] == 'E' &&
+                peSignature[2] == 0 && peSignature[3] == 0;
         }
         catch (Exception ex)
         {
