@@ -86,7 +86,9 @@ public class AnWaveAutoService : IAnWaveAutoService
     private string? _dllVersion;
 
     private const string GlomRepoApi = "https://api.github.com/repos/SimonMacer/AnWave/releases/tags/AnWave-DLSS";
-    private static readonly Regex GlomVersionRegex = new(@"nvidiaDlssGlom-v([0-9.]+)-", RegexOptions.Compiled);
+    private static readonly Regex GlomVersionRegex = new(
+        @"nvidiaDlssGlom-v([0-9.]+)-",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     static AnWaveAutoService()
     {
@@ -362,14 +364,29 @@ progress?.Report(30);
         };
     }
 
+    /// <summary>Extracts the release version from a nvidiaDlssGlom archive filename.</summary>
+    public static string? ParseGlomVersionFromArchiveName(string fileName)
+    {
+        var match = GlomVersionRegex.Match(Path.GetFileName(fileName));
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    /// <summary>
+    /// Orders AnWave cache archive paths by parsed release version, newest first. Creation
+    /// timestamps describe when an archive entered the cache, not whether its release is newer.
+    /// </summary>
+    public static IEnumerable<string> OrderGlomArchivePathsNewestFirst(IEnumerable<string> paths) =>
+        paths.OrderByDescending(path =>
+            Version.TryParse(ParseGlomVersionFromArchiveName(path), out var version)
+                ? version : new Version(0, 0));
+
     private void TrimGlomCache(int keepCount = 2)
     {
         if (!Directory.Exists(CacheDir)) return;
 
-        var files = Directory.GetFiles(CacheDir, "nvidiaDlssGlom*.rar")
+        var files = OrderGlomArchivePathsNewestFirst(Directory.GetFiles(CacheDir, "nvidiaDlssGlom*.rar"))
             .Select(f => new FileInfo(f))
             .Where(fi => fi.Exists)
-            .OrderByDescending(fi => fi.CreationTimeUtc)
             .ToList();
 
         foreach (var file in files.Skip(keepCount))

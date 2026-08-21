@@ -47,4 +47,38 @@ public class AuditRegressionTests
             .First();
         Assert.Equal("310.10.0", newest);
     }
+
+    [Theory]
+    [InlineData("nvidiaDlssGlom-v2.1.0-win64.rar", "2.1.0")]
+    [InlineData("NVIDIADLSSGLOM-V2.10.0-win64.RAR", "2.10.0")]
+    [InlineData("nvidiaDlssGlom-latest.rar", null)]
+    [InlineData("unrelated.rar", null)]
+    public void ParseGlomVersionFromArchiveName_ParsesReleaseNamesOnly(string fileName, string? expected)
+    {
+        Assert.Equal(expected, AnWaveAutoService.ParseGlomVersionFromArchiveName(fileName));
+    }
+
+    [Fact]
+    public void OrderGlomArchivePathsNewestFirst_UsesReleaseVersionNotFileTimestamp()
+    {
+        var paths = new[]
+        {
+            Path.Combine("cache", "nvidiaDlssGlom-v2.9.0-win64.rar"),
+            Path.Combine("cache", "nvidiaDlssGlom-v2.10.0-win64.rar"),
+            Path.Combine("cache", "nvidiaDlssGlom-v2.8.0-win64.rar")
+        };
+
+        var orderedNames = AnWaveAutoService.OrderGlomArchivePathsNewestFirst(paths)
+            .Select(Path.GetFileName)
+            .ToArray();
+
+        Assert.Equal(
+            new[]
+            {
+                "nvidiaDlssGlom-v2.10.0-win64.rar",
+                "nvidiaDlssGlom-v2.9.0-win64.rar",
+                "nvidiaDlssGlom-v2.8.0-win64.rar"
+            },
+            orderedNames);
+    }
 }
