@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-08-03 (v0.0.46)
+Auto-generated from all feature plans. Last updated: 2026-08-22 (v0.0.49)
 
 ## Active Technologies
 
@@ -70,7 +70,8 @@ Version bumps touch three lines in `src/DLSSVersionToolkit/DLSSVersionToolkit.cs
   (2x–6x) with persisted preset selections; NVIDIA App whitelist rewritten to match JPersson77's
   reference script (plain text replace, full `NvBackend` recursion, clear ReadOnly before write);
   `IsOpsSupported` unlock for games the NVIDIA App reports as "not supported"; sidebar widened to
-  264px with the window default at 1320x880.
+  264px (window default 1320x880 is a preference — sizing is clamped to the work area by
+  `MainWindow.FitToWorkArea` since v0.0.48).
 
   **Recurring bug class — read this before touching version logic.** Six separate bugs came from
   deriving a version or status from a stale non-DLL source (a sidecar config, a folder name, a
