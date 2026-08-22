@@ -538,13 +538,8 @@ var targetDllExists = File.Exists(Path.Combine(operation.TargetPath, "nvngx_dlss
         return operation;
     }
 
-    private static bool IsPathAllowed(string path)
-    {
-        if (string.IsNullOrEmpty(path)) return false;
-        var normalized = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        return AllowedPrefixes.Any(prefix =>
-            normalized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-    }
+    private static bool IsPathAllowed(string path) =>
+        AllowedPrefixes.Any(prefix => OperationGuard.IsPathWithin(path, prefix));
 
     private static bool VerifyCopiedFiles(string srcFolder, string destFolder)
     {
