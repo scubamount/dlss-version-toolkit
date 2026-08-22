@@ -40,9 +40,8 @@ public class AppUpdateService
         "https://api.github.com/repos/scubamount/dlss-version-toolkit/releases/latest";
     private const string ExeAssetName = "DLSSVersionToolkit.exe";
 
-    /// <summary>Filename suffix of the checksum asset published alongside the exe.
-    /// The full file is "DLSSVersionToolkit.exe.sha256" (sha256sum format: "hash  filename").</summary>
-    private const string Sha256AssetSuffix = ".sha256";
+    /// <summary>Checksum asset published alongside the exe (sha256sum format: "hash  filename").</summary>
+    private const string Sha256AssetName = ExeAssetName + ".sha256";
 
     /// <summary>Manual download fallback shown in error messages when the swap fails.</summary>
     public const string ReleasesPageUrl = "https://github.com/scubamount/dlss-version-toolkit/releases/latest";
@@ -144,7 +143,7 @@ public class AppUpdateService
                             ? bdu.GetString() : null;
                         assetSize = asset.TryGetProperty("size", out var sz) ? sz.GetInt64() : 0;
                     }
-                    else if (name.EndsWith(Sha256AssetSuffix, StringComparison.OrdinalIgnoreCase))
+                    else if (name.Equals(Sha256AssetName, StringComparison.OrdinalIgnoreCase))
                     {
                         sha256Url = asset.TryGetProperty("browser_download_url", out var bdu)
                             ? bdu.GetString() : null;
@@ -158,7 +157,8 @@ public class AppUpdateService
             {
                 CurrentVersion = ToDisplayVersion(current),
                 LatestVersion = ToDisplayVersion(latest),
-                IsUpdateAvailable = IsNewer(latest, current) && !string.IsNullOrEmpty(downloadUrl),
+                IsUpdateAvailable = IsNewer(latest, current) &&
+                    !string.IsNullOrEmpty(downloadUrl) && !string.IsNullOrEmpty(sha256Url),
                 DownloadUrl = downloadUrl ?? "",
                 AssetSize = assetSize,
                 Sha256Url = sha256Url ?? "",
@@ -188,6 +188,12 @@ public class AppUpdateService
     {
         if (!update.IsUpdateAvailable || string.IsNullOrEmpty(update.DownloadUrl))
             return AppUpdateResult.Failed("No update is available to apply.");
+
+        if (string.IsNullOrEmpty(update.Sha256Url))
+            return AppUpdateResult.Failed(
+                "No SHA256 checksum is available for this release.\n\n" +
+                "The update was cancelled for safety.\n\n" +
+                $"What to do: download manually from {ReleasesPageUrl}");
 
         var currentExePath = Environment.ProcessPath;
         if (string.IsNullOrEmpty(currentExePath) || !File.Exists(currentExePath))
@@ -237,10 +243,8 @@ public class AppUpdateService
                     "interrupted.\n\nWhat to do: try again.");
             }
 
-            // Integrity: SHA256 hash verification (when a checksum asset was published).
-            // This is the real integrity gate — size-matching alone is not a security control.
-            // MITM or a corrupted download produces a different hash → update is refused.
-            if (!string.IsNullOrEmpty(update.Sha256Url))
+            // Integrity: SHA256 hash verification is mandatory. Size-matching alone is not a
+            // security control, so an update without the release checksum is refused before download.
             {
                 string expectedHash;
                 try

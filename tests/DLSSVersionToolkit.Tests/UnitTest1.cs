@@ -1002,6 +1002,33 @@ public class AppUpdateServiceTests
 	}
 
 	[Fact]
+	public async Task CheckForUpdateAsync_MissingChecksum_ReturnsNoUpdate()
+	{
+		var json = """{"tag_name": "v99.0.0.0", "assets": [{"name": "DLSSVersionToolkit.exe", "browser_download_url": "https://test.local/DLSSVersionToolkit.exe", "size": 100}], "body": ""}""";
+		var handler = new MockHttpHandler();
+		handler.Setup(GitHubApiUrl, HttpStatusCode.OK, System.Text.Encoding.UTF8.GetBytes(json));
+
+		var info = await CreateService(handler).CheckForUpdateAsync();
+
+		Assert.False(info.IsUpdateAvailable);
+		Assert.Equal(ExeUrl, info.DownloadUrl);
+		Assert.Equal("", info.Sha256Url);
+	}
+
+	[Fact]
+	public async Task CheckForUpdateAsync_UnrelatedChecksum_ReturnsNoUpdate()
+	{
+		var json = """{"tag_name": "v99.0.0.0", "assets": [{"name": "DLSSVersionToolkit.exe", "browser_download_url": "https://test.local/DLSSVersionToolkit.exe", "size": 100}, {"name": "other-artifact.sha256", "browser_download_url": "https://test.local/other.sha256", "size": 89}], "body": ""}""";
+		var handler = new MockHttpHandler();
+		handler.Setup(GitHubApiUrl, HttpStatusCode.OK, System.Text.Encoding.UTF8.GetBytes(json));
+
+		var info = await CreateService(handler).CheckForUpdateAsync();
+
+		Assert.False(info.IsUpdateAvailable);
+		Assert.Equal("", info.Sha256Url);
+	}
+
+	[Fact]
 	public async Task DownloadAndApplyAsync_Sha256Mismatch_RefusesToExecute()
 	{
 		// Exe content: bytes that hash to something specific
@@ -1031,6 +1058,23 @@ public class AppUpdateServiceTests
 	}
 
 	[Fact]
+	public async Task DownloadAndApplyAsync_MissingChecksum_RefusesBeforeDownload()
+	{
+		var update = new AppUpdateInfo
+		{
+			IsUpdateAvailable = true,
+			DownloadUrl = ExeUrl,
+			Sha256Url = ""
+		};
+
+		var result = await CreateService(new MockHttpHandler()).DownloadAndApplyAsync(update);
+
+		Assert.False(result.Success);
+		Assert.Contains("checksum", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+		Assert.Contains("cancelled", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+	}
+
+	[Fact]
 	public async Task DownloadAndApplyAsync_ExeNotFound_Fails()
 	{
 		var handler = new MockHttpHandler();
@@ -1044,7 +1088,7 @@ public class AppUpdateServiceTests
 		{
 			IsUpdateAvailable = true,
 			DownloadUrl = ExeUrl,
-			Sha256Url = "",
+			Sha256Url = Sha256Url,
 			AssetSize = 0
 		};
 
