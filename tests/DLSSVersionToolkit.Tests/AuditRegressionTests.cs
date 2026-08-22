@@ -47,4 +47,58 @@ public class AuditRegressionTests
             .First();
         Assert.Equal("310.10.0", newest);
     }
+
+    [Fact]
+    public void FindLatestDownloadableRelease_SkipsAssetlessRelease()
+    {
+        var assetlessLatest = new DlssRelease { Version = "310.12.0", DownloadUrl = "" };
+        var downloadableRelease = new DlssRelease
+        {
+            Version = "310.11.0",
+            DownloadUrl = "https://example.test/ngx_dlss_demo_windows.zip"
+        };
+
+        var result = DlssDownloadService.FindLatestDownloadableRelease(
+            new[] { assetlessLatest, downloadableRelease });
+
+        Assert.Same(downloadableRelease, result);
+    }
+
+    [Fact]
+    public void OrderCachedZipPathsNewestFirst_UsesSdkVersionNotFileTimestamp()
+    {
+        var paths = new[]
+        {
+            Path.Combine("cache", "dlss-sdk-310.6.0.zip"),
+            Path.Combine("cache", "dlss-sdk-310.10.0.zip"),
+            Path.Combine("cache", "dlss-sdk-310.7.0.zip")
+        };
+
+        var orderedNames = DlssDownloadService.OrderCachedZipPathsNewestFirst(paths)
+            .Select(Path.GetFileName)
+            .ToArray();
+
+        Assert.Equal(
+            new[] { "dlss-sdk-310.10.0.zip", "dlss-sdk-310.7.0.zip", "dlss-sdk-310.6.0.zip" },
+            orderedNames);
+    }
+
+    [Fact]
+    public void StreamlineCacheOrdering_UsesSdkVersionNotFileTimestamp()
+    {
+        var paths = new[]
+        {
+            Path.Combine("cache", "streamline-sdk-2.9.0.zip"),
+            Path.Combine("cache", "streamline-sdk-2.10.0.zip"),
+            Path.Combine("cache", "streamline-sdk-2.8.0.zip")
+        };
+
+        var orderedNames = StreamlineDownloadService.OrderCachedZipPathsNewestFirst(paths)
+            .Select(Path.GetFileName)
+            .ToArray();
+
+        Assert.Equal(
+            new[] { "streamline-sdk-2.10.0.zip", "streamline-sdk-2.9.0.zip", "streamline-sdk-2.8.0.zip" },
+            orderedNames);
+    }
 }

@@ -158,8 +158,8 @@ public class DlssDownloadService : IDlssDownloadService
 	}
 
 	var releases = await GetAvailableReleasesAsync(ct);
-	var latest = releases.FirstOrDefault();
-	if (latest == null || string.IsNullOrEmpty(latest.DownloadUrl))
+	var latest = FindLatestDownloadableRelease(releases);
+	if (latest == null)
 		return null;
 
 	if (!Directory.Exists(CacheDir))
@@ -256,6 +256,14 @@ public class DlssDownloadService : IDlssDownloadService
             }
     }
 
+    /// <summary>
+    /// Returns the first release that actually publishes the required SDK archive. GitHub returns
+    /// releases newest-first, but draft, metadata-only, or assetless releases must not block a
+    /// downloadable release later in the list.
+    /// </summary>
+    public static DlssRelease? FindLatestDownloadableRelease(IEnumerable<DlssRelease> releases) =>
+        releases.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.DownloadUrl));
+
     public string? GetCachedDownloadPath() => ResolveNewestCachedZip();
 
     /// <summary>Parses "dlss-sdk-310.7.0.zip" → "310.7.0"; null when not a cache zip name.</summary>
@@ -320,17 +328,25 @@ public class DlssDownloadService : IDlssDownloadService
         return (files.Count, total);
     }
 
+    /// <summary>
+    /// Orders DLSS cache archive paths by parsed SDK version, newest first. Creation timestamps
+    /// describe when an archive was copied into the cache, not whether its SDK is newer.
+    /// </summary>
+    public static IEnumerable<string> OrderCachedZipPathsNewestFirst(IEnumerable<string> paths) =>
+        paths.OrderByDescending(path =>
+            Version.TryParse(ParseVersionFromZipName(Path.GetFileName(path)) ?? "", out var version)
+                ? version : new Version(0, 0));
+
     public void TrimCache(int keepCount = 3)
     {
         if (!Directory.Exists(CacheDir)) return;
 
-        var files = Directory.GetFiles(CacheDir, "dlss-sdk-*.zip")
+        var files = OrderCachedZipPathsNewestFirst(Directory.GetFiles(CacheDir, "dlss-sdk-*.zip"))
             .Select(f => new FileInfo(f))
             .Where(fi => fi.Exists)
-            .OrderByDescending(fi => fi.CreationTimeUtc)
             .ToList();
 
-foreach (var file in files.Skip(keepCount))
+        foreach (var file in files.Skip(keepCount))
         {
             try
             {
