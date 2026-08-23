@@ -580,8 +580,9 @@ return false;
         if (!File.Exists(mainDll))
             return null;
 
-        var vi = System.Diagnostics.FileVersionInfo.GetVersionInfo(mainDll);
-        var version = vi.FileVersion?.Replace(',', '.') ?? "Unknown";
+        // DllVersionReader is the single source of truth for DLL version bytes (and the only
+        // place that normalizes comma-form version resources).
+        var version = DllVersionReader.ReadFileVersion(mainDll) ?? "Unknown";
 
         return new DLSSVersionEntry
         {

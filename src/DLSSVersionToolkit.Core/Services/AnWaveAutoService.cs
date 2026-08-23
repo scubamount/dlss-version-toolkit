@@ -122,8 +122,10 @@ public class AnWaveAutoService : IAnWaveAutoService
 
         try
         {
-            var vi = System.Diagnostics.FileVersionInfo.GetVersionInfo(mainDll);
-            _dllVersion = vi.FileVersion ?? vi.ProductVersion ?? "unknown";
+            // Version truth for an NGX DLL is DllVersionReader — it normalizes comma-form
+            // resources ("310,7,0,0" -> "310.7.0.0"). Reading FileVersionInfo directly here
+            // bypassed that and surfaced "310.7,0,0" in the status card. One reader, one format.
+            _dllVersion = DllVersionReader.ReadFileVersion(mainDll) ?? "unknown";
         }
         catch
         {
@@ -135,8 +137,7 @@ public class AnWaveAutoService : IAnWaveAutoService
             var glomExe = Directory.GetFiles(InstallDir, "nvidiaDlssGlom*.exe").FirstOrDefault();
             if (glomExe != null)
             {
-                var vi = System.Diagnostics.FileVersionInfo.GetVersionInfo(glomExe);
-                _glomVersion = vi.FileVersion ?? vi.ProductVersion ?? "cached";
+                _glomVersion = DllVersionReader.ReadFileVersion(glomExe) ?? "cached";
             }
         }
         catch

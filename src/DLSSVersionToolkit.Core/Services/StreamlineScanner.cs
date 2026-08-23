@@ -138,21 +138,15 @@ public class StreamlineScanner : IStreamlineScanner
         return null;
     }
 
+    /// <summary>
+    /// Reads a DLL's version through <see cref="DllVersionReader"/> (the single source of truth
+    /// for "what version is this DLL", including comma-form normalization) and rejects anything
+    /// that isn't a plausible version string. Returns "Unknown" when unreadable.
+    /// </summary>
     private static string GetDllVersion(string dllPath)
     {
-        try
-        {
-            var vi = FileVersionInfo.GetVersionInfo(dllPath);
-            if (string.IsNullOrEmpty(vi.FileVersion))
-                return "Unknown";
-
-            var version = vi.FileVersion.Replace(',', '.');
-            return IsValidVersionString(version) ? version : "Unknown";
-        }
-        catch
-        {
-            return "Unknown";
-        }
+        var version = DllVersionReader.ReadFileVersion(dllPath);
+        return !string.IsNullOrEmpty(version) && IsValidVersionString(version) ? version : "Unknown";
     }
 
     private static bool IsValidVersionString(string version)
