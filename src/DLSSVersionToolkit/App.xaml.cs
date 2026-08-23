@@ -148,8 +148,9 @@ public partial class App : Application
         var anWaveAutoService = new AnWaveAutoService();
         var whitelistService = new WhitelistService();
         var presetOverrideService = new PresetOverrideService();
+        var localDllImportService = new LocalDllImportService();
 
-        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService, whitelistService, presetOverrideService, versionComparer);
+        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService, whitelistService, presetOverrideService, versionComparer, localDllImportService);
 
         SetupTrayIcon();
 
