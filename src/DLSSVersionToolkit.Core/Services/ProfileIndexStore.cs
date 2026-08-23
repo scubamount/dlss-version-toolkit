@@ -30,6 +30,28 @@ public static class ProfileIndexStore
         "DLSSVersionToolkit", "profile-index.json");
 
     /// <summary>
+    /// True when a DRS profile "name" is really a raw hardware/profile identifier rather than a
+    /// game title — NVIDIA's predefined set contains many such entries (e.g. <c>0x0C41:0x0382</c>,
+    /// <c>0x10DE1234</c>). They are valid profiles and stay in the index (the apply path needs
+    /// them), but the dashboard must not present ~40 hex strings as "YOUR GAMES".
+    ///
+    /// This is the single predicate for that question — display code and any future filter must
+    /// call it rather than re-deriving the shape, so the two can never disagree.
+    /// </summary>
+    public static bool IsUnnamedProfileName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return true;
+
+        var trimmed = name.Trim();
+
+        // "0xABCD:0x1234" (paired) or a lone "0xABCD" token, optionally hex-only with separators.
+        return System.Text.RegularExpressions.Regex.IsMatch(
+            trimmed,
+            @"^0[xX][0-9A-Fa-f]+(\s*[:\-]\s*0[xX][0-9A-Fa-f]+)*$");
+    }
+
+    /// <summary>
     /// Loads the index for DISPLAY without the driver-version gate. The dashboard games list
     /// shows the index's own DriverVersion/IndexedAt alongside the names, so staleness is
     /// disclosed to the user instead of silently hidden. Apply paths must keep using

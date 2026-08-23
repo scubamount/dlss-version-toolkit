@@ -1982,8 +1982,33 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
     // --- Games section (v0.0.47): profile names from the cached index, so the subject is
     //     the user's games, not the plumbing inventory. Staleness is disclosed, not hidden.
     public ObservableCollection<string> GameProfiles { get; } = new();
-    public bool HasGames => GameProfiles.Count > 0;
-    public string GamesFreshness { get; private set; } = "No profile index yet — run Index Game Profiles or Update All.";
+
+    // GamesFreshness/HasGames MUST raise PropertyChanged. They were plain auto-properties, so
+    // RefreshGamesSection() updated the backing values and WPF never re-read them — the initial
+    // "No profile index yet" string stayed frozen on screen above a fully populated chip list
+    // (user-visible self-contradiction). ObservableProperty generates the notification.
+    [ObservableProperty]
+    private string _gamesFreshness = "No profile index yet — run Index Game Profiles or Update All.";
+
+    [ObservableProperty]
+    private bool _hasGames;
+
+    /// <summary>
+    /// Count of indexed profiles whose names are real titles (not raw NVIDIA hex profile IDs).
+    /// </summary>
+    [ObservableProperty]
+    private int _namedGameCount;
+
+    /// <summary>
+    /// How many indexed profiles carry an unnamed hex identifier instead of a title. Surfaced as
+    /// a single disclosure line rather than ~40 meaningless chips.
+    /// </summary>
+    [ObservableProperty]
+    private int _unnamedGameCount;
+
+    public bool HasUnnamedGames => UnnamedGameCount > 0;
+
+    partial void OnUnnamedGameCountChanged(int value) => OnPropertyChanged(nameof(HasUnnamedGames));
 
     private void RefreshGamesSection()
     {
@@ -1992,11 +2017,29 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         if (index == null || index.GameProfileNames.Count == 0)
         {
             GamesFreshness = "No profile index yet — run Index Game Profiles or Update All.";
+            HasGames = false;
+            NamedGameCount = 0;
+            UnnamedGameCount = 0;
             return;
         }
-        foreach (var name in index.GameProfileNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).Take(40))
+
+        // NVIDIA's predefined profile set includes entries whose Name IS a raw hex identifier
+        // (e.g. "0x0C41:0x0382"). They are real profiles, but showing ~40 of them buries the
+        // handful of actual game titles. Titles first; the rest become one disclosure line.
+        var named = index.GameProfileNames
+            .Where(n => !ProfileIndexStore.IsUnnamedProfileName(n))
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var unnamedCount = index.GameProfileNames.Count - named.Count;
+
+        foreach (var name in named.Take(40))
             GameProfiles.Add(name);
-        GamesFreshness = $"{index.GameProfileNames.Count} game profile(s) · indexed {index.IndexedAt:yyyy-MM-dd HH:mm}";
+
+        NamedGameCount = named.Count;
+        UnnamedGameCount = unnamedCount;
+        HasGames = GameProfiles.Count > 0;
+        GamesFreshness =
+            $"{named.Count} game(s) · indexed {index.IndexedAt.ToLocalTime():yyyy-MM-dd HH:mm}";
     }
 
     // --- Run report drawer + backups (v0.0.47). The report manager lives on the VM so the

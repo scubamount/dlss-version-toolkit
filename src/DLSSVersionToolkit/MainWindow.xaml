@@ -616,6 +616,15 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+
+                            <!-- Unnamed driver profiles are disclosed as one line rather than ~40
+                                 hex chips that bury the real game titles. They ARE still indexed
+                                 and still receive the preset; this is display-only. -->
+                            <TextBlock Margin="12,0,12,10" FontSize="11" TextWrapping="Wrap"
+                                       Foreground="{StaticResource Text3Brush}"
+                                       Visibility="{Binding HasUnnamedGames, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Run Text="+"/><Run Text="{Binding UnnamedGameCount, Mode=OneWay}"/><Run Text=" unnamed driver profile(s) — indexed and updated, no title reported by the driver."/>
+                            </TextBlock>
                         </StackPanel>
                     </Border>
 

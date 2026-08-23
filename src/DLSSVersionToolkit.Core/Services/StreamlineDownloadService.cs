@@ -48,7 +48,39 @@ public class StreamlineDownloadService : IStreamlineDownloadService
 
     private string? _cachedDownloadPath;
 
+    // Release-list cache, mirroring DlssDownloadService. ScanAsync queries Streamline releases
+    // (v0.0.40) and the app auto-scans on launch (v0.0.33) — without this, every launch and every
+    // Rescan paid an uncached GitHub round-trip. Static so repeated scans in a session reuse it.
+    private static readonly object _releaseCacheLock = new();
+    private static List<StreamlineRelease>? _cachedReleases;
+    private static DateTime _cachedReleasesAt = DateTime.MinValue;
+    private static readonly TimeSpan ReleaseCacheTtl = TimeSpan.FromMinutes(30);
+
     public async Task<List<StreamlineRelease>> GetAvailableReleasesAsync(CancellationToken ct = default)
+    {
+        // Serve from cache when fresh (avoids a GitHub round-trip on every scan/launch).
+        lock (_releaseCacheLock)
+        {
+            if (_cachedReleases is not null && DateTime.UtcNow - _cachedReleasesAt < ReleaseCacheTtl)
+                return new List<StreamlineRelease>(_cachedReleases);
+        }
+
+        var releases = await FetchReleasesFromGitHubAsync(ct);
+
+        // Only cache a non-empty success — an empty list means the call failed (offline /
+        // rate-limited), and we don't want to pin that failure for the whole TTL.
+        if (releases.Count > 0)
+        {
+            lock (_releaseCacheLock)
+            {
+                _cachedReleases = new List<StreamlineRelease>(releases);
+                _cachedReleasesAt = DateTime.UtcNow;
+            }
+        }
+        return releases;
+    }
+
+    private async Task<List<StreamlineRelease>> FetchReleasesFromGitHubAsync(CancellationToken ct = default)
     {
         var releases = new List<StreamlineRelease>();
 
