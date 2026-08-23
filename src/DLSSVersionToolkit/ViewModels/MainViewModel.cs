@@ -23,6 +23,16 @@ public partial class MainViewModel : ObservableObject
 private readonly IDlssIndicatorService _dlssIndicatorService;
  private readonly IWhitelistService _whitelistService;
     private readonly IPresetOverrideService _presetOverrideService;
+    private readonly ILocalDllImportService _localDllImportService;
+
+    /// <summary>
+    /// When true, Import Local DLLs targets the NGX <c>Staging\</c> tree instead of production.
+    /// The reference tool exposes the same switch (its "DLSS Library Location" dropdown), and the
+    /// observed glom log wrote to Staging — so this defaults to Staging to match known-working
+    /// behavior rather than guessing.
+    /// </summary>
+    [ObservableProperty]
+    private bool _importToStaging = true;
  private ScanResult? _lastScanResult;
     private bool _shownNgxNotFoundDialog;
 
@@ -217,7 +227,8 @@ public MainViewModel(
     IDlssIndicatorService dlssIndicatorService,
     IWhitelistService whitelistService,
     IPresetOverrideService presetOverrideService,
-    IVersionComparer versionComparer)
+    IVersionComparer versionComparer,
+    ILocalDllImportService localDllImportService)
 {
  _scanService = scanService;
  _upgradeService = upgradeService;
@@ -231,6 +242,7 @@ public MainViewModel(
 _presetOverrideService = presetOverrideService;
 _dlssIndicatorService = dlssIndicatorService;
 _versionComparer = versionComparer;
+_localDllImportService = localDllImportService;
 
 IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
 
@@ -780,6 +792,91 @@ private async Task UnlockUnsupportedGamesAsync()
 	catch (Exception ex)
 	{
 		MessageBox.Show($"Unlock unsupported games failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+	}
+	finally
+	{
+		DownloadStatus = "";
+	}
+}
+
+/// <summary>
+/// Imports loose nvngx_*.dll files from a folder into NVIDIA's NGX model tree.
+///
+/// This is the only path in the app that can apply a DLL with no published release asset — e.g.
+/// the DLSS 4.5 Ray Reconstruction nvngx_dlssd.dll (310.7.128), which at time of writing ships
+/// only inside game builds and is NOT on NVIDIA's GitHub releases. The downloader cannot find it
+/// by design; this imports it from disk instead.
+/// </summary>
+[RelayCommand]
+private async Task ImportLocalDllsAsync()
+{
+	try
+	{
+		var dialog = new Microsoft.Win32.OpenFolderDialog
+		{
+			Title = "Select the folder containing nvngx_*.dll files"
+		};
+
+		if (dialog.ShowDialog() != true)
+			return;
+
+		var sourceFolder = dialog.FolderName;
+
+		var confirm = MessageBox.Show(
+			$"Import NGX DLLs from:\n{sourceFolder}\n\n" +
+			"Each DLL's version is read from the file itself and written into the NGX model tree " +
+			"in the layout the driver loads (models\\<component>\\versions\\<packed>\\files\\).\n\n" +
+			"Existing files are backed up first.\n\n" +
+			"Note: this uses an NGX layout that NVIDIA does not publicly document. It matches what " +
+			"the nvidiaDlssGlom tool does, but treat it as community-derived.\n\nContinue?",
+			"Import Local DLLs", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+
+		if (confirm != MessageBoxResult.OK)
+			return;
+
+		DownloadStatus = "Importing local DLLs...";
+
+		var settings = await _settingsService.LoadAsync();
+		var result = await Task.Run(() =>
+			_localDllImportService.ImportFromFolder(
+				sourceFolder,
+				settings.NgxBasePath,
+				staging: ImportToStaging));
+
+		if (!result.Success)
+		{
+			MessageBox.Show(
+				$"Import failed.\n\nDetails: {result.ErrorMessage}\n\n" +
+				"If this is an access error, close any running game and run this app as Administrator.",
+				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+			return;
+		}
+
+		var lines = result.Components
+			.Select(c => $"  • {c.DllName} → v{c.Version} (folder {c.PackedFolder}, {c.BinFilesWritten} file(s))")
+			.ToList();
+
+		var skippedNote = result.Skipped.Count > 0
+			? $"\n\nSkipped:\n  {string.Join("\n  ", result.Skipped)}"
+			: "";
+
+		var backupNote = string.IsNullOrEmpty(result.BackupPath)
+			? "\n\nNothing was overwritten, so no backup was needed."
+			: $"\n\nOverwritten files were backed up to:\n{result.BackupPath}";
+
+		MessageBox.Show(
+			$"Imported {result.Components.Count} component(s), {result.FilesWritten.Count} file(s) written:\n\n" +
+			string.Join("\n", lines) +
+			backupNote +
+			skippedNote +
+			"\n\nRestart the game (or reboot) for the driver to pick up the new models.",
+			"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+
+		await ScanAsync();
+	}
+	catch (Exception ex)
+	{
+		MessageBox.Show($"Import local DLLs failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
 	}
 	finally
 	{

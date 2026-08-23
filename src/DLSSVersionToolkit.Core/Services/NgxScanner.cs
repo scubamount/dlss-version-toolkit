@@ -24,10 +24,13 @@ public class NgxScanner : INgxScanner
 
     /// <summary>
     /// Canonical test for "this directory under versions\ is a real NGX version folder".
-    /// NVIDIA names these folders after the driver/DLSS build (e.g. 310.7.0.0), so a real
-    /// folder is purely numeric dotted. Backup folders (.dlss-backup-*) and the transient
-    /// restore-aside folder (*.restoring) are ours and must never be scanned, listed as an
-    /// installed version, or chosen as a restore target.
+    /// NVIDIA uses TWO naming schemes here and both are real:
+    ///   * dotted  — "310.7.0.0", what the dlss_override tree carries;
+    ///   * packed  — "20318080", a major&lt;&lt;16|minor&lt;&lt;8|patch integer, what the driver's own
+    ///     model tree uses (see <see cref="NgxModelLayout"/>).
+    /// Backup folders (.dlss-backup-*) and the transient restore-aside folder (*.restoring) are
+    /// ours and must never be scanned, listed as an installed version, or chosen as a restore
+    /// target.
     ///
     /// Single predicate on purpose: NgxScanner (display), BackupsDialog (restore target) and
     /// any future enumerator answer this question the same way. Two copies of this rule drift
@@ -37,28 +40,22 @@ public class NgxScanner : INgxScanner
         !string.IsNullOrEmpty(folderName) &&
         !folderName.StartsWith(BackupFolderPrefix, StringComparison.OrdinalIgnoreCase) &&
         !folderName.EndsWith(RestoreAsideSuffix, StringComparison.OrdinalIgnoreCase) &&
-        System.Text.RegularExpressions.Regex.IsMatch(folderName, @"^\d+(\.\d+)*$");
+        NgxModelLayout.ParseVersionFolderName(folderName) != null;
 
     /// <summary>
-    /// Orders version folder paths newest-first NUMERICALLY. Ordinal string ordering puts
-    /// 310.9.0.0 above 310.10.0.0 — the exact defect class fixed in GetCachedVersions in
-    /// v0.0.43. Unparseable components sort last rather than throwing.
+    /// Orders version folder paths newest-first NUMERICALLY, across BOTH naming schemes.
+    ///
+    /// Ordinal string ordering puts 310.9.0.0 above 310.10.0.0 — the defect class fixed in
+    /// GetCachedVersions in v0.0.43. Naive Version.TryParse has a second, worse failure here: a
+    /// packed name like "20318080" padded to "20318080.0" parses as Version(20318080, 0) and
+    /// dwarfs (310,7,0,0), so a packed folder always sorted newest regardless of what it encodes.
+    /// Decoding through <see cref="NgxModelLayout.ParseVersionFolderName"/> makes the two schemes
+    /// genuinely comparable: 20318080 decodes to 310.7.128, which really is newer than 310.7.0 —
+    /// now for the right reason. Unparseable names sort last rather than throwing.
     /// </summary>
     public static IEnumerable<string> OrderVersionFoldersNewestFirst(IEnumerable<string> folderPaths) =>
         folderPaths.OrderByDescending(p =>
-        {
-            var name = Path.GetFileName(p);
-            return Version.TryParse(NormalizeForVersionParse(name), out var v) ? v : new Version(0, 0);
-        });
-
-    /// <summary>Version.TryParse needs 2-4 components; pad a bare "310" so it parses.</summary>
-    private static string NormalizeForVersionParse(string name)
-    {
-        var parts = name.Split('.');
-        if (parts.Length == 1) return name + ".0";
-        if (parts.Length > 4) return string.Join('.', parts.Take(4));
-        return name;
-    }
+            NgxModelLayout.ParseVersionFolderName(Path.GetFileName(p)) ?? new Version(0, 0));
     private static readonly string StagingSubPath = @"Staging\models\dlss_override\versions";
 
     public NgxScanner(INgxConfigParser configParser)
@@ -109,7 +106,10 @@ public class NgxScanner : INgxScanner
                 var entry = new DLSSVersionEntry
                 {
                     Source = source,
-                    BuildID = Path.GetFileName(versionFolder),
+                    // Packed folder names ("20318080") are decoded for display ("310.7.128") so the
+                    // BuildID column never shows a raw integer. The real path is kept in Path, so
+                    // nothing downstream loses the on-disk name.
+                    BuildID = NgxModelLayout.DisplayVersionFolderName(Path.GetFileName(versionFolder)),
                     DLSS = result.DLSS,
                     FrameGen = result.FrameGen,
                     DLSSD = result.DLSSD,

@@ -251,6 +251,13 @@
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding UnlockUnsupportedGamesCommand}"
                                 Content="🔓   Unlock Unsupported Games"
                                 ToolTip="For games the NVIDIA App shows as &quot;not supported&quot; (e.g. Star Citizen): marks them as override-capable so DLSS override options appear. Backs up ApplicationStorage.json first. Update All runs this for you — click only to re-apply after the NVIDIA App updates its library."/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ImportLocalDllsCommand}"
+                                Content="📥   Import Local DLLs"
+                                ToolTip="Apply nvngx_*.dll files you already have on disk — for builds with no official NVIDIA release, such as the DLSS 4.5 Ray Reconstruction nvngx_dlssd.dll. Each DLL's version is read from the file itself and written into the NGX model tree the driver loads. Existing files are backed up first. Uses a community-derived layout NVIDIA does not document."/>
+                        <CheckBox Content="Import to Staging tree"
+                                  IsChecked="{Binding ImportToStaging}"
+                                  Margin="14,4,0,6" Foreground="#A0A0A0" FontSize="11"
+                                  ToolTip="Staging is what the reference tool writes to (its &quot;Staging NGX Directory&quot; option). Uncheck to write the production models tree instead."/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadLatestCommand}" Content="⤓   Download DLSS SDK"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadStreamlineCommand}" Content="⤓   Download Streamline"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromDlssSdkCommand}" Content="⟳   Sync NGX from DLSS"/>
