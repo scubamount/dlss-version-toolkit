@@ -118,4 +118,75 @@ public class NgxWriteRootTests
         if (basePath is not null)
             Assert.True(NgxPathResolver.IsWritableRoot(basePath));
     }
+
+    /// <summary>
+    /// One rule, one predicate. Before v0.0.53 the "%ProgramData%\NVIDIA\NGX" path was rebuilt
+    /// inline in SEVEN places (UpgradeService x3, both download services, MainViewModel x2), each
+    /// blind to an AppData-based tree or a configured path. This asserts the literal pair appears
+    /// only inside NgxPathResolver, where WriteRoots and GetCandidatePaths define it once.
+    ///
+    /// One fallback is allowed and named: MainViewModel's Update All pre-flight keeps a literal
+    /// after `?? ` so a machine with neither folder still gets a message instead of a crash.
+    /// </summary>
+    [Fact]
+    public void NgxRootLiteral_IsDefinedOnlyInTheResolver()
+    {
+        var srcRoot = FindRepoSubdir("src");
+        var offenders = new List<string>();
+
+        foreach (var file in Directory.GetFiles(srcRoot, "*.cs", SearchOption.AllDirectories))
+        {
+            var name = Path.GetFileName(file);
+            if (name == "NgxPathResolver.cs")
+                continue;
+
+            var text = File.ReadAllText(file);
+            if (!text.Contains("\"NVIDIA\", \"NGX\"", StringComparison.Ordinal))
+                continue;
+
+            // The one sanctioned fallback: a null-coalescing default behind GetWritableBase.
+            if (text.Contains("GetWritableBase(null)", StringComparison.Ordinal) &&
+                text.Contains("?? Path.Combine", StringComparison.Ordinal))
+                continue;
+
+            // nvngx_config.txt is AnWave's config file, not an NGX model root.
+            if (text.Contains("\"NVIDIA\", \"NGX\", \"nvngx_config.txt\"", StringComparison.Ordinal) &&
+                CountOccurrences(text, "\"NVIDIA\", \"NGX\"") == 1)
+                continue;
+
+            offenders.Add(Path.GetFileName(file));
+        }
+
+        Assert.True(offenders.Count == 0,
+            "NGX root path rebuilt outside NgxPathResolver in: " + string.Join(", ", offenders) +
+            ". Use NgxPathResolver.GetWritableBase for writes or GetCandidatePaths for reads.");
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var n = 0;
+        var i = haystack.IndexOf(needle, StringComparison.Ordinal);
+        while (i >= 0)
+        {
+            n++;
+            i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal);
+        }
+        return n;
+    }
+
+    /// <summary>
+    /// Walks up from the test binary to the repo root and returns the named subdirectory.
+    /// CI runs from bin/Release/net9.0, so this needs several hops.
+    /// </summary>
+    private static string FindRepoSubdir(string name)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var i = 0; i < 8 && dir != null; i++, dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, name);
+            if (Directory.Exists(candidate) && Directory.Exists(Path.Combine(dir.FullName, "tests")))
+                return candidate;
+        }
+        throw new DirectoryNotFoundException($"Could not locate '{name}' from {AppContext.BaseDirectory}");
+    }
 }

@@ -32,13 +32,9 @@ public class UpgradeService : IUpgradeService
 
     public UpgradeOperation UpgradeFromStaging(string ngxBasePath)
     {
-        // Auto-detect default NGX path if not configured
+        // Auto-detect via the shared write-root rule, not a local ProgramData literal.
         if (string.IsNullOrEmpty(ngxBasePath))
-        {
-            ngxBasePath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "NVIDIA", "NGX");
-        }
+            ngxBasePath = NgxPathResolver.GetWritableBase(null) ?? "";
 
         if (!IsPathAllowed(ngxBasePath))
         {
@@ -170,13 +166,9 @@ var targetDllExists = File.Exists(Path.Combine(operation.TargetPath, "nvngx_dlss
 
     public UpgradeOperation SyncFromDlssSDK(string zipPath, string ngxBasePath)
     {
-        // Auto-detect default NGX path if not configured
+        // Auto-detect via the shared write-root rule, not a local ProgramData literal.
         if (string.IsNullOrEmpty(ngxBasePath))
-        {
-            ngxBasePath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "NVIDIA", "NGX");
-        }
+            ngxBasePath = NgxPathResolver.GetWritableBase(null) ?? "";
 
         if (!File.Exists(zipPath))
         {
@@ -258,13 +250,9 @@ var targetDllExists = File.Exists(Path.Combine(operation.TargetPath, "nvngx_dlss
 
     public UpgradeOperation ApplyToAnWave(string anWavePath, string ngxBasePath)
     {
-        // Auto-detect NGX base path if not configured
+        // Auto-detect via the shared write-root rule, not a local ProgramData literal.
         if (string.IsNullOrEmpty(ngxBasePath))
-        {
-            ngxBasePath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "NVIDIA", "NGX");
-        }
+            ngxBasePath = NgxPathResolver.GetWritableBase(null) ?? "";
 
         if (string.IsNullOrEmpty(anWavePath))
         {

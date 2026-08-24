@@ -283,9 +283,10 @@ public class StreamlineDownloadService : IStreamlineDownloadService
         }
         _cachedDownloadPath = zipPath;
 
-        var ngxBasePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "NVIDIA", "NGX");
+        // One write-root rule for the whole app (see DlssDownloadService twin).
+        var ngxBasePath = NgxPathResolver.GetWritableBase(null);
+        if (string.IsNullOrEmpty(ngxBasePath))
+            return Task.FromResult<UpgradeOperation?>(null);
 
         progress?.Report(0);
 

@@ -1286,9 +1286,13 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 		}
 
 		// Pre-flight: disk space check (need ~500 MB for download + extract)
-		var ngxBase = Path.Combine(
-			Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-			"NVIDIA", "NGX");
+		// Same write-root rule the sync/import paths use — NOT a hardcoded ProgramData literal.
+		// A local rebuild of that path was the fifth copy of the same two constants, and the
+		// writability probe below has to check the directory we will ACTUALLY write to.
+		var ngxBase = NgxPathResolver.GetWritableBase(null)
+			?? Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+				"NVIDIA", "NGX");
 		var appDataBase = Path.Combine(
 			Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
 			"DLSSVersionToolkit");
@@ -2466,9 +2470,14 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
     {
         try
         {
-            var ngxBase = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "NVIDIA", "NGX");
+            // Backups live where writes went — same rule, not a local ProgramData literal.
+            var ngxBase = NgxPathResolver.GetWritableBase(null);
+            if (string.IsNullOrEmpty(ngxBase))
+            {
+                MessageBox.Show("Could not locate a writable NVIDIA NGX directory.", "NGX Backups",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
             var versionsParent = Path.Combine(ngxBase, NgxScanner.ReleaseSubPath);
             var dialog = new BackupsDialog(_backupService, versionsParent);
             dialog.ShowDialog();
