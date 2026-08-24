@@ -16,7 +16,12 @@ public class LocalImportResult
     /// <summary>Every file written, as full paths (both .bin payloads and dlss_override copies).</summary>
     public List<string> FilesWritten { get; } = new();
 
-    /// <summary>Per-component summary: DLL name → version read from its bytes → packed folder used.</summary>
+    /// <summary>
+    /// Per-component summary: DLL name → version read from its bytes → packed folder used.
+    /// Holds ONLY components that actually landed a file. A component whose every write failed is
+    /// in <see cref="Skipped"/> with its reason and is deliberately absent here, so
+    /// <c>Components.Count</c> means exactly "components imported" and cannot overstate the run.
+    /// </summary>
     public List<ImportedComponent> Components { get; } = new();
 
     /// <summary>DLLs found in the source folder that were skipped, with the reason.</summary>
@@ -24,6 +29,21 @@ public class LocalImportResult
 
     /// <summary>Backup folder created before any overwrite, or null when nothing was overwritten.</summary>
     public string? BackupPath { get; set; }
+
+    /// <summary>
+    /// THE predicate for "this import put files on disk". Because <see cref="Components"/> only
+    /// holds landed components, this is provably equivalent to <c>FilesWritten.Count &gt; 0</c> —
+    /// the point is that there is now ONE of it. Callers previously each rebuilt the test as
+    /// <c>Success &amp;&amp; FilesWritten.Count &gt; 0</c>, which is two sites that can disagree.
+    /// </summary>
+    public bool Landed => Components.Count > 0;
+
+    /// <summary>
+    /// Total files written across every component, summed from the per-component numbers that get
+    /// shown to the user. Reconciling this against <see cref="FilesWritten"/> is what catches a
+    /// report that displays a headline total its own breakdown does not add up to.
+    /// </summary>
+    public int TotalFilesWrittenFromComponents => Components.Sum(c => c.TotalFilesWritten);
 }
 
 public class ImportedComponent
@@ -32,7 +52,27 @@ public class ImportedComponent
     public string ComponentDir { get; set; } = "";
     public string Version { get; set; } = "";
     public string PackedFolder { get; set; } = "";
+
+    /// <summary>Renamed <c>arch_appid.bin</c> payloads written under <c>models\{component}\</c>.</summary>
     public int BinFilesWritten { get; set; }
+
+    /// <summary>
+    /// Real-named DLL copies written under <c>models\dlss_override\</c>. Only dlssg/dlssd/deepdvc
+    /// ever get one. Counted separately because it was previously counted in the run total and
+    /// named nowhere in the breakdown — 4 components × 2 bins reads as 8 next to a headline of 11.
+    /// </summary>
+    public int OverrideFilesWritten { get; set; }
+
+    /// <summary>Every file this component landed, in either tree.</summary>
+    public int TotalFilesWritten => BinFilesWritten + OverrideFilesWritten;
+
+    /// <summary>
+    /// True when this component put at least one file on disk, in EITHER tree. The manifest gate
+    /// used to ask <c>BinFilesWritten &gt; 0</c>, which is false for a component whose bins failed
+    /// verification but whose override copy succeeded — a written file with no record of the
+    /// override, which is precisely what the manifest exists to prevent.
+    /// </summary>
+    public bool Landed => TotalFilesWritten > 0;
 }
 
 public interface ILocalDllImportService
@@ -236,9 +276,14 @@ public class LocalDllImportService : ILocalDllImportService
                         BackupIfExists(destDll, ngxBase, backupRoot, result);
                         File.Copy(srcDll, destDll, true);
                         if (OperationGuard.VerifyFile(destDll, srcSize))
+                        {
                             result.FilesWritten.Add(destDll);
+                            component.OverrideFilesWritten++;
+                        }
                         else
+                        {
                             result.Skipped.Add($"{destDll}: post-copy verification failed");
+                        }
                     }
                     else
                     {
@@ -246,31 +291,44 @@ public class LocalDllImportService : ILocalDllImportService
                     }
                 }
 
+                // A component that landed nothing is NOT an import. It stays out of Components (so
+                // the reported count cannot overstate the run) and its reason is already in Skipped.
+                if (!component.Landed)
+                {
+                    result.Skipped.Add($"{dllName}: no files written, not imported");
+                    continue;
+                }
+
                 result.Components.Add(component);
 
                 // Record the assertion. This is what makes the import survive a later Update All:
                 // without a record, the next sync overwrites it and nothing knows it ever happened.
-                // Only recorded when at least one payload actually landed — a fully-skipped
-                // component is not an override.
-                if (component.BinFilesWritten > 0)
+                // Gated on Landed (files in EITHER tree), not on bins alone — a component whose
+                // bins failed verification but whose override copy succeeded has a file on disk,
+                // and skipping the record there is the exact silent-overwrite this manifest exists
+                // to stop.
+                try
                 {
-                    try
-                    {
-                        _manifest?.RecordImport(dllName, version, srcDll, packed, staging);
-                    }
-                    catch (Exception ex)
-                    {
-                        // Manifest trouble must not fail a successful copy, but it MUST be visible —
-                        // a silent miss here is what re-breaks Update All preservation.
-                        result.Skipped.Add($"{dllName}: imported, but recording the override failed ({ex.Message})");
-                    }
+                    _manifest?.RecordImport(dllName, version, srcDll, packed, staging);
+                }
+                catch (Exception ex)
+                {
+                    // Manifest trouble must not fail a successful copy, but it MUST be visible —
+                    // a silent miss here is what re-breaks Update All preservation.
+                    result.Skipped.Add($"{dllName}: imported, but recording the override failed ({ex.Message})");
                 }
             }
         }
         catch (UnauthorizedAccessException ex)
         {
+            // NOT an elevation prompt. Every write here is inside an allowlisted write root
+            // (ProgramData / AppData NVIDIA\NGX), which a normal user owns — v0.0.53 proved the
+            // v0.0.52 "run as Administrator" advice was chasing a path problem. What genuinely
+            // denies a write in these roots is a file held open by a running game or a read-only
+            // attribute, so say that instead of sending the user to elevate for no reason.
             result.ErrorMessage =
-                $"Access denied writing to NGX ({ex.Message}). Run DLSS Version Toolkit as Administrator.";
+                $"Access denied writing to {ngxBase} ({ex.Message}). Close any running game — " +
+                "it can hold an NGX DLL open — then try again.";
             return result;
         }
         catch (Exception ex)
@@ -285,7 +343,8 @@ public class LocalDllImportService : ILocalDllImportService
 
         // Success means at least one component actually landed. A run that skipped everything is a
         // failure with a reason, never a silent green — the swallowed-failure lesson from v0.0.42.
-        result.Success = result.Components.Count > 0 && result.FilesWritten.Count > 0;
+        // One predicate (LocalImportResult.Landed) so callers cannot ask a different question.
+        result.Success = result.Landed;
         if (!result.Success && string.IsNullOrEmpty(result.ErrorMessage))
             result.ErrorMessage = result.Skipped.Count > 0
                 ? $"No DLLs imported. {string.Join("; ", result.Skipped)}"

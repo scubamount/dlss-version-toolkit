@@ -624,8 +624,9 @@ private async Task<string> ReassertOverridesAsync(string? dlssChannelVersion, st
 							sourceDir, settings.NgxBasePath, staging: rec.Staging));
 
 					// Verify it actually landed. "Called the importer" is not "the DLL is in place" —
-					// a sync that copied zero files reported success for five releases once.
-					if (importResult.Success && importResult.FilesWritten.Count > 0)
+					// a sync that copied zero files reported success for five releases once. The
+					// question is asked once, by the result itself (Landed), not rebuilt here.
+					if (importResult.Landed)
 					{
 						lines.Add($"🔒 Override {status.DllName} v{status.OverrideVersion} re-applied " +
 								  $"({importResult.FilesWritten.Count} file(s))");
@@ -1029,13 +1030,22 @@ private async Task ImportLocalDllsAsync()
 		{
 			MessageBox.Show(
 				$"Import failed.\n\nDetails: {result.ErrorMessage}\n\n" +
-				"If this is an access error, close any running game and run this app as Administrator.",
+				"If a game is running it can hold a DLL open — close it and try again.",
 				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
 			return;
 		}
 
+		// Name every file the total counts. The breakdown used to print BinFilesWritten only, so a
+		// run that wrote 8 bins + 3 override copies showed "11 file(s) written" over lines adding
+		// to 8 — the headline was right and unverifiable from what sat underneath it.
 		var lines = result.Components
-			.Select(c => $"  • {c.DllName} → v{c.Version} (folder {c.PackedFolder}, {c.BinFilesWritten} file(s))")
+			.Select(c =>
+			{
+				var where = c.OverrideFilesWritten > 0
+					? $"{c.BinFilesWritten} model file(s) + {c.OverrideFilesWritten} override copy(ies)"
+					: $"{c.BinFilesWritten} model file(s)";
+				return $"  • {c.DllName} → v{c.Version} (folder {c.PackedFolder}, {where})";
+			})
 			.ToList();
 
 		var skippedNote = result.Skipped.Count > 0
@@ -1456,15 +1466,14 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     var importResult = await Task.Run(() => _localDllImportService.ImportFromFolder(
                         importFolder!, settingsForImport.NgxBasePath, ImportToStaging));
 
-                    if (!importResult.Success)
+                    // One predicate. The middle arm here used to be `Success && FilesWritten == 0`,
+                    // which the service can no longer produce — a "success" with zero files is now
+                    // a failure carrying its reason, so that branch reported nothing and hid the
+                    // reason behind a generic line. Skipped detail is surfaced instead.
+                    if (!importResult.Landed)
                     {
                         _runReports.Add("Local import", "warn",
-                            importResult.ErrorMessage ?? "import failed");
-                    }
-                    else if (importResult.FilesWritten.Count == 0)
-                    {
-                        _runReports.Add("Local import", "warn",
-                            $"no DLLs imported from {importFolder}");
+                            importResult.ErrorMessage ?? $"no DLLs imported from {importFolder}");
                     }
                     else
                     {
@@ -1472,6 +1481,12 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                             importResult.Components.Select(c => $"{c.DllName} v{c.Version}"));
                         _runReports.Add("Local import", "ok",
                             $"{importResult.FilesWritten.Count} file(s) written — {components}");
+
+                        // A partial run is a green line today. Name what did not land, or the user
+                        // reads "ok" over a component that silently never arrived.
+                        if (importResult.Skipped.Count > 0)
+                            _runReports.Add("Local import", "warn",
+                                $"skipped: {string.Join("; ", importResult.Skipped)}");
                     }
                 }
                 catch (Exception ex)
