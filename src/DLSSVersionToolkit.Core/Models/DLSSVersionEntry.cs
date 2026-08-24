@@ -14,6 +14,27 @@ public class DLSSVersionEntry
     public bool IsNewestFG { get; set; }
     public bool IsNewestDLSSD { get; set; }
     public bool IsNewestDeepDVC { get; set; }
+
+    /// <summary>
+    /// Components on this row currently supplied by a locally-imported override rather than the
+    /// download channel, e.g. { "nvngx_dlssd.dll" }. Drives the 🔒 marker in the versions grid.
+    /// </summary>
+    public List<string> OverriddenDlls { get; set; } = new();
+
+    /// <summary>True when any component on this row is locally overridden.</summary>
+    public bool HasOverride => OverriddenDlls.Count > 0;
+
+    /// <summary>
+    /// Marker shown in the grid's Override column. Empty string rather than a dash so unmarked
+    /// rows stay visually quiet.
+    /// </summary>
+    public string OverrideMarker => HasOverride ? "🔒" : "";
+
+    /// <summary>Tooltip naming exactly which components are overridden.</summary>
+    public string OverrideTooltip => HasOverride
+        ? "Locally imported override: " + string.Join(", ", OverriddenDlls)
+        : "";
+
     public DateTime ScannedAt { get; set; } = DateTime.UtcNow;
 
     public string DisplaySource => Source switch

@@ -37,4 +37,20 @@ public class AppSettings
 
     /// <summary>Last selected FG multiplier (2..6). 0 = not saved (use default).</summary>
     public int SelectedFgMultiplier { get; set; } = 0;
+
+    /// <summary>
+    /// Identifies the version-gated preset recommendation the user has already answered, in the
+    /// form "dll:minVersion:preset" (v0.0.52). Non-empty means "do not ask again for this
+    /// rule" — set whether they accepted or declined, so the prompt is one-time rather than
+    /// nagging. Cleared by Reset Selections.
+    /// </summary>
+    public string DismissedPresetRule { get; set; } = "";
+
+    /// <summary>
+    /// Folder the user drops importable DLLs into. Empty = the app default
+    /// (%AppData%\DLSSVersionToolkit\Overrides). Mirrors the manifest's own copy so the setting is
+    /// visible and editable alongside the other paths.
+    /// </summary>
+    public string OverrideLibraryPath { get; set; } = "";
+
 }
