@@ -148,9 +148,13 @@ public partial class App : Application
         var anWaveAutoService = new AnWaveAutoService();
         var whitelistService = new WhitelistService();
         var presetOverrideService = new PresetOverrideService();
-        var localDllImportService = new LocalDllImportService();
+        // Override manifest is constructed first: the importer records every import through it,
+        // which is what lets Update All preserve a local override instead of silently
+        // overwriting it. Shares the app's single version predicate.
+        var overrideManifestService = new OverrideManifestService(versionComparer);
+        var localDllImportService = new LocalDllImportService(overrideManifestService);
 
-        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService, whitelistService, presetOverrideService, versionComparer, localDllImportService);
+        _mainViewModel = new MainViewModel(scanService, upgradeService, exportService, _settingsService, backupService, dlssDownloadService, streamlineDownloadService, anWaveAutoService, dlssIndicatorService, whitelistService, presetOverrideService, versionComparer, localDllImportService, overrideManifestService);
 
         SetupTrayIcon();
 

@@ -72,6 +72,18 @@ public interface ILocalDllImportService
 public class LocalDllImportService : ILocalDllImportService
 {
     /// <summary>
+    /// Records each successful import so Update All can preserve it. Optional: when null the
+    /// service still imports, it just keeps no memory of having done so (used by tests that only
+    /// exercise the file layout).
+    /// </summary>
+    private readonly IOverrideManifestService? _manifest;
+
+    public LocalDllImportService(IOverrideManifestService? manifest = null)
+    {
+        _manifest = manifest;
+    }
+
+    /// <summary>
     /// Components that the glom log ALSO copies into the dlss_override tree under their real DLL
     /// name (in addition to the renamed .bin). Super Resolution is absent there — it appears only as
     /// .bin payloads — so this set is exactly what was observed, not a guess extended to all four.
@@ -232,6 +244,24 @@ public class LocalDllImportService : ILocalDllImportService
                 }
 
                 result.Components.Add(component);
+
+                // Record the assertion. This is what makes the import survive a later Update All:
+                // without a record, the next sync overwrites it and nothing knows it ever happened.
+                // Only recorded when at least one payload actually landed — a fully-skipped
+                // component is not an override.
+                if (component.BinFilesWritten > 0)
+                {
+                    try
+                    {
+                        _manifest?.RecordImport(dllName, version, srcDll, packed, staging);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Manifest trouble must not fail a successful copy, but it MUST be visible —
+                        // a silent miss here is what re-breaks Update All preservation.
+                        result.Skipped.Add($"{dllName}: imported, but recording the override failed ({ex.Message})");
+                    }
+                }
             }
         }
         catch (UnauthorizedAccessException ex)

@@ -24,6 +24,7 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
  private readonly IWhitelistService _whitelistService;
     private readonly IPresetOverrideService _presetOverrideService;
     private readonly ILocalDllImportService _localDllImportService;
+    private readonly IOverrideManifestService _overrideManifestService;
 
     /// <summary>
     /// When true, Import Local DLLs targets the NGX <c>Staging\</c> tree instead of production.
@@ -228,7 +229,8 @@ public MainViewModel(
     IWhitelistService whitelistService,
     IPresetOverrideService presetOverrideService,
     IVersionComparer versionComparer,
-    ILocalDllImportService localDllImportService)
+    ILocalDllImportService localDllImportService,
+    IOverrideManifestService overrideManifestService)
 {
  _scanService = scanService;
  _upgradeService = upgradeService;
@@ -243,6 +245,7 @@ _presetOverrideService = presetOverrideService;
 _dlssIndicatorService = dlssIndicatorService;
 _versionComparer = versionComparer;
 _localDllImportService = localDllImportService;
+_overrideManifestService = overrideManifestService;
 
 IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
 
@@ -533,6 +536,219 @@ private static string PadVersionTo4(string v)
 }
 
 /// <summary>
+/// Re-applies locally-imported DLL overrides after Update All has synced from the download
+/// channel, and returns the summary line describing what happened (v0.0.52).
+///
+/// THE TWO WAYS THIS GOES WRONG, both avoided here:
+///   * Do nothing — the sync silently replaces an imported DLL the channel cannot supply, and
+///     the user's manual work vanishes with a "success" dialog on top of it.
+///   * Re-assert unconditionally — the day the channel finally ships something NEWER than the
+///     import, re-asserting is a silent DOWNGRADE. So every override is version-compared
+///     against what the channel just installed, and a superseded one is reported, not applied.
+///
+/// Never throws: a failure here must not fail an otherwise good update, but it is always
+/// reported in the summary rather than swallowed into Debug (the v0.0.42 lesson).
+/// </summary>
+private async Task<string> ReassertOverridesAsync(string? dlssChannelVersion, string? streamlineChannelVersion)
+{
+	try
+	{
+		var manifest = _overrideManifestService.Load();
+		if (manifest.Overrides.Count == 0)
+			return "";
+
+		// What the download channel just made available, per component. Both SR and RR/FG/DeepDVC
+		// come from the two SDKs, so the channel version for each DLL is whichever SDK supplies it.
+		var channelByDll = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+		foreach (var dll in UpgradeService.NgxDllNames)
+		{
+			channelByDll[dll] = string.Equals(dll, "nvngx_dlss.dll", StringComparison.OrdinalIgnoreCase)
+				? dlssChannelVersion
+				: streamlineChannelVersion ?? dlssChannelVersion;
+		}
+
+		var installedByDll = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+		var statuses = await Task.Run(() =>
+			_overrideManifestService.Evaluate(installedByDll, channelByDll));
+
+		if (statuses.Count == 0)
+			return "";
+
+		var settings = await _settingsService.LoadAsync();
+		var lines = new List<string>();
+
+		foreach (var status in statuses)
+		{
+			switch (status.Disposition)
+			{
+				case OverrideDisposition.Superseded:
+					// The important one. Leave the newer channel DLL alone and say so plainly.
+					lines.Add($"⬆️ Override {status.DllName} v{status.OverrideVersion} superseded by " +
+							  $"v{status.ChannelVersion} — kept the newer official release");
+					_runReports.Add("Override", "warn",
+						$"{status.DllName}: channel v{status.ChannelVersion} is newer than imported v{status.OverrideVersion}");
+					break;
+
+				case OverrideDisposition.Intact:
+					lines.Add($"🔒 Override {status.DllName} v{status.OverrideVersion} still applied");
+					_runReports.Add("Override", "ok", $"{status.DllName} v{status.OverrideVersion} intact");
+					break;
+
+				case OverrideDisposition.SourceMissing:
+					lines.Add($"⚠️ Override {status.DllName} v{status.OverrideVersion} could NOT be re-applied — " +
+							  "the imported file is missing from your override library");
+					_runReports.Add("Override", "fail", $"{status.DllName}: source file missing");
+					break;
+
+				case OverrideDisposition.NeedsReassert:
+					var rec = manifest.Overrides.FirstOrDefault(o =>
+						string.Equals(o.DllName, status.DllName, StringComparison.OrdinalIgnoreCase));
+					if (rec == null || string.IsNullOrWhiteSpace(rec.SourcePath))
+					{
+						lines.Add($"⚠️ Override {status.DllName}: no source path recorded, cannot re-apply");
+						_runReports.Add("Override", "fail", $"{status.DllName}: no source path");
+						break;
+					}
+
+					var sourceDir = Path.GetDirectoryName(rec.SourcePath);
+					if (string.IsNullOrEmpty(sourceDir))
+					{
+						lines.Add($"⚠️ Override {status.DllName}: bad source path, cannot re-apply");
+						_runReports.Add("Override", "fail", $"{status.DllName}: bad source path");
+						break;
+					}
+
+					DownloadStatus = $"Re-applying override {status.DllName}...";
+					var importResult = await Task.Run(() =>
+						_localDllImportService.ImportFromFolder(
+							sourceDir, settings.NgxBasePath, staging: rec.Staging));
+
+					// Verify it actually landed. "Called the importer" is not "the DLL is in place" —
+					// a sync that copied zero files reported success for five releases once.
+					if (importResult.Success && importResult.FilesWritten.Count > 0)
+					{
+						lines.Add($"🔒 Override {status.DllName} v{status.OverrideVersion} re-applied " +
+								  $"({importResult.FilesWritten.Count} file(s))");
+						_runReports.Add("Override", "ok",
+							$"{status.DllName} v{status.OverrideVersion} re-applied");
+					}
+					else
+					{
+						lines.Add($"⚠️ Override {status.DllName} v{status.OverrideVersion} re-apply FAILED: " +
+								  $"{importResult.ErrorMessage ?? "no files written"}");
+						_runReports.Add("Override", "fail",
+							$"{status.DllName}: re-apply failed ({importResult.ErrorMessage ?? "0 files"})");
+					}
+					break;
+			}
+		}
+
+		return lines.Count > 0 ? string.Join("\n", lines) + "\n" : "";
+	}
+	catch (Exception ex)
+	{
+		Debug.WriteLine($"ReassertOverrides threw (non-fatal): {ex.Message}");
+		return $"⚠️ Local overrides could not be checked: {ex.Message}\n";
+	}
+}
+
+/// <summary>
+/// Applies the version-gated preset recommendation, if one applies and the user has not already
+/// been asked about it (v0.0.52).
+///
+/// WHY IT ASKS. Andrew's own Windows testing established that DLSS 4.5 Ray Reconstruction
+/// (310.7.128) only engages on Preset F — Preset E does not work. That is a real requirement, but
+/// it is OBSERVED rather than NVIDIA-documented, and silently changing a setting the user chose is
+/// hostile. So it is offered once, and the answer is remembered either way.
+/// </summary>
+private async Task SuggestVersionGatedPresetAsync()
+{
+	try
+	{
+		var rrVersion = Versions
+			.Select(v => v.DLSSD)
+			.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)
+							  && !v.Equals("Unknown", StringComparison.OrdinalIgnoreCase)
+							  && !v.Equals("N/A", StringComparison.OrdinalIgnoreCase));
+
+		var rule = DlssPresetDisplay.FindPresetRule("nvngx_dlssd.dll", rrVersion);
+		if (rule == null)
+			return;
+
+		// Already on the recommended preset — nothing to suggest.
+		if (SelectedRrPreset == rule.Value.Preset)
+			return;
+
+		var settings = await _settingsService.LoadAsync();
+		var ruleKey = $"{rule.Value.DllName}:{rule.Value.MinVersion}:{rule.Value.Preset}";
+		if (string.Equals(settings.DismissedPresetRule, ruleKey, StringComparison.Ordinal))
+			return;
+
+		var answer = MessageBox.Show(
+			$"{rule.Value.Reason}\n\n" +
+			$"Detected Ray Reconstruction: v{rrVersion}\n" +
+			$"Current RR preset: {DlssPresetDisplay.GetShortLabel(SelectedRrPreset)}\n" +
+			$"Recommended: {DlssPresetDisplay.GetShortLabel(rule.Value.Preset)}\n\n" +
+			"Switch the RR preset now? (You will not be asked again for this version.)",
+			"Preset recommendation", MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+		if (answer == MessageBoxResult.Yes)
+			SelectedRrPreset = rule.Value.Preset;
+
+		// Remember the answer either way, so this is a one-time prompt rather than nagging.
+		settings.DismissedPresetRule = ruleKey;
+		await _settingsService.SaveAsync(settings);
+	}
+	catch (Exception ex)
+	{
+		Debug.WriteLine($"SuggestVersionGatedPreset failed (non-fatal): {ex.Message}");
+	}
+}
+
+/// <summary>
+/// Restores every dropdown to its recommended default and forgets the saved selections
+/// (v0.0.52) — the escape hatch for "I changed something and I don't remember what".
+/// </summary>
+[RelayCommand]
+private async Task ResetSelectionsAsync()
+{
+	var confirm = MessageBox.Show(
+		"Reset all preset selections to their recommended defaults?\n\n" +
+		$"  Super Resolution : {DlssPresetDisplay.GetShortLabel(DlssPresetDisplay.SuperResolutionDefault)}\n" +
+		$"  Ray Reconstruction: {DlssPresetDisplay.GetShortLabel(DlssPresetDisplay.RayReconstructionDefault)}\n" +
+		$"  Frame Generation : {DlssPresetDisplay.GetShortLabel(DlssPresetDisplay.FrameGenerationDefault)}\n" +
+		$"  FG mode / multiplier: {DlssPresetDisplay.GetModeLabel(DlssPresetDisplay.FrameGenModeDefault)} / {DlssPresetDisplay.FrameGenMultiplierDefault}x\n\n" +
+		"This only changes the selections in this app. Nothing is written to your driver until " +
+		"you apply.",
+		"Reset selections", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+
+	if (confirm != MessageBoxResult.OK)
+		return;
+
+	SelectedPreset = DlssPresetDisplay.SuperResolutionDefault;
+	SelectedRrPreset = DlssPresetDisplay.RayReconstructionDefault;
+	SelectedFgPreset = DlssPresetDisplay.FrameGenerationDefault;
+	SelectedFgMode = DlssPresetDisplay.FrameGenModeDefault;
+	SelectedFgMultiplier = DlssPresetDisplay.FrameGenMultiplierDefault;
+
+	try
+	{
+		var settings = await _settingsService.LoadAsync();
+		PresetSelectionPersistence.ApplyTo(settings,
+			SelectedPreset, SelectedRrPreset, SelectedFgPreset,
+			SelectedFgMode, SelectedFgMultiplier);
+		// Clear the one-time preset prompt too, so a reset genuinely restores first-run behaviour.
+		settings.DismissedPresetRule = "";
+		await _settingsService.SaveAsync(settings);
+		DownloadStatus = "Selections reset to defaults.";
+	}
+	catch (Exception ex)
+	{
+		Debug.WriteLine($"ResetSelections save failed (non-fatal): {ex.Message}");
+	}
+}
+
+/// <summary>
 /// Stops all Update All progress indicators (v0.0.39). MUST be called immediately before any
 /// terminal MessageBox inside OneClickUpdateAllAsync: the dialogs are modal, so the finally
 /// block that clears these flags doesn't run until the user dismisses the popup — the bar
@@ -812,21 +1028,59 @@ private async Task ImportLocalDllsAsync()
 {
 	try
 	{
-		var dialog = new Microsoft.Win32.OpenFolderDialog
+		// Default to the user's override library so the common case is one click. The folder is
+		// created on demand and the picker is only offered when it holds nothing importable —
+		// a fixed drop location is how the reference tool (glom) works, and it is what makes
+		// re-asserting an override after Update All possible without asking again.
+		var manifest = _overrideManifestService.Load();
+		var libraryPath = _overrideManifestService.ResolveLibraryPath(manifest);
+
+		string? sourceFolder = null;
+		var libraryHasDlls = false;
+		try
 		{
-			Title = "Select the folder containing nvngx_*.dll files"
-		};
+			Directory.CreateDirectory(libraryPath);
+			libraryHasDlls = UpgradeService.NgxDllNames
+				.Any(n => File.Exists(Path.Combine(libraryPath, n)));
+		}
+		catch (Exception ex)
+		{
+			Debug.WriteLine($"Override library not usable ({libraryPath}): {ex.Message}");
+		}
 
-		if (dialog.ShowDialog() != true)
-			return;
+		if (libraryHasDlls)
+		{
+			var useLibrary = MessageBox.Show(
+				$"Import from your override library?\n\n{libraryPath}\n\n" +
+				"Yes — import the DLLs already in that folder.\n" +
+				"No — pick a different folder this time.",
+				"Import Local DLLs", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
 
-		var sourceFolder = dialog.FolderName;
+			if (useLibrary == MessageBoxResult.Cancel)
+				return;
+			if (useLibrary == MessageBoxResult.Yes)
+				sourceFolder = libraryPath;
+		}
+
+		if (sourceFolder == null)
+		{
+			var dialog = new Microsoft.Win32.OpenFolderDialog
+			{
+				Title = "Select the folder containing nvngx_*.dll files"
+			};
+
+			if (dialog.ShowDialog() != true)
+				return;
+
+			sourceFolder = dialog.FolderName;
+		}
 
 		var confirm = MessageBox.Show(
 			$"Import NGX DLLs from:\n{sourceFolder}\n\n" +
 			"Each DLL's version is read from the file itself and written into the NGX model tree " +
 			"in the layout the driver loads (models\\<component>\\versions\\<packed>\\files\\).\n\n" +
-			"Existing files are backed up first.\n\n" +
+			"Existing files are backed up first, and each import is recorded so Update All can " +
+			"preserve it (or tell you when a newer official release supersedes it).\n\n" +
 			"Note: this uses an NGX layout that NVIDIA does not publicly document. It matches what " +
 			"the nvidiaDlssGlom tool does, but treat it as community-derived.\n\nContinue?",
 			"Import Local DLLs", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
@@ -842,6 +1096,7 @@ private async Task ImportLocalDllsAsync()
 				sourceFolder,
 				settings.NgxBasePath,
 				staging: ImportToStaging));
+
 
 		if (!result.Success)
 		{
@@ -1217,6 +1472,15 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             _runReports.Add("DLSS SDK", "ok",
                 $"v{sdkVersion} synced to NGX ({ngxOp.FilesCopied.Count} file(s))");
 
+            // Step 2b: Re-assert local DLL overrides that this sync may have just overwritten.
+            //
+            // The sync above installs whatever the download channel offers. If the user imported a
+            // DLL the channel cannot supply (DLSS 4.5 RR), the sync silently replaced it — which is
+            // exactly the swallowed-failure shape v0.0.42 was about. But re-asserting BLINDLY is a
+            // downgrade the day NVIDIA finally publishes something newer, so each override is
+            // compared against the channel version first and a superseded one is left alone.
+            var overrideLine = await ReassertOverridesAsync(sdkVersion, streamlineVersion);
+
             DownloadStatus = "Applying to AnWave...";
 
             // Step 3: Apply to AnWave if installed (check all sources, including service instance)
@@ -1286,6 +1550,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     MessageBox.Show(
                         $"All done!\n\n" +
                         unlockLine +
+                        overrideLine +
                         slLine +
                         $"✅ NGX Release: {ngxStatus}\n" +
                         $"  {ngxDetail}\n\n" +
@@ -1353,6 +1618,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 					MessageBox.Show(
 						$"Partial update — NGX succeeded but AnWave apply failed after setup.\n\n" +
 						unlockLine +
+						overrideLine +
 						$"✅ NGX Release: {ngxStatus}\n" +
 						$" {ngxFiles}\n\n" +
 						$"❌ AnWave apply: {anWaveOp.ErrorMessage}\n\n" +
@@ -1369,6 +1635,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 					MessageBox.Show(
 						$"All done!\n\n" +
 						unlockLine +
+						overrideLine +
 						$"✅ NGX Release: {ngxStatus}\n" +
 						$" {ngxFiles}\n\n" +
 						$"✅ AnWave setup + apply: v{appliedVer} ({anWaveOp.FilesCopied.Count} files)\n" +
@@ -1390,6 +1657,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 				MessageBox.Show(
 					$"{versionStatus}\n\n" +
 					unlockLine +
+					overrideLine +
 					$"Files copied ({ngxOp.FilesCopied.Count}):\n" +
 					$" {ngxFiles}\n\n" +
 					$"❌ AnWave auto-setup failed: {setupResult.ErrorMessage}\n\n" +
@@ -1430,6 +1698,51 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         {
             var result = await _scanService.ScanAllAsync();
             _lastScanResult = result;
+
+            // Mark rows whose components come from a local import rather than the download
+            // channel, so the grid can show the 🔒 marker. Done here (not in the scanner) because
+            // "is this overridden" is app state, not a property of the files on disk.
+            try
+            {
+                var overrideManifest = _overrideManifestService.Load();
+                if (overrideManifest.Overrides.Count > 0)
+                {
+                    foreach (var entry in result.Sources)
+                    {
+                        entry.OverriddenDlls.Clear();
+
+                        // Only NGX rows can carry an override — that is the only tree imports write.
+                        if (entry.Source?.StartsWith("NGX_", StringComparison.OrdinalIgnoreCase) != true)
+                            continue;
+
+                        foreach (var rec in overrideManifest.Overrides)
+                        {
+                            // The row shows an override when the component's installed version
+                            // matches what was imported. Version match, not mere presence — an
+                            // official release that happens to reach the same version is not
+                            // "your override", and a superseded one must stop claiming the row.
+                            var installed = rec.DllName.ToLowerInvariant() switch
+                            {
+                                "nvngx_dlss.dll"    => entry.DLSS,
+                                "nvngx_dlssg.dll"   => entry.FrameGen,
+                                "nvngx_dlssd.dll"   => entry.DLSSD,
+                                "nvngx_deepdvc.dll" => entry.DeepDVC,
+                                _ => null
+                            };
+
+                            if (!string.IsNullOrWhiteSpace(installed) &&
+                                PadVersionTo4(installed!) == PadVersionTo4(rec.Version))
+                            {
+                                entry.OverriddenDlls.Add(rec.DllName);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Override badge annotation failed (non-fatal): {ex.Message}");
+            }
 
             Versions.Clear();
             foreach (var entry in result.Sources)
@@ -1485,7 +1798,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 slScanned != null && slCached != null
                     ? (_versionComparer.IsNewer(slCached, slScanned) ? slCached : slScanned)
                     : slScanned ?? slCached;
-            // ponytail: slCached is a PROXY for "applied to NGX" — NGX folders carry no
+            // NOTE: slCached is a PROXY for "applied to NGX" — NGX folders carry no
             // Streamline version (their DLLs are 310.x DLSS-family), and Update All syncs
             // from exactly this zip. If a future sync path bypasses the cache, revisit.
             var slUpdateAvailable = slLatest != null &&
@@ -1640,6 +1953,10 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
             LastScanTime = result.ScannedAt.ToString("yyyy-MM-dd HH:mm:ss");
             ScanStatus = result.HasErrors ? "Error" : result.HasWarnings ? "Warning" : "Ready";
+
+            // Offer the version-gated preset recommendation once the grid reflects reality —
+            // it reads the scanned RR version, so it must run after Versions is populated.
+            await SuggestVersionGatedPresetAsync();
 
             if (result.Warnings.Count > 0)
             {

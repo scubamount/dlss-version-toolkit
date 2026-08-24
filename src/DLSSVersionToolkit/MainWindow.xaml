@@ -421,6 +421,7 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
 
                                 <!-- DLSS-SR (Super Resolution) — the main upscaling preset -->
@@ -519,11 +520,19 @@
                                 </StackPanel>
                             </Grid>
 
-                            <Button Content="Apply to all games" Style="{StaticResource SolidGreenButtonStyle}"
-                                    HorizontalAlignment="Left" Margin="0,10,0,0"
-                                    Command="{Binding ApplyPresetCommand}"
-                                    IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
-                                    ToolTip="Enables the DLSS overrides (&quot;Custom&quot;) and applies the SR, RR and FG presets to every game profile. Takes a few seconds; fully restart the game afterward."/>
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <Button Content="Apply to all games" Style="{StaticResource SolidGreenButtonStyle}"
+                                        HorizontalAlignment="Left"
+                                        Command="{Binding ApplyPresetCommand}"
+                                        IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
+                                        ToolTip="Enables the DLSS overrides (&quot;Custom&quot;) and applies the SR, RR and FG presets to every game profile. Takes a few seconds; fully restart the game afterward."/>
+
+                                <Button Content="↺  Reset" Style="{StaticResource DarkButtonStyle}"
+                                        HorizontalAlignment="Left" Margin="8,0,0,0"
+                                        Command="{Binding ResetSelectionsCommand}"
+                                        IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
+                                        ToolTip="Restores every dropdown above to its recommended default (SR L, RR E, FG B, Dynamic 6x) and clears the saved selections. Changes nothing on your driver until you apply."/>
+                            </StackPanel>
                         </StackPanel>
                     </Grid>
 
@@ -595,6 +604,19 @@
                                 <DataGridTextColumn Header="DLSSD" Binding="{Binding DLSSD}" Width="110" ElementStyle="{StaticResource MonoCellStyle}"/>
                                 <DataGridTextColumn Header="DeepDVC" Binding="{Binding DeepDVC}" Width="110" ElementStyle="{StaticResource MonoCellStyle}"/>
                                 <DataGridTextColumn Header="Streamline" Binding="{Binding Streamline}" Width="*" ElementStyle="{StaticResource MonoCellStyle}"/>
+                                <!-- Local-import marker: 🔒 means this row's DLL came from Import Local DLLs,
+                                     not from the download channel. Update All checks these and will keep the
+                                     newer official release if one ever supersedes the import. -->
+                                <DataGridTextColumn Header="Override" Binding="{Binding OverrideMarker}" Width="70">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="FontSize" Value="13"/>
+                                            <Setter Property="ToolTip" Value="{Binding OverrideTooltip}"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
                             </DataGrid.Columns>
                         </DataGrid>
                     </Border>

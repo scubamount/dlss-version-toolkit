@@ -223,6 +223,115 @@ public static class DlssPresetDisplay
     /// <summary>Recommended default for DLSS-FG (B is higher quality than A).</summary>
     public const DlssPreset FrameGenerationDefault = DlssPreset.B;
 
+    // --- Version-gated preset recommendations ------------------------------------------------
+
+    /// <summary>
+    /// A rule of the form "once component X reaches version V, its recommended preset becomes P".
+    /// </summary>
+    /// <param name="DllName">Canonical DLL whose installed version is tested, e.g. nvngx_dlssd.dll.</param>
+    /// <param name="MinVersion">Inclusive lower bound, dotted, e.g. "310.7.128".</param>
+    /// <param name="Preset">Preset to recommend at or above <paramref name="MinVersion"/>.</param>
+    /// <param name="Reason">One line shown to the user explaining why.</param>
+    public readonly record struct PresetVersionRule(
+        string DllName,
+        string MinVersion,
+        DlssPreset Preset,
+        string Reason);
+
+    /// <summary>
+    /// Version-gated preset recommendations, newest-first per component.
+    ///
+    /// WHY A TABLE. NVIDIA ties new preset letters to new model builds — the letter that is correct
+    /// today is wrong for an older DLL and vice versa, so a single constant default cannot be right
+    /// for both. Encoding it as data means the next model's requirement is one row, not a code
+    /// change, and the app can explain the recommendation instead of silently changing a dropdown.
+    ///
+    /// PROVENANCE of the DLSS 4.5 / Preset F row: confirmed by first-party testing on Andrew's
+    /// Windows machine — Ray Reconstruction 310.7.128 required Preset F to engage; Preset E did not
+    /// work. It matches the letter NVIDIA's own materials attach to the 4.5 RR model, but the
+    /// requirement itself is OBSERVED, not documented, which is why this is a suggestion the user
+    /// confirms rather than a forced write.
+    /// </summary>
+    public static readonly PresetVersionRule[] PresetVersionRules =
+    [
+        new("nvngx_dlssd.dll", "310.7.128", DlssPreset.F,
+            "DLSS 4.5 Ray Reconstruction (310.7.128+) needs Preset F — Preset E does not engage the new model."),
+    ];
+
+    /// <summary>
+    /// Returns the rule that applies to <paramref name="dllName"/> at <paramref name="installedVersion"/>,
+    /// or null when no rule matches.
+    ///
+    /// BOUNDARY CORRECTNESS. The comparison is "installed >= MinVersion", and it must be true at
+    /// EXACTLY MinVersion — the whole point of the DLSS 4.5 row is the build Andrew actually tested,
+    /// 310.7.128. Two ways of writing this were tried and both were wrong:
+    ///   * <c>version == MinVersion || IsNewer(version, MinVersion)</c> — string equality cannot
+    ///     match "310.7.128.0" against "310.7.128", so the exact target version fell through.
+    ///   * <c>!IsNewer(MinVersion, version)</c> — returns TRUE for "Unknown"/"N/A"/garbage, because
+    ///     an unparseable comparison is false in both directions. That recommends a preset off a
+    ///     version we could not read.
+    /// So both operands are parsed first and unparseable input returns null (no recommendation).
+    /// </summary>
+    public static PresetVersionRule? FindPresetRule(string? dllName, string? installedVersion)
+    {
+        if (string.IsNullOrWhiteSpace(dllName))
+            return null;
+
+        var installed = ParseVersionOrNull(installedVersion);
+        if (installed == null)
+            return null;
+
+        foreach (var rule in PresetVersionRules)
+        {
+            if (!string.Equals(rule.DllName, dllName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var min = ParseVersionOrNull(rule.MinVersion);
+            if (min == null)
+                continue;
+
+            if (installed >= min)
+                return rule;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Parses a DLL version to a 4-part <see cref="Version"/>, or null when it is absent or not a
+    /// version at all ("Unknown", "N/A", garbage). Accepts the comma form FileVersionInfo can
+    /// produce ("310.7,128,0"), matching DllVersionReader's normalization.
+    /// </summary>
+    private static Version? ParseVersionOrNull(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+
+        var text = raw.Trim();
+        if (text.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ||
+            text.Equals("N/A", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var parts = text.Replace(',', '.').Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return null;
+
+        var nums = new int[4];
+        for (var i = 0; i < 4; i++)
+        {
+            if (i >= parts.Length)
+            {
+                nums[i] = 0;
+                continue;
+            }
+            if (!int.TryParse(parts[i], out var n))
+                return null;
+            nums[i] = n;
+        }
+
+        return new Version(nums[0], nums[1], nums[2], nums[3]);
+    }
+
     /// <summary>
     /// All user-selectable SR presets in display order. Retained for backward compatibility
     /// with existing bindings; equal to <see cref="SuperResolutionPresets"/>.
