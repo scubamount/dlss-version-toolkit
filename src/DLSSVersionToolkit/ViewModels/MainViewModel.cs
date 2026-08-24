@@ -761,79 +761,6 @@ private void EndUpdateAllProgress()
 	DownloadStatus = "";
 }
 
-[RelayCommand]
-private async Task ApplyPresetAsync()
-{
-	if (SelectedPreset == null) return;
-
-	IsApplyingPreset = true;
-	ApplyProgressValue = 0;
-	ApplyProgressIndeterminate = true;
-	PresetOverrideResult? presetResult = null;
-	try
-	{
-		// Step 0: Apply whitelist to bypass NVIDIA override blocking
-		DownloadStatus = "Applying whitelist...";
-		await ApplyWhitelistInternalAsync(restartServices: true, showRestartWarning: true);
-
-		// Step 1: Apply the selected DLSS preset via NVIDIA driver settings.
-		DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(SelectedPreset.Value)} to all game profiles...";
-		presetResult = await _presetOverrideService.ApplyPresetAsync(
-			SelectedPreset.Value, BuildPresetOptions(), MakeApplyProgress());
-		if (presetResult.Success)
-		{
-			CurrentPresetStatus = $"Current: {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}";
-
-			// Persist the applied selections so they survive an app restart (v0.0.38 —
-			// fixes "preset resets to L on relaunch").
-			await SavePresetSelectionsAsync();
-		}
-	}
-	catch (Exception ex)
-	{
-		MessageBox.Show($"Apply preset failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-	}
-	finally
-	{
-		// Stop the progress indicator BEFORE any dialog (v0.0.39). Previously the success
-		// MessageBox fired inside the try block with IsApplyingPreset still true, so the
-		// indeterminate bar kept animating behind the "done" popup — the user couldn't
-		// tell when the work actually finished.
-		IsApplyingPreset = false;
-		DownloadStatus = "";
-	}
-
-	if (presetResult == null) return;
-
-	if (presetResult.Success)
-	{
-		MessageBox.Show(
-			$"DLSS Override Preset set to {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}.\n\n" +
-			$"Applied to {presetResult.ProfilesUpdated} driver profile(s), including " +
-			$"{presetResult.GameProfilesUpdated} game profile(s), in {presetResult.ElapsedMs / 1000.0:F1}s" +
-			(presetResult.UsedIndex ? " (fast path — profile index)" : " (full scan — index rebuilt for next time)") + ".\n\n" +
-			"For every affected game the DLSS Super Resolution override was ENABLED " +
-			"(\"Custom\") and the render preset set, plus the Ray Reconstruction and " +
-			"Frame Generation DLL overrides enabled.\n\n" +
-			"Fully restart the game; the on-screen DLSS indicator (bottom-left) should then " +
-			"show the new preset and DLL version.",
-			"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
-	}
-	else
-	{
-		var errMsg = presetResult.PermissionIssue
-			? "Admin privileges required. Run as administrator."
-			: presetResult.ErrorMessage ?? "Unknown error";
-		MessageBox.Show(
-			$"Failed to apply DLSS Preset {DlssPresetDisplay.GetDescription(SelectedPreset.Value)}.\n\n" +
-			$"Error: {errMsg}\n\n" +
-			"What to do: Ensure NVIDIA drivers are installed and try running as Administrator.",
-			"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-	}
-
-	await ScanAsync();
-}
-
 /// <summary>
 /// Progress adapter for ApplyPresetAsync (v0.0.39): first report switches the bar from
 /// indeterminate to determinate; subsequent reports map (done,total) onto 0-100.
@@ -1259,6 +1186,29 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
     {
         if (IsScanning || IsSettingUpAnWave || IsUpdatingAll) return;
 
+        // Pre-flight dialog (v0.0.54). Update All used to fire on click with no confirmation.
+        // Local DLL import is the one step it cannot do unattended — it needs a folder the user
+        // chose — so it is offered here as an explicit opt-in instead of being silently skipped.
+        bool importLocalDlls;
+        string? importFolder;
+        try
+        {
+            var libraryPath = _overrideManifestService.ResolveLibraryPath(_overrideManifestService.Load());
+            var preflight = new Views.UpdateAllPreflightDialog(libraryPath) { Owner = Application.Current?.MainWindow };
+            if (preflight.ShowDialog() != true)
+                return;
+
+            importLocalDlls = preflight.ImportLocalDlls;
+            importFolder = preflight.ImportFolder;
+        }
+        catch (Exception ex)
+        {
+            // A dialog that cannot open must not block the update itself.
+            Debug.WriteLine($"OneClickUpdateAll: pre-flight dialog failed ({ex.Message}) — continuing without import.");
+            importLocalDlls = false;
+            importFolder = null;
+        }
+
         IsUpdatingAll = true;
         ScanStatus = "Updating...";
         StatusMessage = "";
@@ -1360,6 +1310,14 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         {
             try
             {
+                // IsApplyingPreset gates the four preset dropdowns, the Reset button and the
+                // apply progress bar. Until v0.0.54 only the (now deleted) "Apply to all games"
+                // command set it, so Update All drove the same driver writes with every control
+                // still live — the user could change a dropdown mid-apply and the run would
+                // finish with a preset that no longer matched the UI.
+                IsApplyingPreset = true;
+                ApplyProgressValue = 0;
+                ApplyProgressIndeterminate = true;
                 DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(presetToApply)} to all games...";
                 var pr = await _presetOverrideService.ApplyPresetAsync(presetToApply, BuildPresetOptions(), MakeApplyProgress());
                 if (pr.Success)
@@ -1380,6 +1338,15 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             {
                 Debug.WriteLine($"OneClickUpdateAll: preset apply threw (non-fatal): {ex.Message}");
                 _runReports.Add("Presets", "warn", ex.Message);
+            }
+            finally
+            {
+                // Must clear on every path — a thrown preset step is non-fatal and Update All
+                // keeps going, so leaving this true would freeze the dropdowns for the rest of
+                // the run and past its end.
+                IsApplyingPreset = false;
+                ApplyProgressIndeterminate = false;
+                ApplyProgressValue = 0;
             }
         }
 
@@ -1475,6 +1442,44 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             }
             _runReports.Add("DLSS SDK", "ok",
                 $"v{sdkVersion} synced to NGX ({ngxOp.FilesCopied.Count} file(s))");
+
+            // Step 2a: Import local DLLs, when the pre-flight dialog asked for it. This runs AFTER
+            // the SDK sync so the user's files land on top of whatever the channel just installed,
+            // and BEFORE the re-assert below so DLLs imported in this very run are already in the
+            // manifest when it evaluates. Non-fatal: a failed import must not abort AnWave setup.
+            if (importLocalDlls && !string.IsNullOrWhiteSpace(importFolder))
+            {
+                try
+                {
+                    DownloadStatus = "Importing local DLLs...";
+                    var settingsForImport = await _settingsService.LoadAsync();
+                    var importResult = await Task.Run(() => _localDllImportService.ImportFromFolder(
+                        importFolder!, settingsForImport.NgxBasePath, ImportToStaging));
+
+                    if (!importResult.Success)
+                    {
+                        _runReports.Add("Local import", "warn",
+                            importResult.ErrorMessage ?? "import failed");
+                    }
+                    else if (importResult.FilesWritten.Count == 0)
+                    {
+                        _runReports.Add("Local import", "warn",
+                            $"no DLLs imported from {importFolder}");
+                    }
+                    else
+                    {
+                        var components = string.Join(", ",
+                            importResult.Components.Select(c => $"{c.DllName} v{c.Version}"));
+                        _runReports.Add("Local import", "ok",
+                            $"{importResult.FilesWritten.Count} file(s) written — {components}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"OneClickUpdateAll: local import threw (non-fatal): {ex.Message}");
+                    _runReports.Add("Local import", "warn", ex.Message);
+                }
+            }
 
             // Step 2b: Re-assert local DLL overrides that this sync may have just overwritten.
             //
@@ -1984,42 +1989,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
     }
 
-    [RelayCommand]
-    private async Task SyncFromAnWaveAsync()
-    {
-        if (IsScanning) return;
-
-        // Try: settings path → AnWaveAutoService installed path → detected path
-        var settings = await _settingsService.LoadAsync();
-        var targetPath = !string.IsNullOrEmpty(settings.AnWavePath) ? settings.AnWavePath
-            : !string.IsNullOrEmpty(AnWaveInstalledPath) ? AnWaveInstalledPath
-            : AnWaveDetectedPath;
-
-        if (string.IsNullOrEmpty(targetPath))
-        {
-            MessageBox.Show(
-                "AnWave is not set up — no install path found.\n\n" +
-                "What to do: Click 'Setup AnWave' in the Advanced menu to automatically download and configure nvidiaDlssGlom with the latest DLSS DLLs.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        if (!Directory.Exists(targetPath))
-        {
-            MessageBox.Show(
-                "AnWave path does not exist.\n\n" +
-                $"Path: {targetPath}\n\n" +
-                "What to do: The folder may have been moved or deleted. Click 'Setup AnWave' to re-download and install it.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        // Temporarily set the settings path so SyncAsync uses it
-        settings.AnWavePath = targetPath;
-        await _settingsService.SaveAsync(settings);
-        await SyncAsync("AnWave");
-    }
-
     private async Task SyncAsync(string sourceType)
     {
         StatusMessage = "";
@@ -2100,103 +2069,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         {
             MessageBox.Show(
                 $"Sync failed: {ex.Message}\n\n" +
-                "What to do: Check the error above. If it's a file access issue, ensure no other programs are using the NGX directory.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            IsScanning = false;
-            ScanStatus = "Ready";
-        }
-    }
-
-    [RelayCommand]
-    private async Task SyncFromDlssSdkAsync()
-    {
-        if (IsScanning) return;
-
-        if (!HasCachedSdk || string.IsNullOrEmpty(_dlssDownloadService.GetCachedDownloadPath()))
-        {
-            MessageBox.Show(
-                "No DLSS SDK is cached.\n\n" +
-                "What to do: Click 'Download Latest' in the Advanced menu or use 'Update All' to download the latest DLSS SDK from NVIDIA first.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var ngxRelease = _lastScanResult?.Sources.FirstOrDefault(s => s.Source == "NGX_Release");
-        var releaseVer = ngxRelease?.DLSS ?? "unknown";
-
-        var result = MessageBox.Show(
-            $"Sync DLSS SDK v{CachedSdkVersion} to NGX Release (currently v{releaseVer})?\n\n" +
-            "A backup of the current NGX Release will be created before any changes.",
-            "Confirm Sync", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (result != MessageBoxResult.Yes) return;
-
-        IsScanning = true;
-        ScanStatus = "Syncing...";
-        DownloadStatus = "";
-        StatusMessage = "";
-
-        try
-        {
-            var settings = await _settingsService.LoadAsync();
-            var progress = new Progress<int>(pct => DownloadStatus = $"Syncing... {pct}%");
-            var operation = await _dlssDownloadService.SyncFromCachedSdkAsync(progress);
-
-            if (operation == null)
-            {
-                MessageBox.Show(
-                    "No cached SDK found — the cached file may have been deleted.\n\n" +
-                    "What to do: Click 'Download Latest' to re-download the DLSS SDK, then try again.",
-                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            switch (operation.Status)
-            {
-                case OperationStatus.Completed:
-                    var files = string.Join("\n  • ", operation.FilesCopied);
-                    MessageBox.Show(
-                        $"DLSS SDK v{CachedSdkVersion} synced to NGX Release.\n\n" +
-                        $"Previous version: v{releaseVer}\n" +
-                        $"New version: v{CachedSdkVersion}\n\n" +
-                        $"Files copied ({operation.FilesCopied.Count}):\n" +
-                        $"  {files}\n\n" +
-                        $"Backup saved to:\n  {operation.BackupPath}\n\n" +
-                        "What to do next: If you use AnWave, run 'Update All' to keep it in sync.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
-                    await ScanAsync();
-                    break;
-                case OperationStatus.Failed:
-                    MessageBox.Show(
-                        $"Sync of DLSS SDK v{CachedSdkVersion} to NGX failed.\n\n" +
-                        $"Error: {operation.ErrorMessage}\n\n" +
-                        "What to do: No files were changed. Check the error above and try again.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-                    break;
-                case OperationStatus.RolledBack:
-                    MessageBox.Show(
-                        $"Sync of DLSS SDK v{CachedSdkVersion} to NGX failed and was rolled back.\n\n" +
-                        $"Error: {operation.ErrorMessage}\n\n" +
-                        $"Your previous NGX Release files (v{releaseVer}) have been restored.\n" +
-                        $"Backup preserved at:\n  {operation.BackupPath}\n\n" +
-                        "What to do: Check the error above. The backup folder contains the original files if needed.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-                    break;
-                default:
-                    MessageBox.Show(
-                        $"Unexpected sync status: {operation.Status}\n\n" +
-                        $"{operation.ErrorMessage}\n\n" +
-                        "What to do: Try scanning and syncing again.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    break;
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                $"Sync error: {ex.Message}\n\n" +
                 "What to do: Check the error above. If it's a file access issue, ensure no other programs are using the NGX directory.",
                 "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
         }

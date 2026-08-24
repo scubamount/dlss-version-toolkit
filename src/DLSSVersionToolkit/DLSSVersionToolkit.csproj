@@ -25,9 +25,9 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <AssemblyName>DLSSVersionToolkit</AssemblyName>
-    <AssemblyVersion>0.0.53</AssemblyVersion>
-    <FileVersion>0.0.53</FileVersion>
-    <Version>0.0.53</Version>
+    <AssemblyVersion>0.0.54</AssemblyVersion>
+    <FileVersion>0.0.54</FileVersion>
+    <Version>0.0.54</Version>
     <Authors>scubamount</Authors>
     <Product>DLSS Version Toolkit</Product>
     <Description>WPF GUI for checking and upgrading NVIDIA DLSS versions</Description>

@@ -231,43 +231,62 @@
                             </Button.Style>
                         </Button>
 
-                        <TextBlock Text="ADVANCED" Style="{StaticResource NavGroupLabel}"
-                                   ToolTip="Manual steps — Update All runs all of these for you in the right order."/>
-                        <TextBlock Text="Update All runs these for you" Foreground="{StaticResource Text3Brush}"
-                                   FontSize="10" Margin="16,0,12,4" TextWrapping="Wrap"/>
-                        <Button Command="{Binding ApplyWhitelistCommand}" Content="✓   Apply Whitelist">
+                        <TextBlock Text="ADVANCED" Style="{StaticResource NavGroupLabel}"/>
+
+                        <!-- Import Local DLLs is the ONE action Update All cannot do for you: it
+                             needs a folder you pick. Amber, not the nav grey, so it does not read
+                             as "another step Update All already ran". -->
+                        <Button Command="{Binding ImportLocalDllsCommand}"
+                                Content="📥   Import Local DLLs"
+                                ToolTip="Apply nvngx_*.dll files you already have on disk — for builds with no official NVIDIA release, such as the DLSS 4.5 Ray Reconstruction nvngx_dlssd.dll. Each DLL's version is read from the file itself and written into the NGX model tree the driver loads. Existing files are backed up first. Uses a community-derived layout NVIDIA does not document.">
                             <Button.Style>
                                 <Style TargetType="Button" BasedOn="{StaticResource NavButtonStyle}">
-                                    <Setter Property="ToolTip" Value="Remove NVIDIA App's DLSS4 override restrictions and restart NVIDIA services."/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsWhitelistApplied}" Value="True">
-                                            <Setter Property="Opacity" Value="0.55"/>
-                                            <Setter Property="ToolTip" Value="Whitelist already applied — Update All maintains it. Click only to re-apply."/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
+                                    <Setter Property="Foreground" Value="{StaticResource AmberBrush}"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
                                 </Style>
                             </Button.Style>
                         </Button>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding UnlockUnsupportedGamesCommand}"
-                                Content="🔓   Unlock Unsupported Games"
-                                ToolTip="For games the NVIDIA App shows as &quot;not supported&quot; (e.g. Star Citizen): marks them as override-capable so DLSS override options appear. Backs up ApplicationStorage.json first. Update All runs this for you — click only to re-apply after the NVIDIA App updates its library."/>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ImportLocalDllsCommand}"
-                                Content="📥   Import Local DLLs"
-                                ToolTip="Apply nvngx_*.dll files you already have on disk — for builds with no official NVIDIA release, such as the DLSS 4.5 Ray Reconstruction nvngx_dlssd.dll. Each DLL's version is read from the file itself and written into the NGX model tree the driver loads. Existing files are backed up first. Uses a community-derived layout NVIDIA does not document."/>
                         <CheckBox Content="Import to Staging tree"
                                   IsChecked="{Binding ImportToStaging}"
                                   Margin="14,4,0,6" Foreground="#A0A0A0" FontSize="11"
                                   ToolTip="Staging is what the reference tool writes to (its &quot;Staging NGX Directory&quot; option). Uncheck to write the production models tree instead."/>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadLatestCommand}" Content="⤓   Download DLSS SDK"/>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadStreamlineCommand}" Content="⤓   Download Streamline"/>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromDlssSdkCommand}" Content="⟳   Sync NGX from DLSS"/>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding SyncFromAnWaveCommand}" Content="⟳   Sync NGX from AnWave"/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadLatestCommand}" Content="⤓   Download DLSS SDK"
+                                ToolTip="Fetch the latest DLSS SDK into the local cache without applying it. Update All downloads this for you."/>
+                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding DownloadStreamlineCommand}" Content="⤓   Download Streamline"
+                                ToolTip="Fetch the latest Streamline SDK into the local cache without applying it. Update All downloads this for you."/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding IndexProfilesCommand}"
                                 IsEnabled="{Binding IsIndexingProfiles, Converter={StaticResource InverseBoolConverter}}"
                                 Content="⚡   Index Game Profiles"
-                                ToolTip="Scan the NVIDIA driver profile database once and remember which profiles belong to installed games. Makes 'Apply to all games' and 'Update All' significantly faster. Auto-refreshes when the driver changes."/>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ExportCommand}" Content="⤴   Export Report"/>
-                        <Button Style="{StaticResource NavButtonStyle}" Command="{Binding OpenBackupsCommand}" Content="🗄   NGX Backups"/>
+                                ToolTip="Scan the NVIDIA driver profile database once and remember which profiles belong to installed games. Makes 'Update All' significantly faster. Auto-refreshes when the driver changes."/>
+
+                        <!-- Everything Update All already runs, plus read-only tools. Collapsed by
+                             default: these were 8 flat buttons that read as required steps. -->
+                        <Expander Margin="6,10,6,0" IsExpanded="False"
+                                  Background="Transparent" BorderThickness="0"
+                                  Foreground="{StaticResource Text3Brush}"
+                                  Header="More tools"
+                                  ToolTip="Manual steps Update All already runs for you, plus reports and backups.">
+                            <StackPanel Margin="0,4,0,0">
+                                <Button Command="{Binding ApplyWhitelistCommand}" Content="✓   Apply Whitelist">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource NavButtonStyle}">
+                                            <Setter Property="ToolTip" Value="Remove NVIDIA App's DLSS4 override restrictions and restart NVIDIA services. Update All runs this for you."/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsWhitelistApplied}" Value="True">
+                                                    <Setter Property="Opacity" Value="0.55"/>
+                                                    <Setter Property="ToolTip" Value="Whitelist already applied — Update All maintains it. Click only to re-apply."/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Button Style="{StaticResource NavButtonStyle}" Command="{Binding UnlockUnsupportedGamesCommand}"
+                                        Content="🔓   Unlock Unsupported Games"
+                                        ToolTip="For games the NVIDIA App shows as &quot;not supported&quot; (e.g. Star Citizen): marks them as override-capable so DLSS override options appear. Backs up ApplicationStorage.json first. Update All runs this for you — click only to re-apply after the NVIDIA App updates its library."/>
+                                <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ExportCommand}" Content="⤴   Export Report"/>
+                                <Button Style="{StaticResource NavButtonStyle}" Command="{Binding OpenBackupsCommand}" Content="🗄   NGX Backups"/>
+                            </StackPanel>
+                        </Expander>
 
                         <TextBlock Text="HELP" Style="{StaticResource NavGroupLabel}"/>
                         <Button Style="{StaticResource NavButtonStyle}" Command="{Binding ShowQuickGuideCommand}" Content="?   Quick Guide"/>
@@ -521,14 +540,13 @@
                             </Grid>
 
                             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                <Button Content="Apply to all games" Style="{StaticResource SolidGreenButtonStyle}"
-                                        HorizontalAlignment="Left"
-                                        Command="{Binding ApplyPresetCommand}"
-                                        IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
-                                        ToolTip="Enables the DLSS overrides (&quot;Custom&quot;) and applies the SR, RR and FG presets to every game profile. Takes a few seconds; fully restart the game afterward."/>
-
+                                <!-- "Apply to all games" removed in v0.0.54: it ran whitelist +
+                                     preset, which are Update All steps 0 and 0b. Two buttons that
+                                     apply presets meant two things to keep in sync and no way to
+                                     tell which one the user had actually run. Update All is the
+                                     single apply path; Reset stays as the escape hatch. -->
                                 <Button Content="↺  Reset" Style="{StaticResource DarkButtonStyle}"
-                                        HorizontalAlignment="Left" Margin="8,0,0,0"
+                                        HorizontalAlignment="Left"
                                         Command="{Binding ResetSelectionsCommand}"
                                         IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
                                         ToolTip="Restores every dropdown above to its recommended default (SR L, RR E, FG B, Dynamic 6x) and clears the saved selections. Changes nothing on your driver until you apply."/>
