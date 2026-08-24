@@ -206,6 +206,16 @@ public class StreamlineDownloadService : IStreamlineDownloadService
             File.Copy(filePath, destPath, true);
             File.Delete(filePath);
 
+            // Post-download verification: check file size matches. Mirrors DlssDownloadService —
+            // a truncated zip used to be cached here and only exploded later at extract time
+            // with Console.Error output the UI never sees (v0.0.57).
+            if (!OperationGuard.VerifyFile(destPath, totalRead))
+            {
+                Console.Error.WriteLine($"Downloaded file verification failed: {destPath} (expected {totalRead} bytes)");
+                try { if (File.Exists(destPath)) File.Delete(destPath); } catch { }
+                return null;
+            }
+
             _cachedDownloadPath = destPath;
             Console.Error.WriteLine($"Streamline download complete: {destPath} ({totalRead} bytes)");
 
@@ -305,7 +315,7 @@ public class StreamlineDownloadService : IStreamlineDownloadService
                 return Task.FromResult<UpgradeOperation?>(null);
             }
 
-            var upgradeService = new UpgradeService(new NgxScanner(new NgxConfigParser()), new BackupService());
+            var upgradeService = new UpgradeService(new NgxScanner(new NgxConfigParser()), new BackupService(), new VersionComparer());
             var result = upgradeService.SyncToNGX(binPath, "StreamlineSDK", ngxBasePath);
             progress?.Report(100);
             return Task.FromResult<UpgradeOperation?>(result);

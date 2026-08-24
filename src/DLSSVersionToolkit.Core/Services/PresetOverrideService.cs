@@ -27,7 +27,10 @@ public sealed record PresetOverrideResult(
     long EnumerateMs = 0,
     long WriteMs = 0,
     long SaveMs = 0,
-    bool UsedIndex = false);
+    bool UsedIndex = false,
+    /// <summary>Profiles that failed the per-profile write and were skipped. Debug-only before
+    /// v0.0.57 — partial success reported itself as flat success.</summary>
+    int ProfilesSkipped = 0);
 
 /// <summary>
 /// Options controlling which DLSS feature overrides are enabled when applying a preset.
@@ -197,6 +200,7 @@ public sealed class PresetOverrideService : IPresetOverrideService
                 bool enable = preset != DlssPreset.Default;
                 int profilesUpdated = 0;
                 int gameProfilesUpdated = 0;
+                int profilesSkipped = 0;
                 bool usedIndex = false;
 
                 // 1) Base profile = the global default inherited by profiles that don't
@@ -246,6 +250,7 @@ public sealed class PresetOverrideService : IPresetOverrideService
                             }
                             catch (NVIDIAApiException pex)
                             {
+                                profilesSkipped++;
                                 Debug.WriteLine($"PresetOverrideService: indexed profile '{names[i]}' skipped: {pex.Status}");
                             }
                             // ponytail: throttle UI marshaling — report every 25, not every profile
@@ -284,7 +289,9 @@ public sealed class PresetOverrideService : IPresetOverrideService
                             }
                             catch (NVIDIAApiException pex)
                             {
-                                // Don't let one stubborn profile abort the whole sweep.
+                                // Don't let one stubborn profile abort the whole sweep — but the
+                                // skip is counted, not just logged (v0.0.57).
+                                profilesSkipped++;
                                 Debug.WriteLine($"PresetOverrideService: skipped a profile: {pex.Status}");
                             }
                             if (progress != null && (done % 250 == 0 || done == profiles.Count))
@@ -310,7 +317,7 @@ public sealed class PresetOverrideService : IPresetOverrideService
 
                 Debug.WriteLine($"PresetOverrideService: Applied preset {preset} (0x{presetValue:X}) enable={enable} to {profilesUpdated} profile(s) ({gameProfilesUpdated} game) in {total.ElapsedMilliseconds}ms [enum {enumerateMs}ms, write {writeMs}ms, save {saveMs}ms, index={usedIndex}].");
                 return new PresetOverrideResult(true, preset, null, false, profilesUpdated, gameProfilesUpdated,
-                    total.ElapsedMilliseconds, enumerateMs, writeMs, saveMs, usedIndex);
+                    total.ElapsedMilliseconds, enumerateMs, writeMs, saveMs, usedIndex, profilesSkipped);
             }
             catch (NVIDIAApiException ex)
             {

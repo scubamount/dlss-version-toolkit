@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-08-24 (v0.0.56).
+Hand-maintained. Last updated: 2026-08-24 (v0.0.57).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -46,7 +46,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 16 files, 341 tests at v0.0.55
+└── DLSSVersionToolkit.Tests/            # xUnit, 17 files, 348 tests at v0.0.56
 ```
 
 The single-file `DLSSVersionToolkit.exe` (3,990,041 bytes at v0.0.55) is produced by CI on each
@@ -156,9 +156,15 @@ applied."
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.
 
-- **v0.0.55**: Import file accounting reconciled; `LocalImportResult.Landed` replaces four
-  rival predicates; manifest gate widened to cover the override tree; elevation advice corrected.
-  341 tests.
+- **v0.0.56**: AGENTS.md rewritten at real truth (the false machine-derived claim was removed —
+  no generator ever existed); its checkable claims now gated by `AgentsDocClaimsTests`. 348 tests.
+- **v0.0.57**: Sibling sweep — every standing lesson mechanically re-swept for recurrences.
+  Version comparison collapsed onto the shared comparer (a private copy in UpgradeService had
+  missed the pad-to-4 fix); same-version resync guard widened from 1 DLL to all four; AnWave's
+  override-config version now read back from the copied DLL bytes (URL/tag demoted to fallback);
+  post-copy verify failures counted into results instead of Debug-only; Streamline download got
+  its twin's integrity gate; scan errors surface in `ScanResult.Errors`; preset skips reported;
+  root-literal gate hardened to per-line verdicts.
 - **v0.0.54**: Sidebar information architecture — 16 visible nav items → 10 + 4 collapsed. Deleted
   `Sync NGX from DLSS`, `Sync NGX from AnWave`, `Apply to all games` (all pure subsets of Update
   All). Update All gained a pre-flight dialog that confirms, offers local-DLL import with a folder

@@ -56,15 +56,23 @@ public class ScanService : IScanService
 
         result.NgxPathsChecked = ngxCandidates;
 
-        // Scan each NGX path — deduplicate by source name (first found wins)
+        // Scan each NGX path — deduplicate by source name (first found wins).
+        // v0.0.57: scan failures land in result.Errors instead of dying in Debug.WriteLine;
+        // an empty grid must never be the only symptom.
+        var scanErrors = new List<string>();
         foreach (var path in ngxCandidates)
         {
-            var entries = _ngxScanner.Scan(path);
+            var entries = _ngxScanner.Scan(path, scanErrors);
             foreach (var entry in entries)
             {
                 if (!result.Sources.Any(s => s.Source == entry.Source))
                     result.Sources.Add(entry);
             }
+        }
+        foreach (var e in scanErrors)
+        {
+            if (!result.Errors.Contains(e))
+                result.Errors.Add(e);
         }
 
         if (result.Sources.Count == 0)

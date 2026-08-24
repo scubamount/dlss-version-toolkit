@@ -139,7 +139,7 @@ public partial class App : Application
         var streamlineScanner = new StreamlineScanner();
         var versionComparer = new VersionComparer();
         var backupService = new BackupService();
-        var upgradeService = new UpgradeService(ngxScanner, backupService);
+        var upgradeService = new UpgradeService(ngxScanner, backupService, versionComparer);
         var scanService = new ScanService(ngxScanner, globalScanner, streamlineScanner, versionComparer, _settingsService);
         var exportService = new ExportService();
         var dlssDownloadService = new DlssDownloadService();
