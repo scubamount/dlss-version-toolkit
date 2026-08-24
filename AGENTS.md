@@ -156,8 +156,8 @@ applied."
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.
 
-- **v0.0.56**: AGENTS.md rewritten at real truth (the "Auto-generated" claim was false — no
-  generator ever existed); its checkable claims now gated by `AgentsDocClaimsTests`. 348 tests.
+- **v0.0.56**: AGENTS.md rewritten at real truth (the false machine-derived claim was removed —
+  no generator ever existed); its checkable claims now gated by `AgentsDocClaimsTests`. 348 tests.
 - **v0.0.57**: Sibling sweep — every standing lesson mechanically re-swept for recurrences.
   Version comparison collapsed onto the shared comparer (a private copy in UpgradeService had
   missed the pad-to-4 fix); same-version resync guard widened from 1 DLL to all four; AnWave's
