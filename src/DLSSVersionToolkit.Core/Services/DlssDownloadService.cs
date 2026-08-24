@@ -309,9 +309,11 @@ public class DlssDownloadService : IDlssDownloadService
         }
         _cachedDownloadPath = zipPath;
 
-        var ngxBasePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "NVIDIA", "NGX");
+        // One write-root rule for the whole app. A local ProgramData literal here ignored an
+        // AppData-based NGX tree and any configured path — five copies of this existed.
+        var ngxBasePath = NgxPathResolver.GetWritableBase(null);
+        if (string.IsNullOrEmpty(ngxBasePath))
+            return Task.FromResult<UpgradeOperation?>(null);
 
         progress?.Report(0);
         var upgradeService = new UpgradeService(new NgxScanner(new NgxConfigParser()), new BackupService());
