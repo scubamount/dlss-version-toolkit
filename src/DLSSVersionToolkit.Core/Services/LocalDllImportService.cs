@@ -108,20 +108,23 @@ public class LocalDllImportService : ILocalDllImportService
             return result;
         }
 
-        // Resolve the NGX base through the shared resolver (explicit → registry → defaults) so this
-        // feature cannot drift from where the rest of the app looks.
-        var ngxBase = NgxPathResolver.GetCandidatePaths(ngxBasePath)
-            .FirstOrDefault(p => Directory.Exists(Path.Combine(p, "models"))
-                              || Directory.Exists(p));
+        // Resolve the NGX base a WRITE may target. NOT GetCandidatePaths: that list is led by the
+        // driver's registry-declared path, which is the DriverStore
+        // (C:\WINDOWS\System32\DriverStore\FileRepository\nv_dispi.inf_amd64_*) — TrustedInstaller
+        // territory, unwritable even elevated. v0.0.52 picked it and every DLL failed to import.
+        var ngxBase = NgxPathResolver.GetWritableBase(ngxBasePath);
         if (string.IsNullOrEmpty(ngxBase))
         {
-            result.ErrorMessage = "Could not locate the NVIDIA NGX directory.";
+            result.ErrorMessage =
+                "Could not locate a writable NVIDIA NGX directory (expected " +
+                string.Join(" or ", NgxPathResolver.WriteRoots) + ").";
             return result;
         }
 
-        // Only ever touch paths inside NGX. Reuses the existing boundary guard rather than a second
-        // hand-rolled containment check.
-        if (!OperationGuard.IsPathWithin(ngxBase, ngxBase))
+        // Belt and braces: prove the resolved base is inside an allowed write root before creating
+        // anything. The previous form compared ngxBase to ITSELF, so it was always true and could
+        // never have caught the driver-store path it was meant to stop.
+        if (!NgxPathResolver.IsWritableRoot(ngxBase))
         {
             result.ErrorMessage = $"Refusing to write outside NGX: {ngxBase}";
             return result;

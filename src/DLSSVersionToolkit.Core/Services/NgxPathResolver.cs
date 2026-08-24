@@ -25,9 +25,88 @@ using System.IO;
 public static class NgxPathResolver
 {
     /// <summary>
+    /// The ONLY directories this app may ever write NGX models into: %ProgramData%\NVIDIA\NGX
+    /// and %AppData%\NVIDIA\NGX. Canonical — <see cref="UpgradeService"/> derives its allowlist
+    /// from this rather than rebuilding the same two literals (they drifted once already).
+    ///
+    /// Deliberately EXCLUDES the registry-declared path. See <see cref="GetWritableBase"/>.
+    /// </summary>
+    public static IReadOnlyList<string> WriteRoots => _writeRoots;
+
+    private static readonly string[] _writeRoots = BuildWriteRoots();
+
+    private static string[] BuildWriteRoots()
+    {
+        var roots = new List<string>();
+        var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        if (!string.IsNullOrEmpty(programData))
+            roots.Add(Path.Combine(programData, "NVIDIA", "NGX"));
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (!string.IsNullOrEmpty(appData))
+            roots.Add(Path.Combine(appData, "NVIDIA", "NGX"));
+        return roots.ToArray();
+    }
+
+    /// <summary>
+    /// True when <paramref name="path"/> is at or under one of <paramref name="roots"/>
+    /// (defaults to <see cref="WriteRoots"/>). The roots overload exists so tests can prove the
+    /// predicate on synthetic paths — the real roots differ per OS and CI is not Windows.
+    /// </summary>
+    public static bool IsWritableRoot(string? path, IReadOnlyList<string>? roots = null)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+        foreach (var root in roots ?? WriteRoots)
+        {
+            if (OperationGuard.IsPathWithin(path, root))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves the NGX base a WRITE should target, or null when none is usable.
+    ///
+    /// This is NOT <see cref="GetCandidatePaths"/> — and the difference is the v0.0.53 bug.
+    /// Candidates include the driver's registry-declared NGX path, which on a real machine is
+    /// <c>C:\WINDOWS\System32\DriverStore\FileRepository\nv_dispi.inf_amd64_*\</c>: the driver's
+    /// own binaries, owned by TrustedInstaller, NOT a model root. Reading it is harmless (the
+    /// scanner just finds no models there); writing to it fails for every DLL even as
+    /// Administrator, because the DriverStore denies write to Administrators by design.
+    ///
+    /// So writers filter to <see cref="WriteRoots"/> first, then prefer a root that already has a
+    /// models tree, and only then fall back to the first write root (first run, nothing created
+    /// yet). An explicit user-configured path is honored only if it is itself a write root.
+    /// </summary>
+    public static string? GetWritableBase(string? explicitPath = null)
+    {
+        var writable = GetCandidatePaths(explicitPath)
+            .Where(p => IsWritableRoot(p))
+            .ToList();
+
+        // Prefer a base that already holds a models tree (Release or Staging).
+        var withModels = writable.FirstOrDefault(p =>
+            Directory.Exists(Path.Combine(p, "models")) ||
+            Directory.Exists(Path.Combine(p, "Staging", "models")));
+        if (!string.IsNullOrEmpty(withModels))
+            return withModels;
+
+        // Then any write root that at least exists.
+        var existing = writable.FirstOrDefault(Directory.Exists);
+        if (!string.IsNullOrEmpty(existing))
+            return existing;
+
+        // Nothing exists yet — return the canonical first root so a first import can create it.
+        return writable.FirstOrDefault() ?? WriteRoots.FirstOrDefault();
+    }
+
+    /// <summary>
     /// Returns NGX base-path candidates in priority order (explicit → registry → defaults).
     /// Never throws; never returns duplicates. Entries are NOT filtered by Directory.Exists —
     /// callers that need existing dirs filter themselves (the scanner tolerates missing paths).
+    ///
+    /// READ-ONLY USE. Any caller that will WRITE must use <see cref="GetWritableBase"/> instead:
+    /// this list can contain the driver-store path, which is unwritable by design.
     /// </summary>
     public static List<string> GetCandidatePaths(string? explicitPath = null)
     {

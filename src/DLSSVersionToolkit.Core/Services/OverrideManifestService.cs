@@ -256,9 +256,9 @@ public class OverrideManifestService : IOverrideManifestService
             if (!NgxModelLayout.ComponentDirByDll.TryGetValue(rec.DllName, out var componentDir))
                 return null;
 
-            var ngxBase = NgxPathResolver.GetCandidatePaths(null)
-                .FirstOrDefault(p => Directory.Exists(Path.Combine(p, "models"))
-                                  || Directory.Exists(Path.Combine(p, "Staging", "models")));
+            // Must match where the import actually wrote — same writable-base rule, not the raw
+            // candidate list (whose first entry is the unwritable driver store).
+            var ngxBase = NgxPathResolver.GetWritableBase(null);
             if (string.IsNullOrEmpty(ngxBase))
                 return null;
 

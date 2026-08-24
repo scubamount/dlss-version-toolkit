@@ -23,19 +23,6 @@ public class UpgradeService : IUpgradeService
     // Public so tests can assert coverage: v0.0.43 audit found nvngx_deepdvc.dll missing
     // here, so DeepDVC was never synced and stayed stale forever while the other three updated.
     public static readonly string[] NgxDllNames = { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll", "nvngx_deepdvc.dll" };
-    private static readonly string[] AllowedPrefixes;
-
-    static UpgradeService()
-    {
-        var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var paths = new List<string>();
-        if (!string.IsNullOrEmpty(programData))
-            paths.Add(Path.Combine(programData, "NVIDIA", "NGX"));
-        if (!string.IsNullOrEmpty(appData))
-            paths.Add(Path.Combine(appData, "NVIDIA", "NGX"));
-        AllowedPrefixes = paths.ToArray();
-    }
 
     public UpgradeService(INgxScanner ngxScanner, IBackupService backupService)
     {
@@ -538,8 +525,11 @@ var targetDllExists = File.Exists(Path.Combine(operation.TargetPath, "nvngx_dlss
         return operation;
     }
 
+    // One allowlist for the whole app: NgxPathResolver.WriteRoots. This used to be a private
+    // rebuild of the same two literals — a second copy of the same rule is a second thing to keep
+    // in sync, and the import path proved it by writing somewhere neither copy allowed.
     private static bool IsPathAllowed(string path) =>
-        AllowedPrefixes.Any(prefix => OperationGuard.IsPathWithin(path, prefix));
+        NgxPathResolver.IsWritableRoot(path);
 
     private static bool VerifyCopiedFiles(string srcFolder, string destFolder)
     {
