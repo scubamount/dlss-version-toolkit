@@ -24,7 +24,8 @@ public class PathBoundaryTests
         var lookalikePath = allowedPath + "-lookalike";
         var service = new Core.Services.UpgradeService(
             new EmptyNgxScanner(),
-            new UnusedBackupService());
+            new UnusedBackupService(),
+            new Core.Services.VersionComparer());
 
         var result = service.UpgradeFromStaging(lookalikePath);
 

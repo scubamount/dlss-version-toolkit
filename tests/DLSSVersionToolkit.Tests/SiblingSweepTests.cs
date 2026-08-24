@@ -6,6 +6,7 @@ namespace DLSSVersionToolkit.Tests;
 /// v0.0.57 sibling-sweep gates. Each pins one fix from the class-based audit: the same defect
 /// had shipped in a sibling before (detector/applier divergence v0.0.43→v0.0.56, root literals
 /// x7, Debug-only failures x5 releases), so these exist to make the NEXT recurrence red in CI.
+/// Failure reasons live in XML docs above each test — xUnit asserts carry no message argument.
 ///
 /// Red/green arming note: macOS cannot compile this solution — these were armed by porting each
 /// predicate to Python against `git archive` trees of v0.0.54/v0.0.56 before spending CI.
@@ -19,32 +20,33 @@ public class SiblingSweepTests
     // pinned by scanning the source: no private version predicate may return.
     // ------------------------------------------------------------------
 
+    /// <summary>UpgradeService must not re-implement version comparison; sync decisions go
+    /// through the injected shared comparer, and every composition site supplies it.</summary>
     [Fact]
     public void UpgradeService_DelegatesComparison_ToTheSharedComparer()
     {
         var srcRoot = FindRepoSubdir("src");
-        var path = Path.Combine(srcRoot, "DLSSVersionToolkit.Core", "Services", "UpgradeService.cs");
-        var text = File.ReadAllText(path);
+        var text = File.ReadAllText(
+            Path.Combine(srcRoot, "DLSSVersionToolkit.Core", "Services", "UpgradeService.cs"));
 
-        Assert.DoesNotContain("private static bool IsVersionNewer", text,
-            "UpgradeService must not re-implement version comparison — inject IVersionComparer " +
-            "(the private copy lacked pad-to-4 and diverged from every other consumer)");
-        Assert.Contains("_versionComparer.IsNewer(", text,
-            "sync decisions must go through the shared IVersionComparer");
-        Assert.DoesNotContain("new UpgradeService(new NgxScanner(new NgxConfigParser()), new BackupService())",
-            text + File.ReadAllText(Path.Combine(srcRoot, "DLSSVersionToolkit.Core", "Services",
-                "DlssDownloadService.cs")) +
-            File.ReadAllText(Path.Combine(srcRoot, "DLSSVersionToolkit.Core", "Services",
-                "StreamlineDownloadService.cs")),
-            "composition sites must supply the shared comparer");
+        Assert.DoesNotContain("private static bool IsVersionNewer", text);
+        Assert.Contains("_versionComparer.IsNewer(", text);
+
+        foreach (var f in new[] { "DlssDownloadService.cs", "StreamlineDownloadService.cs" })
+        {
+            var s = File.ReadAllText(Path.Combine(srcRoot, "DLSSVersionToolkit.Core", "Services", f));
+            Assert.DoesNotContain(
+                "new UpgradeService(new NgxScanner(new NgxConfigParser()), new BackupService())", s);
+            Assert.Contains("new VersionComparer()", s);
+        }
     }
 
     [Fact]
     public void VersionComparer_PadsShortVersions_SoTwoPartCompareWorks()
     {
         var c = new VersionComparer();
-        Assert.True(c.IsNewer("310.7", "310.6"), "2-part versions must compare numerically");
-        Assert.False(c.IsNewer("310.6", "310.10"), "lexical order trap: 6 < 10");
+        Assert.True(c.IsNewer("310.7", "310.6"));
+        Assert.False(c.IsNewer("310.6", "310.10"));
         Assert.True(c.IsNewer("310.10", "310.9"));
         Assert.False(c.IsNewer("310.6", "310.6"));
     }
@@ -61,7 +63,6 @@ public class SiblingSweepTests
         var dir = Directory.CreateTempSubdirectory("dlssvt-missing");
         try
         {
-            // Only the main DLL present — the three components are missing and MUST be named.
             File.WriteAllText(Path.Combine(dir.FullName, "nvngx_dlss.dll"), "mz");
 
             var missing = UpgradeService.MissingNgxDllNames(dir.FullName);
@@ -115,9 +116,7 @@ public class SiblingSweepTests
                     offenders.Add($"{Path.GetFileName(file)}:{i + 1}");
         }
 
-        Assert.True(offenders.Count == 0,
-            "nvngx_config.txt location rebuilt outside NgxPathResolver at: " +
-            string.Join(", ", offenders) + ". Use NgxPathResolver.GetConfigFilePath().");
+        Assert.Empty(offenders);
     }
 
     [Fact]
@@ -129,6 +128,8 @@ public class SiblingSweepTests
         Assert.Contains(NgxPathResolver.WriteRoots[0], cfg, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>The override-config version must be read back from the copied DLL bytes;
+    /// the URL-derived value survives only as an explicit last-resort fallback.</summary>
     [Fact]
     public void SetupAnWave_VersionSource_IsDllBytes_WithUrlFallbackOnly()
     {
@@ -136,12 +137,8 @@ public class SiblingSweepTests
         var text = File.ReadAllText(Path.Combine(srcRoot, "DLSSVersionToolkit.Core", "Services",
             "AnWaveAutoService.cs"));
 
-        Assert.Contains("ReadDlssVersionFromFolder(InstallDir)", text,
-            "the override config version must be read back from the copied DLL bytes");
-        Assert.Matches(
-            @"dllBytesVersion\)\s*\?\s*urlVersion\s*:\s*dllBytesVersion",
-            text,
-            "URL-derived version may survive only as an explicit last-resort fallback");
+        Assert.Contains("ReadDlssVersionFromFolder(InstallDir)", text);
+        Assert.Matches(@"dllBytesVersion\)\s*\?\s*urlVersion\s*:\s*dllBytesVersion", text);
     }
 
     // ------------------------------------------------------------------
@@ -158,10 +155,8 @@ public class SiblingSweepTests
         var text = File.ReadAllText(Path.Combine(srcRoot, "DLSSVersionToolkit.Core", "Services",
             "AnWaveAutoService.cs"));
 
-        Assert.Contains("result.FailedFiles.Add", text,
-            "skipped DLLs must be recorded on the result, not vanish into Debug.WriteLine");
-        Assert.Contains("FailedFiles { get; set; }", text,
-            "AnWaveAutoApplyResult must carry the skip list");
+        Assert.Contains("result.FailedFiles.Add", text);
+        Assert.Contains("FailedFiles { get; set; }", text);
     }
 
     [Fact]
@@ -176,14 +171,11 @@ public class SiblingSweepTests
         // the gate guards the main download flow's assignment.
         var verifyAt = sl.IndexOf("OperationGuard.VerifyFile(destPath, totalRead)", StringComparison.Ordinal);
         var cacheAt = sl.LastIndexOf("_cachedDownloadPath = destPath;", StringComparison.Ordinal);
-        Assert.True(verifyAt >= 0 && cacheAt > verifyAt,
-            "Streamline downloads must pass size verification BEFORE being cached (a truncated " +
-            "zip used to sit in the cache and fail later at extract time)");
+        Assert.True(verifyAt >= 0 && cacheAt > verifyAt);
 
         var dlss = File.ReadAllText(Path.Combine(srcRoot, "DLSSVersionToolkit.Core", "Services",
             "DlssDownloadService.cs"));
-        Assert.Contains("OperationGuard.VerifyFile(destPath, totalRead)", dlss,
-            "the DLSS twin is the reference implementation of this gate");
+        Assert.Contains("OperationGuard.VerifyFile(destPath, totalRead)", dlss);
     }
 
     [Fact]
@@ -193,10 +185,8 @@ public class SiblingSweepTests
         var svc = File.ReadAllText(Path.Combine(srcRoot, "DLSSVersionToolkit.Core", "Services",
             "PresetOverrideService.cs"));
 
-        Assert.Contains("int ProfilesSkipped = 0", svc,
-            "PresetOverrideResult must carry the skip count");
-        Assert.Contains("profilesSkipped++", svc,
-            "each skipped profile must increment the counter");
+        Assert.Contains("int ProfilesSkipped = 0", svc);
+        Assert.Contains("profilesSkipped++", svc);
     }
 
     [Fact]
@@ -208,14 +198,12 @@ public class SiblingSweepTests
         var scanService = File.ReadAllText(Path.Combine(srcRoot, "DLSSVersionToolkit.Core", "Services",
             "ScanService.cs"));
 
-        Assert.Contains("errors?.Add(", scanner,
-            "scanner catch blocks must surface failures when an error sink is supplied");
-        Assert.Contains("_ngxScanner.Scan(path, scanErrors)", scanService,
-            "ScanService must collect scanner errors into result.Errors");
+        Assert.Contains("errors?.Add(", scanner);
+        Assert.Contains("_ngxScanner.Scan(path, scanErrors)", scanService);
     }
 
     // ------------------------------------------------------------------
-    // C8: Evaluate's installedByDll came from _lastScanResult, permanently empty.
+    // C8: Evaluate's installedByDict came from _lastScanResult, permanently empty.
     // ------------------------------------------------------------------
 
     [Fact]
@@ -227,22 +215,21 @@ public class SiblingSweepTests
 
         // The dict handed to Evaluate must be populated from the NGX_Release scan entry.
         var evalAt = vm.IndexOf("Evaluate(installedByDll", StringComparison.Ordinal);
-        var populateAt = vm.IndexOf("installedByDll[\"nvngx_deepdvc.dll\"] = ngxEntry.DeepDVC;", StringComparison.Ordinal);
-        Assert.True(populateAt >= 0 && evalAt > populateAt,
-            "installedByDll must be populated from the last scan BEFORE Evaluate consumes it");
+        var populateAt = vm.IndexOf("installedByDll[\"nvngx_deepdvc.dll\"] = ngxEntry.DeepDVC;",
+            StringComparison.Ordinal);
+        Assert.True(populateAt >= 0 && evalAt > populateAt);
     }
 
     /// <summary>Walks up from the test binary to the repo root and returns the src/ subdir.</summary>
     internal static string FindRepoSubdir(string name)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null)
+        for (var i = 0; i < 8 && dir != null; i++, dir = dir.Parent)
         {
             var candidate = Path.Combine(dir.FullName, name);
-            if (Directory.Exists(candidate))
+            if (Directory.Exists(candidate) && Directory.Exists(Path.Combine(dir.FullName, "tests")))
                 return candidate;
-            dir = dir.Parent;
         }
-        throw new InvalidOperationException($"Could not locate '{name}' above {AppContext.BaseDirectory}");
+        throw new DirectoryNotFoundException($"Could not locate '{name}' from {AppContext.BaseDirectory}");
     }
 }

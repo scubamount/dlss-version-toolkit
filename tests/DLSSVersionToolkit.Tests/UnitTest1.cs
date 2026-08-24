@@ -1322,7 +1322,7 @@ public class UpgradeServiceTests
 	public void UpgradeFromStaging_DisallowedPath_ReturnsFailed()
 	{
 		var scanner = new MockNgxScanner(new List<DLSSVersionEntry>());
-		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService(), new VersionComparer());
+		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService(), new Core.Services.VersionComparer());
 		var result = svc.UpgradeFromStaging(@"C:\Totally\Random\Path");
 		Assert.Equal(OperationStatus.Failed, result.Status);
 		Assert.Contains("not in allowed list", result.ErrorMessage);
@@ -1336,7 +1336,7 @@ public class UpgradeServiceTests
 			new() { Source = "NGX_Staging", DLSS = "310.10.0.0", Path = AllowedPath }
 		};
 		var scanner = new MockNgxScanner(entries);
-		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService(), new VersionComparer());
+		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService(), new Core.Services.VersionComparer());
 		var result = svc.UpgradeFromStaging(AllowedPath);
 		Assert.Equal(OperationStatus.Failed, result.Status);
 		Assert.Contains("No Release", result.ErrorMessage);
@@ -1350,7 +1350,7 @@ public class UpgradeServiceTests
 			new() { Source = "NGX_Release", DLSS = "310.6.0.0", Path = AllowedPath }
 		};
 		var scanner = new MockNgxScanner(entries);
-		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService(), new VersionComparer());
+		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService(), new Core.Services.VersionComparer());
 		var result = svc.UpgradeFromStaging(AllowedPath);
 		Assert.Equal(OperationStatus.Failed, result.Status);
 		Assert.Contains("No staging", result.ErrorMessage);
@@ -1366,7 +1366,7 @@ public class UpgradeServiceTests
 			new() { Source = "NGX_Staging", DLSS = "310.6.0.0", Path = AllowedPath }
 		};
 		var scanner = new MockNgxScanner(entries);
-		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService(), new VersionComparer());
+		var svc = new Core.Services.UpgradeService(scanner, new MockBackupService(), new Core.Services.VersionComparer());
 		var result = svc.UpgradeFromStaging(AllowedPath);
 		Assert.Equal(OperationStatus.Completed, result.Status);
 		Assert.Contains("up to date", result.ErrorMessage);
@@ -1382,7 +1382,7 @@ public class UpgradeServiceTests
 		};
 		var scanner = new MockNgxScanner(entries);
 		var backup = new MockBackupService { BackupResult = null };
-		var svc = new Core.Services.UpgradeService(scanner, backup, new VersionComparer());
+		var svc = new Core.Services.UpgradeService(scanner, backup, new Core.Services.VersionComparer());
 		var result = svc.UpgradeFromStaging(AllowedPath);
 		Assert.Equal(OperationStatus.Failed, result.Status);
 		Assert.Contains("backup", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
@@ -1398,7 +1398,7 @@ public class UpgradeServiceTests
 		};
 		var scanner = new MockNgxScanner(entries);
 		var backup = new MockBackupService { VerifyResult = false };
-		var svc = new Core.Services.UpgradeService(scanner, backup, new VersionComparer());
+		var svc = new Core.Services.UpgradeService(scanner, backup, new Core.Services.VersionComparer());
 		var result = svc.UpgradeFromStaging(AllowedPath);
 		Assert.Equal(OperationStatus.Failed, result.Status);
 		Assert.Contains("verification", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
@@ -1429,7 +1429,7 @@ public class UpgradeServiceTests
 			};
 			var scanner = new MockNgxScanner(entries);
 			var backup = new MockBackupService();
-			var svc = new Core.Services.UpgradeService(scanner, backup, new VersionComparer());
+			var svc = new Core.Services.UpgradeService(scanner, backup, new Core.Services.VersionComparer());
 
 			var result = svc.UpgradeFromStaging(baseDir);
 
