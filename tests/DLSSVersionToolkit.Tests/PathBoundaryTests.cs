@@ -35,6 +35,7 @@ public class PathBoundaryTests
     private sealed class EmptyNgxScanner : Core.Services.INgxScanner
     {
         public List<DLSSVersionEntry> Scan(string ngxBasePath) => [];
+        public List<DLSSVersionEntry> Scan(string ngxBasePath, List<string>? errors) => Scan(ngxBasePath);
     }
 
     private sealed class UnusedBackupService : Core.Services.IBackupService
