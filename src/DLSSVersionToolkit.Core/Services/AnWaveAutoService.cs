@@ -22,6 +22,12 @@ public class AnWaveAutoApplyResult
     public bool Success { get; set; }
     public string? ErrorMessage { get; set; }
     public List<string> FilesCopied { get; set; } = new();
+
+    /// <summary>Per-DLL reasons a source DLL was skipped (failed signature/verify). A copy that
+    /// failed verification is never in FilesCopied; these names are surfaced in the run report
+    /// instead of vanishing into Debug.WriteLine (v0.0.57).</summary>
+    public List<string> FailedFiles { get; set; } = new();
+
     public bool ConfigWritten { get; set; }
     public string? AppliedVersion { get; set; }
 }
@@ -95,9 +101,7 @@ public class AnWaveAutoService : IAnWaveAutoService
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         CacheDir = Path.Combine(appData, "DLSSVersionToolkit", "AnWaveCache");
         InstallDir = Path.Combine(appData, "DLSSVersionToolkit", "AnWave");
-        ConfigFilePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "NVIDIA", "NGX", "nvngx_config.txt");
+        ConfigFilePath = NgxPathResolver.GetConfigFilePath();
 
         var handler = new HttpClientHandler { AllowAutoRedirect = true };
         _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(120) };
@@ -293,7 +297,11 @@ progress?.Report(30);
 	if (string.IsNullOrEmpty(latestRelease))
 		return new AnWaveSetupResult { Success = false, ErrorMessage = "Could not fetch latest NVIDIA/DLSS release." };
 
-        _dllVersion = ExtractVersionFromUrl(latestRelease);
+        var urlVersion = ExtractVersionFromUrl(latestRelease);
+        // URL value is only a last-resort fallback now — the DLL's FileVersionInfo decides what
+        // reaches nvngx_config.txt (v0.0.57). Previously the release tag was written into the
+        // driver-facing override even when the copied bytes were older/different.
+        _dllVersion = urlVersion;
         var nvidiaDllUrl = latestRelease;
 
         progress?.Report(65);
@@ -304,6 +312,7 @@ progress?.Report(30);
         progress?.Report(80);
 
 		string? dllTmpDir = null;
+		var copiedDlls = new List<string>();
 		try
 		{
 			dllTmpDir = Path.Combine(Path.GetTempPath(), $"DLSSVT_dlls_{Guid.NewGuid():N}");
@@ -319,9 +328,15 @@ progress?.Report(30);
 				var dest = Path.Combine(InstallDir, Path.GetFileName(dll));
 				File.Copy(dll, dest, true);
 
-				// Post-copy verification
+				// Post-copy verification: a failed verify is a FAILED copy. It must not be counted,
+				// or the run reports files that are not actually on disk (v0.0.57).
 				if (!OperationGuard.VerifyFile(dest, srcSize))
+				{
 					System.Diagnostics.Debug.WriteLine($"ExtractGlomFromCache: DLL post-copy verification failed for {dest}");
+					try { File.Delete(dest); } catch { }
+					continue;
+				}
+				copiedDlls.Add(dest);
 			}
 			catch (Exception ex_dll) { System.Diagnostics.Debug.WriteLine($"ExtractGlomFromCache: DLL copy failed: {ex_dll.Message}"); }
 		}
@@ -347,9 +362,28 @@ progress?.Report(30);
 		if (dllTmpDir != null) try { Directory.Delete(dllTmpDir, recursive: true); } catch { }
 	}
 
+        // v0.0.57: every copy either verified or was deleted. Zero survivors = nothing happened;
+        // say so instead of writing an override that points at DLLs that do not exist.
+        if (copiedDlls.Count == 0)
+            return new AnWaveSetupResult
+            {
+                Success = false,
+                ErrorMessage = "None of the downloaded DLSS DLLs passed post-copy verification — " +
+                               "nothing was installed and no override was written. Check disk space and re-run."
+            };
+
         progress?.Report(90);
 
-        // Step 3: Write nvngx_config.txt to NGX to activate override
+        // Step 3: Write nvngx_config.txt to NGX to activate override.
+        // v0.0.57: the version written is read from the DLL bytes we just placed in InstallDir
+        // (FileVersionInfo is the only version authority). The URL/tag value is a fallback for
+        // an unreadable version resource only — never the primary source.
+        var dllBytesVersion = DllVersionReader.ReadDlssVersionFromFolder(InstallDir);
+        _dllVersion = string.IsNullOrEmpty(dllBytesVersion) ? urlVersion : dllBytesVersion;
+        if (string.IsNullOrEmpty(_dllVersion))
+            throw new InvalidOperationException(
+                "Could not determine the DLSS version from the downloaded DLLs (and no release-tag " +
+                "fallback was available). The DLLs were copied but the override was not written.");
  WriteNgXConfig(_dllVersion);
 
         progress?.Report(100);
@@ -480,6 +514,7 @@ progress?.Report(30);
 			if (!OperationGuard.VerifyDllSignature(srcDll))
 			{
 				System.Diagnostics.Debug.WriteLine($"AutoApplySync: source DLL failed signature check: {srcDll}");
+				result.FailedFiles.Add($"{dllName}: PE signature check failed");
 				continue; // Skip this DLL rather than fail the whole operation
 			}
 
@@ -487,9 +522,15 @@ progress?.Report(30);
 			var destPath = Path.Combine(anWavePath, dllName);
 			File.Copy(srcDll, destPath, true);
 
-			// Post-copy verification: check file size matches
+			// Post-copy verification: check file size matches. A failed verify is a FAILED copy —
+			// it must not land in FilesCopied or the run counts bytes that are not on disk (v0.0.57).
 			if (!OperationGuard.VerifyFile(destPath, srcSize))
+			{
 				System.Diagnostics.Debug.WriteLine($"AutoApplySync: post-copy verification failed for {destPath}");
+				try { File.Delete(destPath); } catch { }
+				result.FailedFiles.Add($"{dllName}: post-copy size verification failed");
+				continue;
+			}
 
 			result.FilesCopied.Add(dllName);
             }

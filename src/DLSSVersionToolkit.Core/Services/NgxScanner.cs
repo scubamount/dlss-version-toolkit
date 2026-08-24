@@ -6,11 +6,18 @@ using System.Diagnostics;
 public interface INgxScanner
 {
     List<DLSSVersionEntry> Scan(string ngxBasePath);
+
+    /// <summary>
+    /// Same scan, with per-path failures collected into <paramref name="errors"/> instead of
+    /// vanishing into Debug.WriteLine. Existing callers keep the 1-arg overload (v0.0.57).
+    /// </summary>
+    List<DLSSVersionEntry> Scan(string ngxBasePath, List<string> errors);
 }
 
 public class NgxScanner : INgxScanner
 {
     private readonly INgxConfigParser _configParser;
+
     public const string ReleaseSubPath = @"models\dlss_override\versions";
 
     /// <summary>
@@ -63,7 +70,15 @@ public class NgxScanner : INgxScanner
         _configParser = configParser;
     }
 
-    public List<DLSSVersionEntry> Scan(string ngxBasePath)
+    /// <summary>Scans one NGX base path; failures are swallowed into Debug only.</summary>
+    public List<DLSSVersionEntry> Scan(string ngxBasePath) => Scan(ngxBasePath, errors: null);
+
+    /// <summary>
+    /// Real implementation. When <paramref name="errors"/> is non-null, access-denied and
+    /// unexpected scan exceptions are appended as human-readable strings so ScanService can
+    /// land them in ScanResult.Errors — an empty grid must never be the only symptom.
+    /// </summary>
+    public List<DLSSVersionEntry> Scan(string ngxBasePath, List<string>? errors)
     {
         var results = new List<DLSSVersionEntry>();
 
@@ -71,20 +86,20 @@ public class NgxScanner : INgxScanner
         string releasePath = Path.Combine(ngxBasePath, ReleaseSubPath);
         if (Directory.Exists(releasePath))
         {
-            results.AddRange(ScanFolder(releasePath, "NGX_Release"));
+            results.AddRange(ScanFolder(releasePath, "NGX_Release", errors));
         }
 
         // Scan Staging
         string stagingPath = Path.Combine(ngxBasePath, StagingSubPath);
         if (Directory.Exists(stagingPath))
         {
-            results.AddRange(ScanFolder(stagingPath, "NGX_Staging"));
+            results.AddRange(ScanFolder(stagingPath, "NGX_Staging", errors));
         }
 
         return results;
     }
 
-    private List<DLSSVersionEntry> ScanFolder(string basePath, string source)
+    private List<DLSSVersionEntry> ScanFolder(string basePath, string source, List<string>? errors = null)
     {
         var results = new List<DLSSVersionEntry>();
 
@@ -127,10 +142,12 @@ public class NgxScanner : INgxScanner
         catch (UnauthorizedAccessException ex)
         {
             Debug.WriteLine($"NgxScanner.ScanFolder: access denied to {basePath}: {ex.Message}");
+            errors?.Add($"Access denied scanning {basePath} — versions there are not shown.");
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"NgxScanner.ScanFolder: error scanning {basePath}: {ex.Message}");
+            errors?.Add($"Error scanning {basePath}: {ex.Message}");
         }
 
         return results;

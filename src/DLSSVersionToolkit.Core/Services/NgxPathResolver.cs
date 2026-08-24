@@ -101,6 +101,14 @@ public static class NgxPathResolver
     }
 
     /// <summary>
+    /// Canonical location of the driver's global override config (<c>nvngx_config.txt</c>) —
+    /// the ProgramData NGX root, not a candidate path. The one definition of "where does the
+    /// override config live"; AnWaveAutoService consumed this literal before v0.0.57.
+    /// </summary>
+    public static string GetConfigFilePath() =>
+        Path.Combine(WriteRoots[0], "nvngx_config.txt");
+
+    /// <summary>
     /// Returns NGX base-path candidates in priority order (explicit → registry → defaults).
     /// Never throws; never returns duplicates. Entries are NOT filtered by Directory.Exists —
     /// callers that need existing dirs filter themselves (the scanner tolerates missing paths).

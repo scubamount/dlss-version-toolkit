@@ -316,7 +316,7 @@ public class DlssDownloadService : IDlssDownloadService
             return Task.FromResult<UpgradeOperation?>(null);
 
         progress?.Report(0);
-        var upgradeService = new UpgradeService(new NgxScanner(new NgxConfigParser()), new BackupService());
+        var upgradeService = new UpgradeService(new NgxScanner(new NgxConfigParser()), new BackupService(), new VersionComparer());
         var result = upgradeService.SyncFromDlssSDK(_cachedDownloadPath, ngxBasePath);
         progress?.Report(100);
         return Task.FromResult<UpgradeOperation?>(result);

@@ -24,11 +24,18 @@ public class UpgradeService : IUpgradeService
     // here, so DeepDVC was never synced and stayed stale forever while the other three updated.
     public static readonly string[] NgxDllNames = { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll", "nvngx_deepdvc.dll" };
 
-    public UpgradeService(INgxScanner ngxScanner, IBackupService backupService)
+    public UpgradeService(INgxScanner ngxScanner, IBackupService backupService, IVersionComparer versionComparer)
     {
         _ngxScanner = ngxScanner;
         _backupService = backupService;
+        _versionComparer = versionComparer;
     }
+
+    // v0.0.57: "is X newer than Y" has ONE definition (IVersionComparer, padded 4-part compare).
+    // A private re-implementation lived here that lacked VersionComparer's pad-to-4 fix, so
+    // 2-part versions ("310.6") crashed it into its catch -> "never newer" HERE while the same
+    // input compared correctly everywhere else. Detector and applier must share one function.
+    private readonly IVersionComparer _versionComparer;
 
     public UpgradeOperation UpgradeFromStaging(string ngxBasePath)
     {
@@ -71,7 +78,7 @@ public class UpgradeService : IUpgradeService
         var latestRelease = releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
         var latestStaging = stagings.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
 
-        if (!IsVersionNewer(latestStaging.DLSS, latestRelease.DLSS))
+        if (!_versionComparer.IsNewer(latestStaging.DLSS, latestRelease.DLSS))
         {
             operation.Status = OperationStatus.Completed;
             operation.ErrorMessage = $"Release is already up to date ({latestRelease.DLSS} >= {latestStaging.DLSS})";
@@ -148,17 +155,19 @@ public class UpgradeService : IUpgradeService
 
 	var latestRelease = releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
 
-	if (!IsVersionNewer(sourceVersions.DLSS, latestRelease.DLSS))
+	if (!_versionComparer.IsNewer(sourceVersions.DLSS, latestRelease.DLSS))
 	{
-// Same version — but still sync if target DLLs are missing (incomplete install)
-var targetDllExists = File.Exists(Path.Combine(operation.TargetPath, "nvngx_dlss.dll"));
-		if (targetDllExists)
+// Same version — but still sync if ANY target DLL is missing (incomplete install). The guard
+// used to check only nvngx_dlss.dll while PerformSync writes all four NgxDllNames, so a missing
+// dlssg/dlssd/deepdvc never triggered recreation (v0.0.57).
+var missingTargetDlls = MissingNgxDllNames(operation.TargetPath);
+		if (missingTargetDlls.Count == 0)
 		{
 			operation.Status = OperationStatus.Completed;
 			operation.ErrorMessage = "Source is not newer than NGX Release";
 			return operation;
 		}
-		// DLLs missing — fall through to PerformSync to recreate them
+		// DLL(s) missing — fall through to PerformSync to recreate them.
 	}
 
         return PerformSync(operation, foundPath!, sourceVersions);
@@ -571,6 +580,14 @@ return false;
         };
     }
 
+    /// <summary>
+    /// Which of the canonical NGX DLLs are absent from <paramref name="targetPath"/>. Public so
+    /// the tests assembly can pin it: the same-version resync guard must ask this about ALL four
+    /// NgxDllNames, not just nvngx_dlss.dll (v0.0.55-and-earlier hole).
+    /// </summary>
+    public static List<string> MissingNgxDllNames(string targetPath) =>
+        NgxDllNames.Where(n => !File.Exists(Path.Combine(targetPath, n))).ToList();
+
     private static string? FindDll(string folder, string dllName)
     {
         try
@@ -587,29 +604,6 @@ return false;
             return Directory.GetFiles(folder, "nvngx_package_config.txt", SearchOption.TopDirectoryOnly).FirstOrDefault();
         }
         catch { return null; }
-    }
-
-    private static bool IsVersionNewer(string version1, string version2)
-    {
-        if (version1 == "Unknown" || version1 == "N/A") return false;
-        if (version2 == "Unknown" || version2 == "N/A") return true;
-
-        try
-        {
-            var v1 = NormalizeVersion(version1);
-            var v2 = NormalizeVersion(version2);
-
-            var parts1 = v1.Split('.').Take(4).Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
-            var parts2 = v2.Split('.').Take(4).Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
-
-            for (int i = 0; i < 4; i++)
-            {
-                if (parts1[i] > parts2[i]) return true;
-                if (parts1[i] < parts2[i]) return false;
-            }
-            return false;
-        }
-        catch { return false; }
     }
 
     private static Version? TryParseVersion(string version)

@@ -125,8 +125,11 @@ public class NgxWriteRootTests
     /// blind to an AppData-based tree or a configured path. This asserts the literal pair appears
     /// only inside NgxPathResolver, where WriteRoots and GetCandidatePaths define it once.
     ///
-    /// One fallback is allowed and named: MainViewModel's Update All pre-flight keeps a literal
-    /// after `?? ` so a machine with neither folder still gets a message instead of a crash.
+    /// v0.0.57 hardening: the check is now PER LINE, not per file. The original per-file skip for
+    /// "any file mentioning GetWritableBase(null)" let a second, unrelated literal in the same
+    /// file ride in behind the sanctioned fallback (verdict unit narrower than enforcement unit —
+    /// the detector-integrity failure mode). Now each line carrying the literal must BE the
+    /// sanctioned `?? Path.Combine(...)` fallback itself; no other exemption exists.
     /// </summary>
     [Fact]
     public void NgxRootLiteral_IsDefinedOnlyInTheResolver()
@@ -140,38 +143,34 @@ public class NgxWriteRootTests
             if (name == "NgxPathResolver.cs")
                 continue;
 
-            var text = File.ReadAllText(file);
-            if (!text.Contains("\"NVIDIA\", \"NGX\"", StringComparison.Ordinal))
-                continue;
+            var lines = File.ReadAllLines(file);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i];
+                if (!line.Contains("\"NVIDIA\", \"NGX\"", StringComparison.Ordinal))
+                    continue;
 
-            // The one sanctioned fallback: a null-coalescing default behind GetWritableBase.
-            if (text.Contains("GetWritableBase(null)", StringComparison.Ordinal) &&
-                text.Contains("?? Path.Combine", StringComparison.Ordinal))
-                continue;
+                // The ONE sanctioned form: the null-coalescing default behind GetWritableBase.
+                // Checked over a small statement window because the fallback legitimately wraps
+                // across three lines (`= X.GetWritableBase(null)` / `?? Path.Combine(` /
+                // `"NVIDIA", "NGX");`). A whole-file exemption was the v0.0.53-56 hole; ±4 lines
+                // keeps the verdict local to the statement without false-positive wrapping.
+                var windowStart = Math.Max(0, i - 4);
+                var windowEnd = Math.Min(lines.Length - 1, i + 2);
+                var window = string.Join("\n", lines[windowStart..(windowEnd + 1)]);
+                var isSanctionedFallback =
+                    window.Contains("GetWritableBase(null)", StringComparison.Ordinal) &&
+                    window.Contains("?? Path.Combine", StringComparison.Ordinal);
 
-            // nvngx_config.txt is AnWave's config file, not an NGX model root.
-            if (text.Contains("\"NVIDIA\", \"NGX\", \"nvngx_config.txt\"", StringComparison.Ordinal) &&
-                CountOccurrences(text, "\"NVIDIA\", \"NGX\"") == 1)
-                continue;
-
-            offenders.Add(Path.GetFileName(file));
+                if (!isSanctionedFallback)
+                    offenders.Add($"{Path.GetFileName(file)}:{i + 1}");
+            }
         }
 
         Assert.True(offenders.Count == 0,
-            "NGX root path rebuilt outside NgxPathResolver in: " + string.Join(", ", offenders) +
-            ". Use NgxPathResolver.GetWritableBase for writes or GetCandidatePaths for reads.");
-    }
-
-    private static int CountOccurrences(string haystack, string needle)
-    {
-        var n = 0;
-        var i = haystack.IndexOf(needle, StringComparison.Ordinal);
-        while (i >= 0)
-        {
-            n++;
-            i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal);
-        }
-        return n;
+            "NGX root path rebuilt outside NgxPathResolver at: " + string.Join(", ", offenders) +
+            ". Use NgxPathResolver.GetWritableBase for writes, GetCandidatePaths for reads, " +
+            "GetConfigFilePath() for nvngx_config.txt.");
     }
 
     /// <summary>

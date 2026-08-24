@@ -567,7 +567,21 @@ private async Task<string> ReassertOverridesAsync(string? dlssChannelVersion, st
 				: streamlineChannelVersion ?? dlssChannelVersion;
 		}
 
+		// v0.0.57: installedByDll used to be passed to Evaluate permanently empty, so
+		// status.InstalledVersion was always null and the manifest evaluated the channel against
+		// nothing. Populate from the last scan — per-DLL FileVersionInfo is the version authority.
 		var installedByDll = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+		// Component-specific versions where the scan carries them (dlssg/dlssd/deepdvc ride
+		// their own columns on the NGX entry; nvngx_dlss.dll uses DLSS). Missing scan = empty
+		// dict, which Evaluate already treats as "unknown installed".
+		var ngxEntry = _lastScanResult?.Sources.FirstOrDefault(s => s.Source == "NGX_Release");
+		if (ngxEntry != null)
+		{
+			installedByDll["nvngx_dlss.dll"] = ngxEntry.DLSS;
+			installedByDll["nvngx_dlssg.dll"] = ngxEntry.FrameGen;
+			installedByDll["nvngx_dlssd.dll"] = ngxEntry.DLSSD;
+			installedByDll["nvngx_deepdvc.dll"] = ngxEntry.DeepDVC;
+		}
 		var statuses = await Task.Run(() =>
 			_overrideManifestService.Evaluate(installedByDll, channelByDll));
 
@@ -1337,6 +1351,10 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     // path for most users, so it must save too, not just the Apply button.
                     await SavePresetSelectionsAsync();
                     _runReports.Add("Presets", "ok", $"{DlssPresetDisplay.GetShortLabel(presetToApply)} applied to {pr.GameProfilesUpdated} game profile(s)");
+                    if (pr.ProfilesSkipped > 0)
+                        _runReports.Add("Presets", "warn",
+                            $"{pr.ProfilesSkipped} profile(s) skipped (driver write failed): " +
+                            "re-apply after closing running games.");
                 }
                 else
                 {
@@ -1534,6 +1552,9 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     ? settings.NgxBasePath
                     : ngxBase;
                 var anWaveOp = await _anWaveAutoService.AutoApplyAsync(anWaveTarget, anWaveNgxSource, null);
+                if (anWaveOp.FailedFiles.Count > 0)
+                    _runReports.Add("AnWave", "warn",
+                        $"{anWaveOp.FailedFiles.Count} DLL(s) skipped: " + string.Join("; ", anWaveOp.FailedFiles));
                 if (!anWaveOp.Success)
                 {
                     _runReports.Add("AnWave", "fail", anWaveOp.ErrorMessage ?? "apply failed");
@@ -1653,6 +1674,9 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 				{
 					_runReports.Add("AnWave", "ok",
 						$"v{anWaveOp.AppliedVersion ?? sdkVersion} applied ({anWaveOp.FilesCopied.Count} file(s))");
+					if (anWaveOp.FailedFiles.Count > 0)
+						_runReports.Add("AnWave", "warn",
+							$"{anWaveOp.FailedFiles.Count} DLL(s) skipped: " + string.Join("; ", anWaveOp.FailedFiles));
 					var anWaveFiles = string.Join("\n • ", anWaveOp.FilesCopied);
 					var appliedVer = anWaveOp.AppliedVersion ?? sdkVersion;
 					EndUpdateAllProgress();
