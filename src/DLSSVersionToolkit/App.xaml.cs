@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Threading;
 using DLSSVersionToolkit.Core.Services;
 using DLSSVersionToolkit.ViewModels;
+using DLSSVersionToolkit.Views;
 
 namespace DLSSVersionToolkit;
 
@@ -50,7 +51,7 @@ public partial class App : Application
     {
         try
         {
-            MessageBox.Show(
+            ThemedMessageBox.Show(
                 $"DLSS Version Toolkit hit an unexpected error and may not work correctly.\n\n" +
                 $"Where: {source}\n" +
                 $"Error: {ex?.Message}\n\n" +

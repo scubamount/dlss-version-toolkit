@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.Input;
 using DLSSVersionToolkit.Core.Models;
 using DLSSVersionToolkit.Core.Services;
 using System.Diagnostics;
+using DLSSVersionToolkit.Views;
 
 namespace DLSSVersionToolkit.ViewModels;
 
@@ -328,7 +329,7 @@ IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
         if (_pendingAppUpdate is not { } update || IsApplyingAppUpdate) return;
 
         var sizeMb = update.AssetSize > 0 ? $" (~{update.AssetSize / 1024.0 / 1024.0:F1} MB)" : "";
-        var confirm = MessageBox.Show(
+        var confirm = ThemedMessageBox.Show(
             $"Update DLSS Version Toolkit from v{update.CurrentVersion} to v{update.LatestVersion}?\n\n" +
             $"The new version{sizeMb} will be downloaded and the app will restart.\n\n" +
             "Your settings and cached downloads are kept.",
@@ -345,13 +346,13 @@ IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
 
             if (!result.Success)
             {
-                MessageBox.Show(result.ErrorMessage, "App Update",
+                ThemedMessageBox.Show(result.ErrorMessage, "App Update",
                     MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
             DownloadStatus = "";
-            var restart = MessageBox.Show(
+            var restart = ThemedMessageBox.Show(
                 $"v{update.LatestVersion} is installed.\n\nRestart now to finish the update?",
                 "App Update", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (restart == MessageBoxResult.Yes)
@@ -368,7 +369,7 @@ IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
         }
         catch (Exception ex)
         {
-            MessageBox.Show(
+            ThemedMessageBox.Show(
                 $"Update failed: {ex.Message}\n\n" +
                 $"What to do: download the new version manually from {AppUpdateService.ReleasesPageUrl}",
                 "App Update", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -699,7 +700,7 @@ private async Task SuggestVersionGatedPresetAsync()
 		if (string.Equals(settings.DismissedPresetRule, ruleKey, StringComparison.Ordinal))
 			return;
 
-		var answer = MessageBox.Show(
+		var answer = ThemedMessageBox.Show(
 			$"{rule.Value.Reason}\n\n" +
 			$"Detected Ray Reconstruction: v{rrVersion}\n" +
 			$"Current RR preset: {DlssPresetDisplay.GetShortLabel(SelectedRrPreset)}\n" +
@@ -727,7 +728,7 @@ private async Task SuggestVersionGatedPresetAsync()
 [RelayCommand]
 private async Task ResetSelectionsAsync()
 {
-	var confirm = MessageBox.Show(
+	var confirm = ThemedMessageBox.Show(
 		"Reset all preset selections to their recommended defaults?\n\n" +
 		$"  Super Resolution : {DlssPresetDisplay.GetShortLabel(DlssPresetDisplay.SuperResolutionDefault)}\n" +
 		$"  Ray Reconstruction: {DlssPresetDisplay.GetShortLabel(DlssPresetDisplay.RayReconstructionDefault)}\n" +
@@ -799,7 +800,7 @@ private async Task IndexProfilesAsync()
 {
 	if (IsIndexingProfiles || IsApplyingPreset || IsUpdatingAll) return;
 
-	var confirm = MessageBox.Show(
+	var confirm = ThemedMessageBox.Show(
 		"Index game profiles now?\n\n" +
 		"This scans all NVIDIA driver profiles once (a few seconds) and remembers which ones " +
 		"belong to installed games. Future 'Apply to all games' and 'Update All' runs will use " +
@@ -816,14 +817,14 @@ private async Task IndexProfilesAsync()
 		DownloadStatus = "";
 		if (result.Success)
 		{
-			MessageBox.Show(
+			ThemedMessageBox.Show(
 				$"Indexed {result.GameProfilesUpdated} game profile(s) in {result.ElapsedMs / 1000.0:F1}s.\n\n" +
 				"Apply to all games and Update All will now use the fast path.",
 				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
 		}
 		else
 		{
-			MessageBox.Show(
+			ThemedMessageBox.Show(
 				$"Indexing failed: {result.ErrorMessage}\n\n" +
 				"Applies will keep working — they just use the full scan.",
 				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -831,7 +832,7 @@ private async Task IndexProfilesAsync()
 	}
 	catch (Exception ex)
 	{
-		MessageBox.Show($"Indexing failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+		ThemedMessageBox.Show($"Indexing failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
 	}
 	finally
 	{
@@ -857,25 +858,25 @@ private async Task ApplyWhitelistAsync()
 		switch (applied)
 		{
 			case WhitelistOutcome.Applied:
-				MessageBox.Show(
+				ThemedMessageBox.Show(
 					$"Whitelist applied — {WhitelistStatus}.\n\n" +
 					"NVIDIA App's DLSS4 override restrictions have been removed and the NVIDIA " +
 					"services were restarted. You can now enable DLSS overrides for more games.",
 					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
 				break;
 			case WhitelistOutcome.AlreadyApplied:
-				MessageBox.Show(
+				ThemedMessageBox.Show(
 					"Whitelist is already applied — no changes were needed.",
 					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
 				break;
 			case WhitelistOutcome.NotApplicable:
-				MessageBox.Show(
+				ThemedMessageBox.Show(
 					"The NVIDIA App does not appear to be installed, so there is nothing to whitelist.\n\n" +
 					"What to do: Install the NVIDIA App if you want to manage DLSS overrides through it.",
 					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
 				break;
 			case WhitelistOutcome.Failed:
-				MessageBox.Show(
+				ThemedMessageBox.Show(
 					$"Could not apply the whitelist.\n\nDetails: {WhitelistStatus}\n\n" +
 					"What to do: Try running the app as Administrator and try again.",
 					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -884,7 +885,7 @@ private async Task ApplyWhitelistAsync()
 	}
 	catch (Exception ex)
 	{
-		MessageBox.Show($"Apply whitelist failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+		ThemedMessageBox.Show($"Apply whitelist failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
 	}
 	finally
 	{
@@ -909,7 +910,7 @@ private async Task UnlockUnsupportedGamesAsync()
 
 		if (!result.IsApplicable)
 		{
-			MessageBox.Show(
+			ThemedMessageBox.Show(
 				"The NVIDIA App does not appear to be installed, so there is nothing to unlock.",
 				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
 			return;
@@ -917,7 +918,7 @@ private async Task UnlockUnsupportedGamesAsync()
 
 		if (!result.Success)
 		{
-			MessageBox.Show(
+			ThemedMessageBox.Show(
 				$"Could not unlock unsupported games.\n\nDetails: {result.ErrorMessage}\n\n" +
 				"What to do: close the NVIDIA App completely (including the system tray icon), " +
 				"then run this app as Administrator and try again.",
@@ -927,7 +928,7 @@ private async Task UnlockUnsupportedGamesAsync()
 
 		if (result.GamesModified == 0)
 		{
-			MessageBox.Show(
+			ThemedMessageBox.Show(
 				"No games needed unlocking — every game the NVIDIA App has detected already " +
 				"reports DLSS override support.",
 				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -939,7 +940,7 @@ private async Task UnlockUnsupportedGamesAsync()
 			? "The NVIDIA services were restarted."
 			: $"NVIDIA services could not be restarted ({restart.ErrorMessage}) — reboot for the change to take effect.";
 
-		MessageBox.Show(
+		ThemedMessageBox.Show(
 			$"Unlocked {result.GamesModified} game(s) that the NVIDIA App reported as not supported.\n\n" +
 			$"{restartNote}\n\n" +
 			"Open the NVIDIA App → Graphics → Program Settings to set DLSS overrides for them.\n\n" +
@@ -949,7 +950,7 @@ private async Task UnlockUnsupportedGamesAsync()
 	}
 	catch (Exception ex)
 	{
-		MessageBox.Show($"Unlock unsupported games failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+		ThemedMessageBox.Show($"Unlock unsupported games failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
 	}
 	finally
 	{
@@ -992,7 +993,7 @@ private async Task ImportLocalDllsAsync()
 
 		if (libraryHasDlls)
 		{
-			var useLibrary = MessageBox.Show(
+			var useLibrary = ThemedMessageBox.Show(
 				$"Import from your override library?\n\n{libraryPath}\n\n" +
 				"Yes — import the DLLs already in that folder.\n" +
 				"No — pick a different folder this time.",
@@ -1017,7 +1018,7 @@ private async Task ImportLocalDllsAsync()
 			sourceFolder = dialog.FolderName;
 		}
 
-		var confirm = MessageBox.Show(
+		var confirm = ThemedMessageBox.Show(
 			$"Import NGX DLLs from:\n{sourceFolder}\n\n" +
 			"Each DLL's version is read from the file itself and written into the NGX model tree " +
 			"in the layout the driver loads (models\\<component>\\versions\\<packed>\\files\\).\n\n" +
@@ -1042,7 +1043,7 @@ private async Task ImportLocalDllsAsync()
 
 		if (!result.Success)
 		{
-			MessageBox.Show(
+			ThemedMessageBox.Show(
 				$"Import failed.\n\nDetails: {result.ErrorMessage}\n\n" +
 				"If a game is running it can hold a DLL open — close it and try again.",
 				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -1070,7 +1071,7 @@ private async Task ImportLocalDllsAsync()
 			? "\n\nNothing was overwritten, so no backup was needed."
 			: $"\n\nOverwritten files were backed up to:\n{result.BackupPath}";
 
-		MessageBox.Show(
+		ThemedMessageBox.Show(
 			$"Imported {result.Components.Count} component(s), {result.FilesWritten.Count} file(s) written:\n\n" +
 			string.Join("\n", lines) +
 			backupNote +
@@ -1082,7 +1083,7 @@ private async Task ImportLocalDllsAsync()
 	}
 	catch (Exception ex)
 	{
-		MessageBox.Show($"Import local DLLs failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
+		ThemedMessageBox.Show($"Import local DLLs failed: {ex.Message}", "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
 	}
 	finally
 	{
@@ -1114,7 +1115,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 					Debug.WriteLine($"ApplyWhitelistInternal: service restart failed: {restart.ErrorMessage}");
 					if (showRestartWarning)
 					{
-						MessageBox.Show(
+						ThemedMessageBox.Show(
 							$"Whitelist applied but NVIDIA services could not be restarted.\n\n" +
 							$"Error: {restart.ErrorMessage}\n\n" +
 							"What to do: Restart your computer or manually restart NVIDIA services.",
@@ -1168,7 +1169,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
             if (actuallyEnabled != targetState)
             {
-                System.Windows.MessageBox.Show(
+                ThemedMessageBox.Show(
                     $"The DLSS Indicator registry value did not change as expected.\n\n" +
                     $"Requested: {(targetState ? "On" : "Off")}\n" +
                     $"Registry now reads: {(raw.HasValue ? raw.Value.ToString() : "(not set)")}\n\n" +
@@ -1179,7 +1180,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
             if (actuallyEnabled)
             {
-                System.Windows.MessageBox.Show(
+                ThemedMessageBox.Show(
                     "DLSS Indicator ENABLED.\n\n" +
                     $"Registry: HKLM\\SOFTWARE\\NVIDIA Corporation\\Global\\NGXCore\\ShowDlssIndicator = {raw} (0x{raw:X}).\n\n" +
                     "The on-screen overlay (DLSS DLL version, preset, render resolution) appears in the " +
@@ -1189,7 +1190,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             }
             else
             {
-                System.Windows.MessageBox.Show(
+                ThemedMessageBox.Show(
                     "DLSS Indicator DISABLED.\n\n" +
                     "The on-screen overlay is turned off. Restart any running game for the change to take effect.",
                     "DLSS Indicator", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
@@ -1199,7 +1200,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         {
             // Keep the toggle state in sync with whatever the registry really says.
             try { IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled(); } catch { /* ignore */ }
-            System.Windows.MessageBox.Show(
+            ThemedMessageBox.Show(
                 ex.Message,
                 "DLSS Indicator", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
         }
@@ -1251,7 +1252,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 			var cachedPath = _dlssDownloadService.GetCachedDownloadPath();
 			if (string.IsNullOrEmpty(cachedPath) || !File.Exists(cachedPath))
 			{
-				MessageBox.Show(
+				ThemedMessageBox.Show(
 					"No internet connection detected and no cached DLSS SDK exists.\n\n" +
 					"What to do: Connect to the internet and try again, or use 'Sync from DLSS SDK' with a previously downloaded zip.",
 					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -1273,7 +1274,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
 		if (!OperationGuard.HasDiskSpace(appDataBase, 500 * 1024 * 1024))
 		{
-			MessageBox.Show(
+			ThemedMessageBox.Show(
 			"Insufficient disk space for the update operation." + Environment.NewLine +
 			"At least 500 MB free space is required in the DLSSVersionToolkit data directory." + Environment.NewLine + Environment.NewLine +
 			"What to do: Free up disk space and try again.",
@@ -1283,7 +1284,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
 		if (Directory.Exists(ngxBase) && !OperationGuard.IsDirectoryWritable(ngxBase))
 		{
-			MessageBox.Show(
+			ThemedMessageBox.Show(
 				"The NGX directory is not writable. Administrator access may be required.\n\n" +
 				$"Path: {ngxBase}\n\n" +
 				"What to do: Restart the app as Administrator and try again.",
@@ -1428,7 +1429,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 var cachedPath = _dlssDownloadService.GetCachedDownloadPath();
                 if (cachedPath == null || !File.Exists(cachedPath))
                 {
-                    MessageBox.Show(
+                    ThemedMessageBox.Show(
                         "Could not download the latest DLSS SDK and no cached version exists.\n\n" +
                         "What happened: The download from NVIDIA/DLSS on GitHub could not be completed.\n" +
                         "What to do: Check your internet connection and try again.",
@@ -1448,7 +1449,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             var ngxOp = await _dlssDownloadService.SyncFromCachedSdkAsync(null);
             if (ngxOp == null || ngxOp.Status == OperationStatus.Failed)
             {
-                MessageBox.Show(
+                ThemedMessageBox.Show(
                     $"Failed to sync DLSS SDK v{sdkVersion} to NGX Release.\n\n" +
                     $"Error: {ngxOp?.ErrorMessage ?? "Unknown error"}\n\n" +
                     "What to do: Ensure the NGX directory exists at %ProgramData%\\NVIDIA\\NGX. Try running 'Sync from DLSS SDK' separately for more details.",
@@ -1460,7 +1461,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             {
                 _runReports.Add("NGX sync", "fail",
                     $"rolled back ({ngxOp.ErrorMessage}); backup at {ngxOp.BackupPath}");
-                MessageBox.Show(
+                ThemedMessageBox.Show(
                     $"DLSS SDK v{sdkVersion} sync to NGX failed and was rolled back.\n\n" +
                     $"Error: {ngxOp.ErrorMessage}\n" +
                     $"Backup preserved at: {ngxOp.BackupPath}\n\n" +
@@ -1562,7 +1563,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                         ? string.Join("\n  • ", ngxOp.FilesCopied)
                         : "  (no files needed copying)";
                     EndUpdateAllProgress();
-                    MessageBox.Show(
+                    ThemedMessageBox.Show(
                         $"Partial update — NGX succeeded but AnWave failed.\n\n" +
                         $"✅ NGX Release: v{sdkVersion} applied ({ngxOp.FilesCopied.Count} files)\n" +
                         $"  {ngxFiles}\n\n" +
@@ -1592,7 +1593,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                             ? $"✅ Streamline SDK: v{streamlineVersion} synced ({streamlineOp.FilesCopied.Count} files)\n"
                             : $"✅ Streamline SDK: v{streamlineVersion} already applied (no files needed)\n";
                     EndUpdateAllProgress();
-                    MessageBox.Show(
+                    ThemedMessageBox.Show(
                         $"All done!\n\n" +
                         unlockLine +
                         overrideLine +
@@ -1660,7 +1661,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 				{
 					_runReports.Add("AnWave", "fail", anWaveOp.ErrorMessage ?? "apply failed");
 					EndUpdateAllProgress();
-					MessageBox.Show(
+					ThemedMessageBox.Show(
 						$"Partial update — NGX succeeded but AnWave apply failed after setup.\n\n" +
 						unlockLine +
 						overrideLine +
@@ -1680,7 +1681,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 					var anWaveFiles = string.Join("\n • ", anWaveOp.FilesCopied);
 					var appliedVer = anWaveOp.AppliedVersion ?? sdkVersion;
 					EndUpdateAllProgress();
-					MessageBox.Show(
+					ThemedMessageBox.Show(
 						$"All done!\n\n" +
 						unlockLine +
 						overrideLine +
@@ -1702,7 +1703,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 					? $"NGX Release updated to v{sdkVersion}."
 					: $"NGX Release already at v{sdkVersion}.";
 				EndUpdateAllProgress();
-				MessageBox.Show(
+				ThemedMessageBox.Show(
 					$"{versionStatus}\n\n" +
 					unlockLine +
 					overrideLine +
@@ -1719,7 +1720,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         catch (Exception ex)
         {
             _runReports.Add("Update All", "fail", ex.Message);
-            MessageBox.Show(
+            ThemedMessageBox.Show(
                 $"Update failed: {ex.Message}\n\n" +
                 "What to do: Check the error above. If it's a network issue, try again. If it's a file access issue, ensure no other programs are using the NGX or AnWave directories.",
                 "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -1861,7 +1862,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             {
                 _shownNgxNotFoundDialog = true;
                 var paths = string.Join("\n  • ", result.NgxPathsChecked);
-                System.Windows.MessageBox.Show(
+                ThemedMessageBox.Show(
                     $"NGX versions were not found at any known location.\n\n" +
                     $"Paths checked:\n  • {paths}\n\n" +
                     "This usually means:\n" +
@@ -2038,7 +2039,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         var releaseVer = ngxRelease?.DLSS ?? "unknown";
         var displaySource = sourceType == "StreamlineSDK" ? "Streamline SDK" : sourceType;
 
-        var result = MessageBox.Show(
+        var result = ThemedMessageBox.Show(
             $"Sync DLSS from {displaySource} (v{sourceVer}) to NGX Release (v{releaseVer})?\n\n" +
             "A backup of the current NGX Release will be created before any changes.\n\n" +
             "Continue?",
@@ -2056,7 +2057,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
             if (string.IsNullOrEmpty(sourcePath) || !Directory.Exists(sourcePath))
             {
-                MessageBox.Show(
+                ThemedMessageBox.Show(
                     $"{displaySource} path is not configured or the folder does not exist.\n\n" +
                     "What to do: Open Settings and set the correct path, or use 'Update All' to download the latest DLSS SDK instead.",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -2069,7 +2070,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             {
                 case OperationStatus.Completed:
                     var files = string.Join("\n  • ", operation.FilesCopied);
-                    MessageBox.Show(
+                    ThemedMessageBox.Show(
                         $"Sync completed: {displaySource} v{sourceVer} → NGX Release\n\n" +
                         $"Files copied ({operation.FilesCopied.Count}):\n" +
                         $"  {files}\n\n" +
@@ -2078,14 +2079,14 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
                     break;
                 case OperationStatus.Failed:
-                    MessageBox.Show(
+                    ThemedMessageBox.Show(
                         $"Sync from {displaySource} v{sourceVer} to NGX failed.\n\n" +
                         $"Error: {operation.ErrorMessage}\n\n" +
                         "What to do: No files were changed. Check the error above and try again.",
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
                     break;
                 case OperationStatus.RolledBack:
-                    MessageBox.Show(
+                    ThemedMessageBox.Show(
                         $"Sync from {displaySource} v{sourceVer} to NGX failed and was rolled back.\n\n" +
                         $"Error: {operation.ErrorMessage}\n\n" +
                         $"Your previous NGX Release files have been restored.\n" +
@@ -2094,7 +2095,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
                     break;
                 default:
-                    MessageBox.Show(
+                    ThemedMessageBox.Show(
                         $"Sync status: {operation.Status}\n\n" +
                         $"{operation.ErrorMessage}\n\n" +
                         "What to do: This is an unexpected status. Try scanning and syncing again.",
@@ -2106,7 +2107,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
         catch (Exception ex)
         {
-            MessageBox.Show(
+            ThemedMessageBox.Show(
                 $"Sync failed: {ex.Message}\n\n" +
                 "What to do: Check the error above. If it's a file access issue, ensure no other programs are using the NGX directory.",
                 "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -2148,7 +2149,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 var cacheInfo = _dlssDownloadService.GetCacheInfo();
                 var sizeMb = cacheInfo.TotalBytes / (1024.0 * 1024.0);
 
-                MessageBox.Show(
+                ThemedMessageBox.Show(
                     $"DLSS SDK v{version} downloaded successfully.\n\n" +
                     $"Saved to:\n  {path}\n\n" +
                     $"Cache: {cacheInfo.Count} file(s), {sizeMb:F1} MB total\n\n" +
@@ -2159,7 +2160,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             {
                 DownloadStatus = "";
                 StatusMessage = "Failed to download. Check your internet connection.";
-                MessageBox.Show(
+                ThemedMessageBox.Show(
                     "Failed to download the latest DLSS SDK.\n\n" +
                     "What to do: Check your internet connection and try again. If the problem persists, the GitHub API rate limit may have been reached — wait a few minutes.",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -2169,7 +2170,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         {
             DownloadStatus = "";
             StatusMessage = $"Download error: {ex.Message}";
-            MessageBox.Show(
+            ThemedMessageBox.Show(
                 $"Download error: {ex.Message}\n\n" +
                 "What to do: Check the error above. If it's a network issue, try again. If it's a disk issue, ensure you have free space in %APPDATA%\\DLSSVersionToolkit\\Downloads.",
                 "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -2210,7 +2211,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 var cacheInfo = _streamlineDownloadService.GetCacheInfo();
                 var sizeMb = cacheInfo.TotalBytes / (1024.0 * 1024.0);
 
-                MessageBox.Show(
+                ThemedMessageBox.Show(
                     $"Streamline SDK v{version} downloaded successfully.\n\n" +
                     $"Saved to:\n {path}\n\n" +
                     $"Cache: {cacheInfo.Count} file(s), {sizeMb:F1} MB total\n\n" +
@@ -2221,7 +2222,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             {
                 DownloadStatus = "";
                 StatusMessage = "Failed to download Streamline SDK.";
-                MessageBox.Show(
+                ThemedMessageBox.Show(
                     "Failed to download the latest Streamline SDK.\n\n" +
                     "What to do: Check your internet connection and try again. If the problem persists, the GitHub API rate limit may have been reached — wait a few minutes.",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -2231,7 +2232,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         {
             DownloadStatus = "";
             StatusMessage = $"Download error: {ex.Message}";
-            MessageBox.Show(
+            ThemedMessageBox.Show(
                 $"Streamline SDK download error: {ex.Message}\n\n" +
                 "What to do: Check the error above. If it's a network issue, try again. If it's a disk issue, ensure you have free space in %APPDATA%\\DLSSVersionToolkit\\StreamlineDownloads.",
                 "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -2247,7 +2248,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
     {
         if (_lastScanResult == null || Versions.Count == 0)
         {
-            MessageBox.Show(
+            ThemedMessageBox.Show(
                 "No scan data to export.\n\n" +
                 "What to do: Run a scan first by clicking the Scan button, then export the results.",
                 "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -2270,14 +2271,14 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 else
                     _exportService.ExportToJson(_lastScanResult, dialog.FileName);
 
-                MessageBox.Show(
+                ThemedMessageBox.Show(
                     $"Exported {Versions.Count} source(s) to:\n  {dialog.FileName}\n\n" +
                     $"Format: {(dialog.FilterIndex == 1 ? "CSV" : "JSON")}",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(
+                ThemedMessageBox.Show(
                     $"Export failed: {ex.Message}\n\n" +
                     "What to do: Ensure the file is not open in another program and the destination folder is writable.",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -2385,7 +2386,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             var ngxBase = NgxPathResolver.GetWritableBase(null);
             if (string.IsNullOrEmpty(ngxBase))
             {
-                MessageBox.Show("Could not locate a writable NVIDIA NGX directory.", "NGX Backups",
+                ThemedMessageBox.Show("Could not locate a writable NVIDIA NGX directory.", "NGX Backups",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -2395,7 +2396,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Could not open backups: {ex.Message}", "NGX Backups",
+            ThemedMessageBox.Show($"Could not open backups: {ex.Message}", "NGX Backups",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -2460,7 +2461,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 AnWaveDetectedPath = result.InstalledPath ?? "";
                 IsAnWaveDetected = true;
 
-                MessageBox.Show(
+                ThemedMessageBox.Show(
                     $"AnWave setup complete!\n\n" +
                     $"nvidiaDlssGlom v{result.GlomVersion} installed\n" +
                     $"DLSS version: v{result.DllVersion}\n\n" +
@@ -2472,7 +2473,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             }
             else
             {
-                MessageBox.Show(
+                ThemedMessageBox.Show(
                     $"AnWave setup failed.\n\n" +
                     $"Error: {result.ErrorMessage}\n\n" +
                     "What to do: Check the error above. If it's a network issue, try again. If it's a file access issue, ensure no other programs are using the AnWave directory.",
@@ -2481,7 +2482,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
         catch (Exception ex)
         {
-            MessageBox.Show(
+            ThemedMessageBox.Show(
                 $"AnWave setup error: {ex.Message}\n\n" +
                 "What to do: Check the error above. If it's a network issue, try again. If it's a file access issue, ensure the %APPDATA%\\DLSSVersionToolkit\\AnWave directory is writable.",
                 "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);

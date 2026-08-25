@@ -1,0 +1,32 @@
+<Window x:Class="DLSSVersionToolkit.Views.ThemedMessageBox"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        SizeToContent="Height" Width="460"
+        MinWidth="380" MaxWidth="620" MaxHeight="600"
+        ResizeMode="CanResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource Panel1Brush}"
+        Foreground="{StaticResource Text1Brush}"
+        TextOptions.TextFormattingMode="Display">
+    <!-- v0.0.59: themed replacement for native MessageBox, which rendered OS-chrome (bright
+         white in Windows light theme) mid-flow over the all-dark app. -->
+    <Grid Margin="20,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock x:Name="IconText" FontSize="18" FontWeight="Bold"
+                       VerticalAlignment="Top" Margin="0,1,10,0"
+                       FontFamily="Consolas"/>
+            <TextBlock x:Name="MessageText" TextWrapping="Wrap" FontSize="13"
+                       Foreground="{StaticResource Text1Brush}" MaxWidth="520"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right"
+                    Margin="0,16,0,0" x:Name="ButtonsPanel"/>
+    </Grid>
+</Window>
