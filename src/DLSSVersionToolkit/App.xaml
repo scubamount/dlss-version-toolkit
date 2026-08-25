@@ -43,7 +43,9 @@
             <Color x:Key="HairlineStrongColor">#3A3A3A</Color>
             <Color x:Key="Text1Color">#F2F2F2</Color>
             <Color x:Key="Text2Color">#A7A7A7</Color>
-            <Color x:Key="Text3Color">#757575</Color>
+            <Color x:Key="Text3Color">#8A8A8A</Color>
+            <!-- v0.0.58: was #757575 — 3.89:1 on Panel2, below the 4.5:1 AA floor for the
+                 10-11px labels it is used on. #8A8A8A clears 5:1 on every surface it touches. -->
             <Color x:Key="GreenDimColor">#3F8500</Color>
             <Color x:Key="AmberColor">#EF9100</Color>
 
@@ -59,8 +61,79 @@
             <SolidColorBrush x:Key="GreenDimBrush" Color="{StaticResource GreenDimColor}"/>
             <SolidColorBrush x:Key="AmberBrush" Color="{StaticResource AmberColor}"/>
 
+            <!-- v0.0.58: keyboard focus must be visible. Every custom button template below
+                 replaces the default chrome, which silently removed the dotted focus rectangle —
+                 a keyboard user could not see which of ~15 buttons had focus. One shared
+                 FocusVisualStyle: 2px green perimeter inset inside the control. -->
+            <Style x:Key="VisibleFocusStyle" TargetType="Control">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Control">
+                            <Rectangle Margin="-2" StrokeThickness="2"
+                                       Stroke="{StaticResource NvidiaGreenBrush}"
+                                       StrokeDashArray="1 1" SnapsToDevicePixels="True"/>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- v0.0.58: dark Expander. The default template renders light-gray toggle chrome
+                 that vanishes on the true-black canvas (and near-black-on-black in Windows light
+                 theme). Header keeps its arrow glyph, rotated when expanded. -->
+            <Style TargetType="Expander">
+                <Setter Property="Foreground" Value="{StaticResource Text2Brush}"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Expander">
+                            <StackPanel>
+                                <ToggleButton x:Name="HeaderSite" IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                              FocusVisualStyle="{StaticResource VisibleFocusStyle}"
+                                              HorizontalContentAlignment="Left" Cursor="Hand"
+                                              Background="Transparent" BorderThickness="0" Padding="2,4">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock x:Name="arrow" Text="›" FontSize="13" FontWeight="Bold"
+                                                               Foreground="{StaticResource NvidiaGreenBrush}"
+                                                               VerticalAlignment="Center" Margin="0,0,5,0"
+                                                               RenderTransformOrigin="0.5,0.5"/>
+                                                    <ContentPresenter ContentSource="Content" VerticalAlignment="Center"
+                                                                      TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                                </StackPanel>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsChecked" Value="True">
+                                                    <Setter TargetName="arrow" Property="RenderTransform">
+                                                        <Setter.Value>
+                                                            <RotateTransform Angle="90"/>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                    <ContentPresenter ContentSource="Header"/>
+                                </ToggleButton>
+                                <ContentPresenter x:Name="ExpandSite" Visibility="Collapsed"/>
+                            </StackPanel>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsExpanded" Value="True">
+                                    <Setter TargetName="ExpandSite" Property="Visibility" Value="Visible"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- Sidebar nav button: flat, left-accent on hover; IsActive via Tag="active" -->
             <Style x:Key="NavButtonStyle" TargetType="Button">
+                <Setter Property="FocusVisualStyle" Value="{StaticResource VisibleFocusStyle}"/>
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="Foreground" Value="{StaticResource Text2Brush}"/>
                 <Setter Property="HorizontalContentAlignment" Value="Left"/>
@@ -97,6 +170,7 @@
 
             <!-- Primary action: transparent w/ green border, fills green on hover (NVIDIA pattern) -->
             <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+                <Setter Property="FocusVisualStyle" Value="{StaticResource VisibleFocusStyle}"/>
                 <Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="FontSize" Value="13"/>
@@ -127,6 +201,7 @@
 
             <!-- Solid green action ("Apply to all games") -->
             <Style x:Key="SolidGreenButtonStyle" TargetType="Button">
+                <Setter Property="FocusVisualStyle" Value="{StaticResource VisibleFocusStyle}"/>
                 <Setter Property="Foreground" Value="#FFFFFF"/>
                 <Setter Property="Background" Value="{StaticResource GreenDimBrush}"/>
                 <Setter Property="FontSize" Value="13"/>
@@ -157,6 +232,7 @@
 
             <!-- Button Style -->
             <Style x:Key="DarkButtonStyle" TargetType="Button">
+                <Setter Property="FocusVisualStyle" Value="{StaticResource VisibleFocusStyle}"/>
                 <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>

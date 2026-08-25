@@ -1,12 +1,14 @@
 <Window x:Class="DLSSVersionToolkit.SettingsDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Settings" Height="520" Width="480"
-        MinHeight="320" MinWidth="420"
+        Title="Settings" Width="480" SizeToContent="Height"
+        MinHeight="320" MinWidth="420" MaxHeight="720"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource DarkBackgroundBrush}"
         ResizeMode="CanResize"
         ShowInTaskbar="False">
+    <!-- v0.0.58: height sized by content (the v0.0.48 DPI-clip fix pattern) — a fixed 520px
+         Height clipped the Save/Cancel row behind the bottom edge at 150%+ scaling. -->
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>

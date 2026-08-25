@@ -68,7 +68,9 @@ public partial class BackupsDialog : Window
         {
             MessageBox.Show(
                 "Could not create a safety backup of the current NGX DLLs, so the restore " +
-                "was cancelled to avoid risking your current state.",
+                "was cancelled to avoid risking your current state.\n\n" +
+                $"What to do: check free disk space and permissions on {_versionsParentPath}, " +
+                "close any running game (it can hold the DLLs open), then try again.",
                 "NGX Backups", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -77,7 +79,8 @@ public partial class BackupsDialog : Window
         MessageBox.Show(
             restored
                 ? "NGX DLLs restored successfully. Restart your game for the change to take effect."
-                : "Restore failed. Your previous DLLs are still in place (see the safety backup).",
+                : "Restore failed. Your previous DLLs are still in place (see the safety backup).\n\n" +
+                  "What to do: close any running game — it can hold an NGX DLL open — then restore again.",
             "NGX Backups",
             restored ? MessageBoxButton.OK : MessageBoxButton.OK,
             restored ? MessageBoxImage.Information : MessageBoxImage.Error);

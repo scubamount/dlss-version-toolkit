@@ -104,14 +104,18 @@
                             </TextBlock>
                         </Border>
                     </Button>
-                    <!-- Indicator on/off signal dot (green = On, grey = Off) -->
-                    <Ellipse Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,6,0">
+                    <!-- Indicator on/off signal dot (green = On, grey = Off).
+                         AutomationProperties.Name carries the state for screen readers — the
+                         dot's meaning must not exist only as fill color (v0.0.58). -->
+                    <Ellipse Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,6,0"
+                             AutomationProperties.Name="DLSS Indicator status dot">
                         <Ellipse.Style>
                             <Style TargetType="Ellipse">
                                 <Setter Property="Fill" Value="{StaticResource Text3Brush}"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsDlssIndicatorEnabled}" Value="True">
                                         <Setter Property="Fill" Value="{StaticResource NvidiaGreenBrush}"/>
+                                        <Setter Property="AutomationProperties.Name" Value="DLSS Indicator: On"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
@@ -167,13 +171,15 @@
                                 <TextBlock Text="{Binding ScanStatus}" Foreground="{StaticResource Text2Brush}" FontSize="11" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
-                                <Ellipse Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center">
+                                <Ellipse Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center"
+                                         AutomationProperties.Name="AnWave install status dot">
                                     <Ellipse.Style>
                                         <Style TargetType="Ellipse">
                                             <Setter Property="Fill" Value="{StaticResource AmberBrush}"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsAnWaveInstalled}" Value="True">
                                                     <Setter Property="Fill" Value="{StaticResource SuccessBrush}"/>
+                                                    <Setter Property="AutomationProperties.Name" Value="AnWave: Installed"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -223,8 +229,10 @@
                                     <Setter Property="ToolTip" Value="Install AnWave (downloads nvidiaDlssGlom + latest DLSS DLLs)."/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsAnWaveInstalled}" Value="True">
-                                            <Setter Property="Opacity" Value="0.55"/>
+                                            <!-- v0.0.58: full opacity + (installed) suffix instead of dimming. -->
+                                            <Setter Property="Opacity" Value="1"/>
                                             <Setter Property="ToolTip" Value="AnWave is already installed — Update All keeps it in sync. Click only to reinstall."/>
+                                            <Setter Property="Content" Value="⬡   Setup AnWave (installed)"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -273,8 +281,12 @@
                                             <Setter Property="ToolTip" Value="Remove NVIDIA App's DLSS4 override restrictions and restart NVIDIA services. Update All runs this for you."/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsWhitelistApplied}" Value="True">
-                                                    <Setter Property="Opacity" Value="0.55"/>
+                                                    <!-- v0.0.58: state shown as a ✓ suffix at full opacity,
+                                                         not dimming — 0.55 opacity put the amber label
+                                                         below the contrast floor and hid the reason. -->
+                                                    <Setter Property="Opacity" Value="1"/>
                                                     <Setter Property="ToolTip" Value="Whitelist already applied — Update All maintains it. Click only to re-apply."/>
+                                                    <Setter Property="Content" Value="✓   Apply Whitelist (applied)"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -632,6 +644,9 @@
                                             <Setter Property="VerticalAlignment" Value="Center"/>
                                             <Setter Property="FontSize" Value="13"/>
                                             <Setter Property="ToolTip" Value="{Binding OverrideTooltip}"/>
+                                            <!-- v0.0.58: the 🔒 glyph's meaning was hover-only; bind the
+                                                 accessible name to the same tooltip text. -->
+                                            <Setter Property="AutomationProperties.Name" Value="{Binding OverrideTooltip}"/>
                                         </Style>
                                     </DataGridTextColumn.ElementStyle>
                                 </DataGridTextColumn>
