@@ -88,8 +88,9 @@ public partial class ThemedMessageBox : Window
         {
             // Walk the visual tree to the hosting Window — buttons have no Window property.
             var dep = (System.Windows.DependencyObject)snd!;
-            while (dep is not Window w) dep = System.Windows.Media.VisualTreeHelper.GetParent(dep);
-            ((ThemedMessageBox)w)._CloseWith(result);
+            while (dep is not null && dep is not Window)
+                dep = System.Windows.Media.VisualTreeHelper.GetParent(dep);
+            ((ThemedMessageBox)dep)._CloseWith(result);
         };
         return b;
     }
