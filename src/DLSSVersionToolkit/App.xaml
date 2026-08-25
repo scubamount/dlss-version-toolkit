@@ -160,7 +160,8 @@
                                     <Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Opacity" Value="0.45"/>
+                                    <!-- v0.0.59: 0.45 blended to 2.51:1 on Panel1 — illegible. 0.65 = 3.96:1. -->
+                                    <Setter Property="Opacity" Value="0.65"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -191,7 +192,8 @@
                                     <Setter Property="Foreground" Value="#000000"/>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Opacity" Value="0.4"/>
+                                    <!-- v0.0.59: 0.4 blended to ~3.4:1; 0.55 = 5.7:1, still reads disabled. -->
+                                    <Setter Property="Opacity" Value="0.55"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -222,7 +224,8 @@
                                     <Setter Property="Foreground" Value="#000000"/>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Opacity" Value="0.4"/>
+                                    <!-- v0.0.59: 0.4 blended to ~3.4:1; 0.55 = 5.7:1, still reads disabled. -->
+                                    <Setter Property="Opacity" Value="0.55"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -262,7 +265,8 @@
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
-                                    <Setter Property="Opacity" Value="0.5"/>
+                                    <!-- v0.0.59: 0.5 blended under 3:1 on Surface; 0.6 clears it. -->
+                                    <Setter Property="Opacity" Value="0.6"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -363,7 +367,8 @@
 					</Grid>
 					<ControlTemplate.Triggers>
 						<Trigger Property="IsEnabled" Value="False">
-							<Setter Property="Opacity" Value="0.45"/>
+							<!-- v0.0.59: raised with the other disabled states (contrast floor). -->
+							<Setter Property="Opacity" Value="0.65"/>
 						</Trigger>
 					</ControlTemplate.Triggers>
 				</ControlTemplate>

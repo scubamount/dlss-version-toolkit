@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using DLSSVersionToolkit.Core.Services;
+using DLSSVersionToolkit.Views;
 
 namespace DLSSVersionToolkit;
 
@@ -37,7 +38,7 @@ public partial class BackupsDialog : Window
     {
         if (BackupGrid.SelectedItem is not BackupRow row)
         {
-            MessageBox.Show("Select a backup first.", "NGX Backups", MessageBoxButton.OK, MessageBoxImage.Information);
+            ThemedMessageBox.Show("Select a backup first.", "NGX Backups", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -47,14 +48,14 @@ public partial class BackupsDialog : Window
         var target = CurrentReleaseVersionFolder();
         if (target == null)
         {
-            MessageBox.Show(
+            ThemedMessageBox.Show(
                 "Could not find the current NGX Release version folder to restore into. " +
                 "Run a scan first so the active version is known.",
                 "NGX Backups", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
-        var confirm = MessageBox.Show(
+        var confirm = ThemedMessageBox.Show(
             $"Restore the NGX DLLs from the backup created {row.Timestamp:yyyy-MM-dd HH:mm}?\n\n" +
             $"This replaces the DLLs in the current release folder with those {row.FileCount} file(s).\n" +
             "Your current DLLs are backed up first, so nothing is permanently lost.",
@@ -66,7 +67,7 @@ public partial class BackupsDialog : Window
         var safety = _backupService.CreateBackup(target, _versionsParentPath);
         if (safety == null || !_backupService.VerifyBackup(safety))
         {
-            MessageBox.Show(
+            ThemedMessageBox.Show(
                 "Could not create a safety backup of the current NGX DLLs, so the restore " +
                 "was cancelled to avoid risking your current state.\n\n" +
                 $"What to do: check free disk space and permissions on {_versionsParentPath}, " +
@@ -76,7 +77,7 @@ public partial class BackupsDialog : Window
         }
 
         var restored = _backupService.RestoreBackup(row.Path, target);
-        MessageBox.Show(
+        ThemedMessageBox.Show(
             restored
                 ? "NGX DLLs restored successfully. Restart your game for the change to take effect."
                 : "Restore failed. Your previous DLLs are still in place (see the safety backup).\n\n" +
