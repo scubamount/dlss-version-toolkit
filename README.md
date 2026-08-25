@@ -74,14 +74,16 @@ DLSS override enabled.
 
 | Action | What happens |
 |---|---|
-| **Update All** | The one button: whitelist → unlock "not supported" games → apply presets to all games → download Streamline + DLSS SDK → sync to NGX Release → set up AnWave |
+| **Update All** | The one button, with a pre-flight dialog that confirms the run and can import local DLLs before anything starts. Then: whitelist → unlock "not supported" games → apply presets to all games → download Streamline + DLSS SDK → sync to NGX Release → import/re-assert local overrides → set up or update AnWave. A run-report drawer names every step's outcome, including what was skipped and why |
 | **Override Presets** | Separate **DLSS-SR**, **DLSS-RR** and **DLSS-FG** preset pickers (Default, A–M, or Latest) applied to the base profile **and every game profile** |
 | **Frame Generation control** | DLSS-FG **mode** (Off / Fixed / Auto / Dynamic) and **multiplier** (2x–6x) — your selections persist between launches |
+| **Import Local DLLs** | Have a DLL NVIDIA doesn't publish (a leak, a modded build)? Import loose `nvngx_*.dll` files directly. The toolkit records them in an override manifest so Update All preserves them instead of silently overwriting — and re-applies them after every sync unless an official release supersedes them |
 | **Unlock Unsupported Games** | For titles the NVIDIA App marks "not supported" (e.g. Star Citizen) — makes the DLSS override options appear. Included in Update All |
 | **Auto-scan on launch** | Opens straight to your installed versions, newest-build highlight, and live whitelist / AnWave status — no clicking required |
 | **Index Game Profiles** | Caches which driver profiles belong to installed games, so applying presets skips the ~8,000-profile scan. Auto-refreshes when the driver changes |
 | **App auto-update** | Checks this repo on launch and offers a one-click in-place update |
 | **AnWave auto-setup** | Downloads + installs nvidiaDlssGlom, fetches the latest DLSS DLLs, activates the global override |
+| **NGX Backups** | Every sync backs up the current NGX DLLs first; the Backups dialog restores any of them with its own safety backup |
 | **Export** | Save a snapshot of your DLSS setup as CSV or JSON |
 | **Advanced (manual)** | Every step Update All runs is also available on its own for recovery: whitelist, unlock, downloads, NGX syncs, profile indexing |
 
@@ -100,26 +102,28 @@ NVIDIA DLSS DLLs live in several places. The toolkit scans, compares, and syncs 
 | **AnWave** | Global DLL injection override | Auto-installed by this tool ([SimonMacer/AnWave](https://github.com/SimonMacer/AnWave)) |
 | **Streamline SDK** | NVIDIA's SDK with the latest DLLs | Auto-downloaded ([NVIDIA-RTX/Streamline](https://github.com/NVIDIA-RTX/Streamline)) |
 | **DLSS SDK** | Official `ngx_dlss_demo_windows.zip` | Auto-downloaded ([NVIDIA/DLSS](https://github.com/NVIDIA/DLSS)) |
+| **Local imports** | DLLs you imported yourself, tracked in an override manifest with SHA-256 verification | This tool |
 
 ### The dashboard
 
 - **Current NGX** → **Latest available** version strip, with an up-to-date / update-available pill.
-- **Installed Versions** table — green highlights the newest build of each component across all sources.
+- **Installed Versions** table — green highlights the newest build of each component across all sources; the 🔒 Override column marks locally-imported DLLs.
 - **Sidebar status card** — live dots for scan, AnWave (installed + version), and whitelist (applied / not).
 
 ### Update All, step by step
 
-1. **Pre-flight** — network, ≥500 MB disk, and writable target checks
+1. **Pre-flight dialog** — confirms the run, checks network / ≥500 MB disk / writable target, and optionally lets you pick a folder of local DLLs to import as part of the same run
 2. **Whitelist** — removes the NVIDIA App override restrictions that otherwise revert your choice
 3. **Unlock** — flips `IsOpsSupported` on games the NVIDIA App reports as "not supported" (backs up `ApplicationStorage.json` first)
-4. **Preset sweep** — applies your SR / RR / FG presets, FG mode and multiplier to the base profile + every game profile
-5. **Streamline** — downloads the Streamline SDK and syncs it to NGX first: it is the comprehensive source, carrying Frame Generation, Ray Reconstruction and DeepDVC DLLs
+4. **Preset sweep** — applies your SR / RR / FG presets, FG mode and multiplier to the base profile + every game profile; profiles the driver refuses are counted and reported
+5. **Streamline** — downloads the Streamline SDK (size-verified) and syncs it to NGX first: it is the comprehensive source, carrying Frame Generation, Ray Reconstruction and DeepDVC DLLs
 6. **DLSS SDK** — downloads the latest official SDK from NVIDIA/DLSS (skipped if cached) and lays its newer Super Resolution DLL on top
-7. **Sync** — copies to NGX Release with a verified backup + automatic rollback
-8. **AnWave** — installs it if missing, then applies the updated DLLs
+7. **Sync** — copies to NGX Release with a verified backup + automatic rollback; if the version is unchanged but any of the four component DLLs is missing, they are recreated
+8. **Local overrides** — imports from the pre-flight selection, then re-asserts previously-imported DLLs unless the channel has shipped something newer
+9. **AnWave** — installs it if missing, then applies the updated DLLs
 
-Every step is non-fatal: a failure is reported in the completion summary rather than aborting the
-run, so one unavailable source can't block the rest.
+Every step is non-fatal: failures and skipped items land in the completion summary and the
+run-report drawer rather than aborting the run, so one unavailable source can't block the rest.
 
 > After applying, **fully restart your game** (not just to the menu). The on-screen DLSS
 > indicator overlay appears in the **bottom-left** corner of supported games.
@@ -130,18 +134,20 @@ run, so one unavailable source can't block the rest.
 
 Defense-in-depth for every file operation:
 
-- **Path allowlisting** — DLL syncs only write under `C:\ProgramData\NVIDIA\NGX` and `%APPDATA%\NVIDIA\NGX`
+- **Path allowlisting** — DLL syncs only write under `C:\ProgramData\NVIDIA\NGX` and `%APPDATA%\NVIDIA\NGX`; a user-configured path is honored only if it is itself inside the allowlist
 - **Backups before NVIDIA App edits** — the whitelist and unlock steps write a `.bak` of
   `ApplicationStorage.json` before modifying it, and only touch an explicit list of known keys
 - **Pre-flight checks** — network, disk space, and write access verified before anything starts
 - **PE header verification** — DLLs checked for valid MZ/PE signatures before copy
-- **Post-copy validation** — file sizes verified after copy to catch truncated binaries
+- **Post-copy validation** — file sizes verified after copy to catch truncated binaries; a copy that fails verification is deleted and reported, never counted as applied
+- **Local import integrity** — imported DLLs recorded with SHA-256 hashes; the manifest re-verifies the bytes on disk, so out-of-app edits are detected
 - **Backup + rollback** — backups validated before any change; restored automatically on failure
 - **Long path support** — paths over 240 chars handled via the `\\?\` prefix
 - **SharpCompress 0.48.0** — patched against CVE-2026-44788 (directory traversal in `WriteToDirectory`)
 
-The in-app auto-updater is opt-out, never silent: it downloads a size-verified exe, swaps it
-in place with rollback on failure, and prompts before restarting.
+The in-app auto-updater is opt-out, never silent: it downloads a size-verified exe whose
+published `.sha256` checksum must match, swaps it in place with rollback on failure, and prompts
+before restarting.
 
 ---
 
@@ -150,7 +156,8 @@ in place with rollback on failure, and prompts before restarting.
 | Symptom | Fix |
 |---|---|
 | **App won't launch** | Install the [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) — or `winget install Microsoft.DotNet.DesktopRuntime.9` |
-| **"Administrator access is required"** | Run as Administrator — sync writes to `C:\ProgramData\NVIDIA\NGX\` |
+| **"Administrator access is required to restart NVIDIA services"** | Run as Administrator — this step edits NVIDIA App data and restarts its services, which needs elevation |
+| **Access denied during an NGX sync or local import** | Close any running game — a running game holds its NGX DLLs open. Sync writes go to user-writable folders (`C:\ProgramData\NVIDIA\NGX\`), so elevation normally cannot help here |
 | **"No DLSS versions found"** | Install the NVIDIA App and enable DLSS override for at least one game (this creates the NGX folders), then rescan |
 | **DeepDVC shows "Unknown"** | Normal — some driver builds omit DeepDVC from the NGX config; handled gracefully |
 | **"AnWave not installed"** | Click **Update All** (it auto-installs), or **Setup AnWave** in Advanced |
@@ -158,6 +165,7 @@ in place with rollback on failure, and prompts before restarting.
 | **NVIDIA App says a game is "not supported"** | Run **Update All** (or **Unlock Unsupported Games**) as Administrator, then reopen the NVIDIA App. If it still doesn't appear, NVIDIA gates that title server-side and no local change will fix it |
 | **Overrides revert after an NVIDIA App update** | The App can rewrite its own config when its game library changes — re-run **Update All** |
 | **Changes don't show in-game** | Fully restart the game; the DLL version and preset both need a clean game launch |
+| **A scan shows fewer versions than expected** | Check the scan status line — access-denied folders are now named there instead of failing silently |
 
 ---
 
@@ -169,18 +177,20 @@ dlss-version-toolkit/
 │   ├── DLSSVersionToolkit.Core/      # Core logic (no WPF): scanners, services, models
 │   │   ├── Models/                   # DLSSVersionEntry, ScanResult, AppUpdateInfo, …
 │   │   └── Services/                 # NgxScanner, DlssDownloadService, AnWaveAutoService,
-│   │                                 # WhitelistService, PresetOverrideService, AppUpdateService, …
+│   │                                 # LocalDllImportService, OverrideManifestService,
+│   │                                 # WhitelistService, PresetOverrideService, NgxPathResolver, …
 │   ├── DLSSVersionToolkit/           # WPF app
 │   │   ├── ViewModels/               # MainViewModel (CommunityToolkit.Mvvm)
-│   │   ├── Views/                    # SettingsDialog, dialogs
+│   │   ├── Views/                    # SettingsDialog, BackupsDialog, UpdateAllPreflightDialog
 │   │   ├── MainWindow.xaml           # Sidebar-dashboard UI
 │   │   └── App.xaml                  # Theme, styles, startup
 │   └── DLSSVersionToolkit.sln
-├── tests/DLSSVersionToolkit.Tests/   # xUnit tests
+├── tests/DLSSVersionToolkit.Tests/   # xUnit tests (368) — including gates that pin doc claims,
+│                                     # bug-class regressions, and UI accessibility in CI
 └── .github/workflows/                # ci.yml (build+test on push/PR) · release.yml (tag → exe)
 ```
 
-The single-file `DLSSVersionToolkit.exe` (~3.9 MB, framework-dependent) is built and tested by CI on every
+The single-file `DLSSVersionToolkit.exe` (~3.99 MB, framework-dependent) is built and tested by CI on every
 `v*` tag and attached to the GitHub release — it is **not** committed to the repo.
 
 **Built with:** .NET 9 + WPF · CommunityToolkit.Mvvm · Hardcodet.NotifyIcon.Wpf ·
