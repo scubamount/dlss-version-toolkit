@@ -157,17 +157,19 @@ public class UpgradeService : IUpgradeService
 
 	if (!_versionComparer.IsNewer(sourceVersions.DLSS, latestRelease.DLSS))
 	{
-// Same version — but still sync if ANY target DLL is missing (incomplete install). The guard
-// used to check only nvngx_dlss.dll while PerformSync writes all four NgxDllNames, so a missing
-// dlssg/dlssd/deepdvc never triggered recreation (v0.0.57).
-var missingTargetDlls = MissingNgxDllNames(operation.TargetPath);
-		if (missingTargetDlls.Count == 0)
+// Same version — but still sync if the SOURCE provides any DLL the target lacks (incomplete
+// install). The guard used to check only nvngx_dlss.dll while PerformSync writes all of
+// NgxDllNames, so a missing dlssg/dlssd/deepdvc never triggered recreation (v0.0.57). v0.64:
+// intersect with source presence — v0.63 grew the set with nvngx_dlssnr.dll, which no source
+// ships yet, so an unfulfillable "missing" kept every up-to-date install re-syncing forever.
+var needsResync = ShouldResyncForMissingDlls(operation.TargetPath, operation.SourcePath);
+		if (!needsResync)
 		{
 			operation.Status = OperationStatus.Completed;
 			operation.ErrorMessage = "Source is not newer than NGX Release";
 			return operation;
 		}
-		// DLL(s) missing — fall through to PerformSync to recreate them.
+		// DLL(s) the source can provide are missing — fall through to PerformSync to recreate them.
 	}
 
         return PerformSync(operation, foundPath!, sourceVersions);
@@ -587,6 +589,22 @@ return false;
     /// </summary>
     public static List<string> MissingNgxDllNames(string targetPath) =>
         NgxDllNames.Where(n => !File.Exists(Path.Combine(targetPath, n))).ToList();
+
+    /// <summary>
+    /// Same-version resync decision (v0.0.57 guard, fixed v0.64): recreate a target DLL only when
+    /// the SOURCE HAS it (the exact predicate PerformSync's copy loop uses — File.Exists under
+    /// ResolveBinPath) but the target lacks it. The v0.63 bug: the canonical set grew to include
+    /// nvngx_dlssnr.dll while no download source ships it, so every up-to-date install read
+    /// "dlssnr missing" forever — the skip guard never fired and Update All re-synced and created
+    /// a fresh (uncleaned — CleanupOldBackups has no callers) backup on every run. An unfulfillable
+    /// "missing" must not force eternal resync; a DLL the source cannot improve is not missing.
+    /// </summary>
+    public static bool ShouldResyncForMissingDlls(string targetPath, string sourcePath)
+    {
+        var srcBin = ResolveBinPath(sourcePath);
+        return NgxDllNames.Any(n =>
+            !File.Exists(Path.Combine(targetPath, n)) && File.Exists(Path.Combine(srcBin, n)));
+    }
 
     private static string? FindDll(string folder, string dllName)
     {

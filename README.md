@@ -32,7 +32,7 @@ forces the render preset you want — across every game — in one click.
 > **Pick your presets → click Update All → restart your game.** The toolkit scans every place DLSS
 > lives on your system — NGX Release, the driver's OTA/staged versions, Streamline, and AnWave —
 > finds the newest build of each DLL (Super Resolution, Frame Generation, Ray Reconstruction,
-> DeepDVC), downloads the latest official Streamline and DLSS SDKs, syncs those DLLs into NGX
+> DeepDVC, DLSSNR), downloads the latest official Streamline and DLSS SDKs, syncs those DLLs into NGX
 > Release (and mirrors them to AnWave), whitelists the NVIDIA App so it stops reverting your
 > choice, unlocks games it marks "not supported", and applies your presets to every game profile.
 > It also updates itself.
@@ -87,7 +87,14 @@ DLSS override enabled.
 | **Export** | Save a snapshot of your DLSS setup as CSV or JSON |
 | **Advanced (manual)** | Every step Update All runs is also available on its own for recovery: whitelist, unlock, downloads, NGX syncs, profile indexing |
 
-**Supported components:** DLSS, Frame Generation (dlssg), DLSSD (Ray Reconstruction), DeepDVC, Streamline SDK.
+**Supported components:** DLSS, Frame Generation (dlssg), DLSSD (Ray Reconstruction), DeepDVC, DLSSNR, Streamline SDK.
+
+> **DLSSNR (DLSS 5 neural rendering) — what this tool does with it:** it scans, displays, syncs,
+> and backs up `nvngx_dlssnr.dll` like any other NGX component **when a source provides one**
+> (currently none do — as of 2026-08 it exists only in leaked game builds, not in NVIDIA/DLSS or
+> Streamline SDK releases). The driver's global-override config (`nvngx_config.txt`) has no known
+> DLSSNR section, so this tool does not claim to activate a global NR override; DLSSNR in the wild
+> today is placed per-game.
 
 ---
 
@@ -118,7 +125,7 @@ NVIDIA DLSS DLLs live in several places. The toolkit scans, compares, and syncs 
 4. **Preset sweep** — applies your SR / RR / FG presets, FG mode and multiplier to the base profile + every game profile; profiles the driver refuses are counted and reported
 5. **Streamline** — downloads the Streamline SDK (size-verified) and syncs it to NGX first: it is the comprehensive source, carrying Frame Generation, Ray Reconstruction and DeepDVC DLLs
 6. **DLSS SDK** — downloads the latest official SDK from NVIDIA/DLSS (skipped if cached) and lays its newer Super Resolution DLL on top
-7. **Sync** — copies to NGX Release with a verified backup + automatic rollback; if the version is unchanged but any of the four component DLLs is missing, they are recreated
+7. **Sync** — copies to NGX Release with a verified backup + automatic rollback; if the version is unchanged but any canonical component DLL that the source actually provides is missing, it is recreated
 8. **Local overrides** — imports from the pre-flight selection, then re-asserts previously-imported DLLs unless the channel has shipped something newer
 9. **AnWave** — installs it if missing, then applies the updated DLLs
 

@@ -248,4 +248,39 @@ public class AgentsDocClaimsTests
 
         Assert.Equal(shipping.Groups[1].Value, claimed.Groups[1].Value);
     }
+
+    /// <summary>
+    /// README's Supported-components line must name every canonical NGX DLL. The v0.63 commit
+    /// grew the set to five and left the README saying four twice — the same silent-doc-rot the
+    /// AGENTS gates exist for, in the one public-facing file nothing covered. DLL -> display name
+    /// is defined HERE, once; a new NgxDllNames member without a mapping entry reddens too.
+    /// </summary>
+    [Fact]
+    public void ReadmeComponentList_CoversNgxDllNames()
+    {
+        var readme = File.ReadAllText(Path.Combine(RepoRoot(), "README.md"));
+        var displayByDll = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["nvngx_dlss.dll"]    = "DLSS,",          // comma: 'DLSS' must not match inside 'DLSSD'/'DLSSNR'
+            ["nvngx_dlssg.dll"]   = "Frame Generation",
+            ["nvngx_dlssd.dll"]   = "DLSSD",
+            ["nvngx_deepdvc.dll"] = "DeepDVC",
+            ["nvngx_dlssnr.dll"]  = "DLSSNR",
+        };
+
+        var missing = new List<string>();
+        foreach (var dll in UpgradeService.NgxDllNames)
+        {
+            if (!displayByDll.TryGetValue(dll, out var name))
+            {
+                missing.Add($"{dll} (no display-name mapping — add one here AND to README)");
+                continue;
+            }
+            if (!readme.Contains(name, StringComparison.Ordinal))
+                missing.Add($"{dll} (README never mentions \"{name}\")");
+        }
+
+        Assert.True(missing.Count == 0,
+            "README component list is stale vs UpgradeService.NgxDllNames: " + string.Join("; ", missing));
+    }
 }

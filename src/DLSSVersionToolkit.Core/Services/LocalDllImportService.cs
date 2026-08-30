@@ -126,7 +126,8 @@ public class LocalDllImportService : ILocalDllImportService
     /// <summary>
     /// Components that the glom log ALSO copies into the dlss_override tree under their real DLL
     /// name (in addition to the renamed .bin). Super Resolution is absent there — it appears only as
-    /// .bin payloads — so this set is exactly what was observed, not a guess extended to all four.
+    /// .bin payloads — so this set is exactly what was observed, not a guess extended to the
+    /// whole canonical set.
     /// </summary>
     private static readonly string[] OverrideTreeDlls =
         { "nvngx_dlssg.dll", "nvngx_dlssd.dll", "nvngx_deepdvc.dll" };

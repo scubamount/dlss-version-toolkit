@@ -13,7 +13,7 @@ public interface IStreamlineScanner
 public class StreamlineScanner : IStreamlineScanner
 {
     /// <summary>
-    /// NGX DLL → component map. The NGX four derive from <see cref="UpgradeService.NgxDllNames"/>
+    /// NGX DLL → component map. The NGX entries derive from <see cref="UpgradeService.NgxDllNames"/>
     /// (canonical set — v0.0.43 proved hardcoded siblings silently drift); sl.common.dll is the
     /// Streamline-only extra. Static so the UI/grid and scan agree forever.
     /// </summary>

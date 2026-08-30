@@ -97,6 +97,49 @@ public class SiblingSweepTests
     }
 
     // ------------------------------------------------------------------
+    // C3b (v0.64): the same-version guard must count only DLLs the SOURCE provides.
+    // v0.63 grew NgxDllNames with nvngx_dlssnr.dll while no download source ships it, so the
+    // raw missing-list was never empty on a real install — the skip never fired and every
+    // Update All re-synced + created a fresh backup (CleanupOldBackups has no callers).
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void ShouldResync_UpToDateInstall_NotTrickedByDllNoSourceShips()
+    {
+        var target = Directory.CreateTempSubdirectory("dlssvt-t");
+        var source = Directory.CreateTempSubdirectory("dlssvt-s");
+        try
+        {
+            // Realistic today: source and target hold the four downloadable DLLs, dlssnr nowhere.
+            foreach (var n in new[] { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll", "nvngx_deepdvc.dll" })
+            {
+                File.WriteAllText(Path.Combine(target.FullName, n), "mz");
+                File.WriteAllText(Path.Combine(source.FullName, n), "mz");
+            }
+            Assert.False(UpgradeService.ShouldResyncForMissingDlls(target.FullName, source.FullName));
+        }
+        finally { Directory.Delete(target.FullName, true); Directory.Delete(source.FullName, true); }
+    }
+
+    [Fact]
+    public void ShouldResync_SourceHasDllTargetLacks_StillRecreates()
+    {
+        // v0.0.57 semantics preserved for the new set member: once a source DOES ship dlssnr,
+        // a target without it must still force the recreate path.
+        var target = Directory.CreateTempSubdirectory("dlssvt-t2");
+        var source = Directory.CreateTempSubdirectory("dlssvt-s2");
+        try
+        {
+            foreach (var n in UpgradeService.NgxDllNames)
+                File.WriteAllText(Path.Combine(source.FullName, n), "mz");
+            foreach (var n in new[] { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll", "nvngx_deepdvc.dll" })
+                File.WriteAllText(Path.Combine(target.FullName, n), "mz");
+            Assert.True(UpgradeService.ShouldResyncForMissingDlls(target.FullName, source.FullName));
+        }
+        finally { Directory.Delete(target.FullName, true); Directory.Delete(source.FullName, true); }
+    }
+
+    // ------------------------------------------------------------------
     // C1/C6: the AnWave override config lives at exactly ONE address, defined
     // by the resolver; and its version comes from DLL bytes, not the release URL.
     // ------------------------------------------------------------------

@@ -1380,7 +1380,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
 
  // Step 1a: Download + sync the Streamline SDK FIRST. It is the COMPREHENSIVE source — it
-		// bundles all four NGX DLLs (nvngx_dlss/dlssg/dlssd/deepdvc), whereas the NVIDIA/DLSS
+		// bundles the four NGX DLLs it carries (nvngx_dlss/dlssg/dlssd/deepdvc), whereas the NVIDIA/DLSS
 		// demo zip ships ONLY nvngx_dlss.dll. Syncing Streamline first populates FrameGen / Ray
 		// Reconstruction / DeepDVC; the DLSS demo sync (Step 1b) then lays the latest SR DLL on
 		// top. This is why a DLSS-only Update All never updated Streamline-provided components.
