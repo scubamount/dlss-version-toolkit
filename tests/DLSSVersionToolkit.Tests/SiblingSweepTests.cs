@@ -297,6 +297,28 @@ public class SiblingSweepTests
     }
 
     // ------------------------------------------------------------------
+    // C11 (v0.65): v0.63 migrated nvngx_dlssnr.dll through services/scanners/grid/export but
+    // missed BOTH MainViewModel dictionaries, and let the channel map give NR a Streamline
+    // version - which would falsely mark a user's dropped-in NR import "superseded" and stop
+    // re-asserting it. No download channel ships NR: NR imports must never be superseded.
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void NrOverrideParity_MainViewModel_MapsAndNeverSupersedes()
+    {
+        var srcRoot = FindRepoSubdir("src");
+        var vm = File.ReadAllText(Path.Combine(srcRoot, "DLSSVersionToolkit",
+            "ViewModels", "MainViewModel.cs"));
+
+        // 1. re-assert installed-version population carries the NR row
+        Assert.Contains("installedByDll[\"nvngx_dlssnr.dll\"]", vm);
+        // 2. grid override-marker switch carries the NR row
+        Assert.Contains("\"nvngx_dlssnr.dll\"  => entry.DLSSNR", vm);
+        // 3. the channel map loop skips NR (a channel version for NR would supersede imports)
+        Assert.Contains("if (string.Equals(dll, \"nvngx_dlssnr.dll\"", vm);
+    }
+
+    // ------------------------------------------------------------------
     // C10 (v0.0.61): the version-validity regex was byte-identical in GlobalScanner,
     // StreamlineScanner, and NgxConfigParser. Divergence = surfaces disagreeing on what
     // a version is. ONE definition (DllVersionReader.IsValidVersion); no private copies.

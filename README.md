@@ -90,11 +90,15 @@ DLSS override enabled.
 **Supported components:** DLSS, Frame Generation (dlssg), DLSSD (Ray Reconstruction), DeepDVC, DLSSNR, Streamline SDK.
 
 > **DLSSNR (DLSS 5 neural rendering) — what this tool does with it:** it scans, displays, syncs,
-> and backs up `nvngx_dlssnr.dll` like any other NGX component **when a source provides one**
-> (currently none do — as of 2026-08 it exists only in leaked game builds, not in NVIDIA/DLSS or
-> Streamline SDK releases). The driver's global-override config (`nvngx_config.txt`) has no known
-> DLSSNR section, so this tool does not claim to activate a global NR override; DLSSNR in the wild
-> today is placed per-game.
+> backs up, and **imports** `nvngx_dlssnr.dll` like any other NGX component. No download channel
+> ships it yet (as of 2026-08 it comes out of game builds), so the workflow is: extract
+> `nvngx_dlssnr.dll` from the game, drop it in your import folder, run **Import Local DLLs** — it
+> lands in the NGX model tree, gets a manifest record, survives Update All (NR imports are never
+> marked superseded, since no download channel can supersede them), and AnWave mirrors it when
+> present. What the tool does NOT do is write a driver NR-override config section — the driver's
+> DLSS-NR override entries (present in 610.xx drivers, and NVIDIA's own profile entries name a
+> "DLSS-NR Streamline Override") are not yet functional, so loading NR still depends on what the
+> game build itself does or a per-game placement.
 
 ---
 
