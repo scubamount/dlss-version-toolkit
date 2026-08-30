@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-08-30 (v0.63).
+Hand-maintained. Last updated: 2026-08-30 (v0.64).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -46,10 +46,10 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 20 files, 387 tests at v0.63
+└── DLSSVersionToolkit.Tests/            # xUnit, 20 files, 390 tests at v0.64
 ```
 
-The single-file `DLSSVersionToolkit.exe` (~3.99 MB, framework-dependent) is produced by CI on each
+The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
 `v*` tag and attached to the GitHub release — it is not committed.
 
 ## Commands
@@ -156,6 +156,21 @@ applied."
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.
 
+- **v0.64**: Audit of v0.63 (the direct-pushed DLSSNR commit) found and fixed three real defects.
+  (1) The same-version resync guard counted DLLs NO source ships: NgxDllNames grew to include
+  nvngx_dlssnr.dll, no NVIDIA/Streamline release carries it, so every up-to-date install read
+  "dlssnr missing" forever — Update All re-synced and created a fresh backup every run (and
+  `CleanupOldBackups` has NO callers, so retention is dead code — follow-up open). Fix:
+  `ShouldResyncForMissingDlls` intersects missing-target with source-present (PerformSync's own
+  predicate). (2) winget/scoop manifest hashes had been wrong on EVERY release since at least
+  v0.0.59 (all pinned a stale v0.0.13-era hash; v0.63 pinned a LOCAL rebuild's hash) — release.yml
+  now pins both manifests itself from the artifact it built; manifests must never be hand-edited
+  again. (3) "DLSSNR global override support" overclaimed: no driver config section for NR exists
+  as of 2026-08 (researched — the leaked DLL is game-folder-only); README states exactly what the
+  tool does with DLSSNR and gained its first gate, `ReadmeComponentList_CoversNgxDllNames`.
+  - Lessons: growing a count-bearing canonical set requires auditing every CONSUMING predicate
+    (missing-lists, up-to-date checks, "N of N present") — the set is data, the bug is in the
+    consumption. Artifact hashes come from the artifact, never from a local rebuild.
 - **v0.0.60**: Re-audit of v0.0.59's own new dialog. Keyboard parity restored (primary button
   `IsDefault` — Enter did nothing before, which native MessageBox never allowed); message body
   moved into a `ScrollViewer` (`SizeToContent=Height` + `MaxHeight` clipped long reports — same

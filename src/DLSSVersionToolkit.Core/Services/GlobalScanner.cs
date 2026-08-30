@@ -13,7 +13,7 @@ public class GlobalScanner : IGlobalScanner
 {
     /// <summary>
     /// AnWave/global DLL → component map. Same canonical-derivation rule as StreamlineScanner:
-    /// the NGX four must reconcile with <see cref="UpgradeService.NgxDllNames"/> so a new sync
+    /// the NGX entries must reconcile with <see cref="UpgradeService.NgxDllNames"/> so a new sync
     /// DLL can never be invisible to the AnWave scan.
     /// </summary>
     private static readonly Dictionary<string, string> DllToComponent = StreamlineScanner.GetDllToComponent();

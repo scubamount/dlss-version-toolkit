@@ -70,3 +70,34 @@ jobs:
             publish/DLSSVersionToolkit.exe
             publish/DLSSVersionToolkit.exe.sha256
           fail_on_unmatched_files: true
+
+      # The manifests MUST hash the bytes this workflow built and uploaded. Before this step,
+      # hashes were hand-written from local rebuilds: v0.0.59-v0.0.62 all pinned one stale
+      # v0.0.13-era hash, and v0.63 pinned a locally-rebuilt exe's hash — no release ever
+      # matched. CI hashing its own artifact makes that class of staleness impossible.
+      # NOTE: lowercase hex — winget and scoop both accept it; hand-written uppercase did not
+      # help anything.
+      - name: Pin winget + scoop manifests to this release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        # No ${{ }} interpolation in this script: only Actions-provided env vars
+        # (GITHUB_REF_NAME = the tag pushed by a write-permitted principal, GITHUB_REPOSITORY
+        # = this repo) and the locally-computed SHA. Nothing event-payload-derived reaches bash.
+        run: |
+          set -euo pipefail
+          SHA=$(awk '{print tolower($1)}' publish/DLSSVersionToolkit.exe.sha256)
+          [ "${#SHA}" -eq 64 ]
+          TAG=${GITHUB_REF_NAME#v}
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/DLSSVersionToolkit.exe"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --depth=1 origin main
+          git checkout -B main FETCH_HEAD
+          sed -i "s|^PackageVersion: .*|PackageVersion: ${TAG}|; s|^  InstallerUrl: .*|  InstallerUrl: ${URL}|; s|^  InstallerSha256: .*|  InstallerSha256: ${SHA}|" winget/dlss-version-toolkit.yaml
+          # The url substitution is anchored to the exe URL on purpose: the file has a second
+          # "url" (checkver, pointing at /releases/latest) that must survive.
+          sed -i "s|\"version\": \"[^\"]*\"|\"version\": \"${TAG}\"|; s|\"url\": \"[^\"]*DLSSVersionToolkit\.exe\"|\"url\": \"${URL}\"|; s|\"hash\": \"[^\"]*\"|\"hash\": \"${SHA}\"|" bucket/dlss-version-toolkit.json
+          if git diff --quiet; then echo "manifests already pinned to ${GITHUB_REF_NAME}"; exit 0; fi
+          git add winget/dlss-version-toolkit.yaml bucket/dlss-version-toolkit.json
+          git commit -m "chore(release): pin manifests to ${GITHUB_REF_NAME} [skip ci]"
+          git push origin HEAD:main
