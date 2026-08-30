@@ -14,6 +14,7 @@ public class NgxConfigResult
     public string FrameGen { get; set; } = "Unknown";
     public string DLSSD { get; set; } = "Unknown";
     public string DeepDVC { get; set; } = "Unknown";
+    public string DLSSNR { get; set; } = "Unknown";
     public string? Message { get; set; }
     public bool IsReparsePoint { get; set; }
     public bool IsCorrupt { get; set; }
@@ -90,6 +91,7 @@ public class NgxConfigParser : INgxConfigParser
             result.FrameGen = ParseComponent(content, "dlssg");
             result.DLSSD = ParseComponent(content, "dlssd");
             result.DeepDVC = ParseComponent(content, "deepdvc");
+            result.DLSSNR = ParseComponent(content, "dlssnr");
             result.Message = "Success";
         }
         catch (UnauthorizedAccessException)

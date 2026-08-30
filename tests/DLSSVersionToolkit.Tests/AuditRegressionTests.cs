@@ -16,13 +16,14 @@ public class AuditRegressionTests
     [Fact]
     public void NgxDllNames_CoversAllFourComponents()
     {
-        // The INSTALLED VERSIONS grid tracks DLSS/FrameGen/DLSSD/DeepDVC — the sync set
-        // must cover the same four components or one silently never updates.
-        Assert.Equal(4, UpgradeService.NgxDllNames.Length);
+        // The INSTALLED VERSIONS grid tracks DLSS/FrameGen/DLSSD/DeepDVC/DLSSNR — the sync set
+        // must cover the same five components or one silently never updates.
+        Assert.Equal(5, UpgradeService.NgxDllNames.Length);
         Assert.Contains("nvngx_dlss.dll", UpgradeService.NgxDllNames);
         Assert.Contains("nvngx_dlssg.dll", UpgradeService.NgxDllNames);
         Assert.Contains("nvngx_dlssd.dll", UpgradeService.NgxDllNames);
         Assert.Contains("nvngx_deepdvc.dll", UpgradeService.NgxDllNames);
+        Assert.Contains("nvngx_dlssnr.dll", UpgradeService.NgxDllNames);
     }
 
     [Theory]

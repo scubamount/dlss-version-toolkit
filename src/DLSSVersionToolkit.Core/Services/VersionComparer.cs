@@ -26,9 +26,10 @@ public class VersionComparer : IVersionComparer
             entry.IsNewestFG = false;
             entry.IsNewestDLSSD = false;
             entry.IsNewestDeepDVC = false;
+            entry.IsNewestDLSSNR = false;
         }
 
-        var components = new[] { "DLSS", "FrameGen", "DLSSD", "DeepDVC" };
+        var components = new[] { "DLSS", "FrameGen", "DLSSD", "DeepDVC", "DLSSNR" };
 
         foreach (var component in components)
         {
@@ -43,6 +44,7 @@ public class VersionComparer : IVersionComparer
                     "FrameGen" => entry.FrameGen,
                     "DLSSD" => entry.DLSSD,
                     "DeepDVC" => entry.DeepDVC,
+                    "DLSSNR" => entry.DLSSNR,
                     _ => "Unknown"
                 };
 
@@ -65,6 +67,7 @@ public class VersionComparer : IVersionComparer
                     case "FrameGen": newestEntry.IsNewestFG = true; break;
                     case "DLSSD": newestEntry.IsNewestDLSSD = true; break;
                     case "DeepDVC": newestEntry.IsNewestDeepDVC = true; break;
+                    case "DLSSNR": newestEntry.IsNewestDLSSNR = true; break;
                 }
             }
         }

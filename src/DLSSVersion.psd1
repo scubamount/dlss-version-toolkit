@@ -1,6 +1,6 @@
 @{
     RootModule = 'DLSSVersion.psm1'
-    ModuleVersion = '0.1.0'
+    ModuleVersion = '0.63'
     GUID = 'e4b9d4fb-fa91-4242-922d-d5f6adac415b'
     Author = 'DLSS Version Toolkit Contributors'
     Description = 'Check and upgrade NVIDIA DLSS override versions on Windows'

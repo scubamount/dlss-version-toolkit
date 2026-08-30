@@ -22,7 +22,7 @@ public class UpgradeService : IUpgradeService
     
     // Public so tests can assert coverage: v0.0.43 audit found nvngx_deepdvc.dll missing
     // here, so DeepDVC was never synced and stayed stale forever while the other three updated.
-    public static readonly string[] NgxDllNames = { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll", "nvngx_deepdvc.dll" };
+    public static readonly string[] NgxDllNames = { "nvngx_dlss.dll", "nvngx_dlssg.dll", "nvngx_dlssd.dll", "nvngx_deepdvc.dll", "nvngx_dlssnr.dll" };
 
     public UpgradeService(INgxScanner ngxScanner, IBackupService backupService, IVersionComparer versionComparer)
     {

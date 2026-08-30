@@ -16,7 +16,7 @@ public class ExportService : IExportService
     public void ExportToCsv(ScanResult result, string filePath)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("Source,BuildID,DLSS,FrameGen,DLSSD,DeepDVC,Streamline,Path,ScannedAt");
+        sb.AppendLine("Source,BuildID,DLSS,FrameGen,DLSSD,DeepDVC,DLSSNR,Streamline,Path,ScannedAt");
 
         foreach (var entry in result.Sources)
         {
@@ -27,6 +27,7 @@ public class ExportService : IExportService
                 EscapeCsv(entry.FrameGen),
                 EscapeCsv(entry.DLSSD),
                 EscapeCsv(entry.DeepDVC),
+                EscapeCsv(entry.DLSSNR),
                 EscapeCsv(entry.Streamline),
                 EscapeCsv(entry.Path),
                 entry.ScannedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)

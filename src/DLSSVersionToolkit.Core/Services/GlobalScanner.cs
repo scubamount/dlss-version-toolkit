@@ -34,6 +34,7 @@ public class GlobalScanner : IGlobalScanner
             FrameGen = "Unknown",
             DLSSD = "Unknown",
             DeepDVC = "Unknown",
+            DLSSNR = "Unknown",
             // Streamline is NOT APPLICABLE to an AnWave/NGX folder (no sl.common.dll lives there),
             // which is a different fact from "we could not determine it". NgxScanner already
             // reports "N/A" for the same column; saying "Unknown" here made two rows in the same
@@ -68,6 +69,9 @@ public class GlobalScanner : IGlobalScanner
                         break;
                     case "deepdvc":
                         entry.DeepDVC = version;
+                        break;
+                    case "dlssnr":
+                        entry.DLSSNR = version;
                         break;
                     case "streamline":
                         entry.Streamline = version;

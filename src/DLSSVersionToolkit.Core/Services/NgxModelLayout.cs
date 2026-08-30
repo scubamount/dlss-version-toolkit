@@ -45,6 +45,7 @@ public static class NgxModelLayout
             ["nvngx_dlssg.dll"]    = "dlssg",
             ["nvngx_dlssd.dll"]    = "dlssd",
             ["nvngx_deepdvc.dll"]  = "deepdvc",
+            ["nvngx_dlssnr.dll"]   = "dlssnr",
         };
 
     /// <summary>

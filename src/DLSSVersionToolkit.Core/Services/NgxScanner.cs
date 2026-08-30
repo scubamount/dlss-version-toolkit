@@ -129,6 +129,7 @@ public class NgxScanner : INgxScanner
                     FrameGen = result.FrameGen,
                     DLSSD = result.DLSSD,
                     DeepDVC = result.DeepDVC,
+                    DLSSNR = result.DLSSNR,
                     // Streamline version lives only in the SDK folder / cached zip (v0.0.38) —
                     // NGX version folders contain no sl.common.dll, so this column is N/A here.
                     Streamline = "N/A",

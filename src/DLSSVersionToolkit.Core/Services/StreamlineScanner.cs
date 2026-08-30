@@ -64,6 +64,7 @@ public class StreamlineScanner : IStreamlineScanner
             FrameGen = "Unknown",
             DLSSD = "Unknown",
             DeepDVC = "Unknown",
+            DLSSNR = "Unknown",
             Streamline = "Unknown",
             Path = binPath,
             ScannedAt = DateTime.UtcNow
@@ -94,6 +95,9 @@ public class StreamlineScanner : IStreamlineScanner
                         break;
                     case "deepdvc":
                         entry.DeepDVC = version;
+                        break;
+                    case "dlssnr":
+                        entry.DLSSNR = version;
                         break;
                     case "streamline":
                         entry.Streamline = version;

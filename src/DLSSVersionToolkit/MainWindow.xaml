@@ -633,7 +633,17 @@
                                 <DataGridTextColumn Header="Frame Gen" Binding="{Binding FrameGen}" Width="110" ElementStyle="{StaticResource MonoCellStyle}"/>
                                 <DataGridTextColumn Header="DLSSD" Binding="{Binding DLSSD}" Width="110" ElementStyle="{StaticResource MonoCellStyle}"/>
                                 <DataGridTextColumn Header="DeepDVC" Binding="{Binding DeepDVC}" Width="110" ElementStyle="{StaticResource MonoCellStyle}"/>
-                                <DataGridTextColumn Header="Streamline" Binding="{Binding Streamline}" Width="*" ElementStyle="{StaticResource MonoCellStyle}"/>
+                                <DataGridTextColumn Header="DLSSNR" Binding="{Binding DLSSNR}" Width="110">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                <Setter Property="FontFamily" Value="Consolas"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Padding" Value="8,4"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="Streamline" Binding="{Binding Streamline}" Width="*" ElementStyle="{StaticResource MonoCellStyle}"/>
                                 <!-- Local-import marker: 🔒 means this row's DLL came from Import Local DLLs,
                                      not from the download channel. Update All checks these and will keep the
                                      newer official release if one ever supersedes the import. -->

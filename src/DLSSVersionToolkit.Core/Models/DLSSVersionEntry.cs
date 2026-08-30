@@ -8,12 +8,14 @@ public class DLSSVersionEntry
     public string FrameGen { get; set; } = "Unknown";
     public string DLSSD { get; set; } = "Unknown";
     public string DeepDVC { get; set; } = "Unknown";
+    public string DLSSNR { get; set; } = "Unknown";
     public string Streamline { get; set; } = "Unknown";
     public string Path { get; set; } = "";
     public bool IsNewestDLSS { get; set; }
     public bool IsNewestFG { get; set; }
     public bool IsNewestDLSSD { get; set; }
     public bool IsNewestDeepDVC { get; set; }
+    public bool IsNewestDLSSNR { get; set; }
 
     /// <summary>
     /// Components on this row currently supplied by a locally-imported override rather than the

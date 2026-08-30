@@ -67,10 +67,11 @@ public class SiblingSweepTests
 
             var missing = UpgradeService.MissingNgxDllNames(dir.FullName);
 
-            Assert.Equal(3, missing.Count);
+            Assert.Equal(4, missing.Count);
             Assert.Contains("nvngx_dlssg.dll", missing);
             Assert.Contains("nvngx_dlssd.dll", missing);
             Assert.Contains("nvngx_deepdvc.dll", missing);
+            Assert.Contains("nvngx_dlssnr.dll", missing);
         }
         finally
         {
