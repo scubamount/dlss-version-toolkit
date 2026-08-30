@@ -81,6 +81,9 @@ public partial class ThemedMessageBox : Window
             Content = label,
             MinWidth = 96,
             Margin = new Thickness(6, 0, 0, 0),
+            // Keyboard parity with native MessageBox: Enter activates the primary button from
+            // anywhere in the dialog. Without IsDefault, Enter did nothing (v0.0.59 regression).
+            IsDefault = isPrimary,
             Style = (Style)System.Windows.Application.Current!.FindResource(
                 isPrimary ? "PrimaryButtonStyle" : "DarkButtonStyle")
         };

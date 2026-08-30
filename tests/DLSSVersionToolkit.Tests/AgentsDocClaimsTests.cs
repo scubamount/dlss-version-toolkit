@@ -110,6 +110,36 @@ public class AgentsDocClaimsTests
     }
 
     /// <summary>
+    /// The reverse direction of NamedSourceFiles_AllExist: every View dialog in the tree must be
+    /// named in AGENTS.md's structure diagram. v0.0.59 shipped ThemedMessageBox and the diagram
+    /// never learned it existed — a new reader mapping "which dialogs exist" from the doc got a
+    /// list that silently excluded the newest, most-central one. Enumerating the tree here means
+    /// a new View without a doc line reddens CI at the commit that adds it.
+    /// </summary>
+    [Fact]
+    public void EveryViewDialog_IsNamedInDiagram()
+    {
+        var root = RepoRoot();
+        var text = AgentsText();
+        var viewsDir = Path.Combine(root, "src", "DLSSVersionToolkit", "Views");
+
+        // Scope to the structure diagram only: the changelog prose mentions dialog names, so a
+        // whole-file search passes even when the diagram — the reader's map — omits them. That
+        // is exactly how v0.0.59's ThemedMessageBox shipped: named in the release notes, absent
+        // from the tree, and a whole-file gate would have been green both times.
+        var diagram = Regex.Match(text, @"```text\r?\n([\s\S]*?)```").Groups[1].Value;
+        Assert.True(diagram.Length > 0, "AGENTS.md no longer has a ```text structure diagram — update this test.");
+
+        var unmentioned = Directory.GetFiles(viewsDir, "*.xaml")
+            .Select(f => Path.GetFileNameWithoutExtension(f))
+            .Where(name => !diagram.Contains(name, StringComparison.Ordinal))
+            .ToList();
+
+        Assert.True(unmentioned.Count == 0,
+            "Views exist that AGENTS.md's structure diagram does not name: " + string.Join(", ", unmentioned));
+    }
+
+    /// <summary>
     /// Symbols cited in the standing lessons must still exist. A lesson pointing at a renamed
     /// method sends the next reader looking for something that is not there and quietly erodes
     /// trust in every other lesson on the page.
