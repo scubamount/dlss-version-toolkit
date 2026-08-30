@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-08-30 (v0.0.61).
+Hand-maintained. Last updated: 2026-08-30 (v0.0.62).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -46,7 +46,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 19 files, 376 tests at v0.0.61
+└── DLSSVersionToolkit.Tests/            # xUnit, 20 files, 387 tests at v0.0.62
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~3.99 MB, framework-dependent) is produced by CI on each

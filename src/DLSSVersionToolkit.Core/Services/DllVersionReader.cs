@@ -28,9 +28,12 @@ public static class DllVersionReader
     /// whether the same DLL version is valid. A gate scans the tree for new private copies.
     /// Accepts 2- to 4-part dotted versions ("310.6", "310.7.0.0"); rejects garbage and blanks.
     /// </summary>
+    // 2-4 dotted parts, digit groups only. {0,2} — the original copies' {1,3} was an
+    // off-by-one: it rejected 2-part versions ("310.6" from config files/BuildIDs) and
+    // accepted 5-part garbage. Comparers pad short forms to 4 downstream. (v0.0.62)
     public static bool IsValidVersion(string? version) =>
         !string.IsNullOrEmpty(version) &&
-        System.Text.RegularExpressions.Regex.IsMatch(version, @"^\d+\.\d+(\.\d+){1,3}$");
+        System.Text.RegularExpressions.Regex.IsMatch(version, @"^\d+\.\d+(\.\d+){0,2}$");
 
     /// <summary>
     /// Reads the FileVersion of a single DLL (e.g. "310.7.0.0"). Returns null if the file is
