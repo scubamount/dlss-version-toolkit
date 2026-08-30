@@ -264,9 +264,10 @@ public class SiblingSweepTests
         var srcRoot = FindRepoSubdir("src");
         var copies = Directory.GetFiles(srcRoot, "*.cs", SearchOption.AllDirectories)
             .Where(f => !f.EndsWith("DllVersionReader.cs", StringComparison.Ordinal))
-            // Verbatim substring: scanner sources contain this exact literal text. (A regex with
+            // Verbatim substring of the SHARED regex prefix — matches both the historical
+            // {1,3} copies and any future copy of the current {0,2} canonical. (A regex with
             // doubled backslashes here would match nothing and the gate would pass vacuously.)
-            .Where(f => File.ReadAllText(f).Contains(@"\d+\.\d+(\.\d+){1,3}", StringComparison.Ordinal))
+            .Where(f => File.ReadAllText(f).Contains(@"\d+\.\d+(\.\d+){", StringComparison.Ordinal))
             .Select(f => Path.GetFileName(f))
             .ToList();
 
