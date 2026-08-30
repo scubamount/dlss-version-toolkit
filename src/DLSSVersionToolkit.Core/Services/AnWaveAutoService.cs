@@ -263,9 +263,16 @@ progress?.Report(30);
 			var dest = Path.Combine(InstallDir, Path.GetFileName(file));
 			File.Copy(file, dest, true);
 
-			// Post-copy verification: check file size matches
+			// Post-copy verification: a failed verify deletes the corrupt file. The glom exe's
+			// existence is the gate for setup success below, and File.Exists passes on a
+			// size-corrupt copy — Debug-only here meant a broken install reported as done.
+			// Same predicate as the DLL loop below (v0.0.57); its twin was left behind (v0.0.61).
 			if (!OperationGuard.VerifyFile(dest, srcInfo.Length))
+			{
 				System.Diagnostics.Debug.WriteLine($"ExtractGlomFromCache: post-copy verification failed for {dest}");
+				try { File.Delete(dest); } catch { }
+				continue;
+			}
 		}
 
 		// Verify nvidiaDlssGlom.exe exists after extraction

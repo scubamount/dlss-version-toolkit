@@ -22,6 +22,17 @@ public static class DllVersionReader
     private const string PrimaryDll = "nvngx_dlss.dll";
 
     /// <summary>
+    /// "Is this string a plausible version at all?" — the ONE definition. Three scanners
+    /// (GlobalScanner, StreamlineScanner, NgxConfigParser) each carried a byte-identical private
+    /// copy of this regex until v0.0.61; any future divergence means two surfaces disagree on
+    /// whether the same DLL version is valid. A gate scans the tree for new private copies.
+    /// Accepts 2- to 4-part dotted versions ("310.6", "310.7.0.0"); rejects garbage and blanks.
+    /// </summary>
+    public static bool IsValidVersion(string? version) =>
+        !string.IsNullOrEmpty(version) &&
+        System.Text.RegularExpressions.Regex.IsMatch(version, @"^\d+\.\d+(\.\d+){1,3}$");
+
+    /// <summary>
     /// Reads the FileVersion of a single DLL (e.g. "310.7.0.0"). Returns null if the file is
     /// missing or carries no version resource. Prefers FileVersion, falls back to ProductVersion.
     /// </summary>
