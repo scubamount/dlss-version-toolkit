@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-08-30 (v0.64).
+Hand-maintained. Last updated: 2026-08-30 (v0.65).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -46,7 +46,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 20 files, 390 tests at v0.64
+└── DLSSVersionToolkit.Tests/            # xUnit, 20 files, 391 tests at v0.65
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -156,6 +156,18 @@ applied."
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.
 
+- **v0.65**: NR override parity. v0.63's DLSSNR migration covered services/scanners/grid/export
+  but missed both MainViewModel dictionaries: re-assert's installedByDll never carried the NR row,
+  and the grid's override-marker switch dropped it — so an imported NR DLL re-asserted without
+  installed-version evidence and never showed the lock marker. Worse, channelByDll gave NR the
+  Streamline channel version: Evaluate would mark a user's dropped-in NR import "superseded" and
+  stop re-asserting it. NR has no download channel, so it is now EXCLUDED from channelByDll
+  (unknown channel never supersedes) and mapped in both dictionaries. Gate C11 pins all three.
+  Import Local DLLs already handles NR correctly (it iterates the canonical set; AnWave mirrors
+  it; glom OTA copies nvngx_*.dll by wildcard). Driver-side NR override entries (610.xx) are
+  present but non-functional — the tool does not write a speculative NR config section.
+  - Lesson: a feature migration must grep EVERY consumer dict/switch of the collection it grows,
+    including UI-layer ones the compiler cannot catch when keys are string literals.
 - **v0.64**: Audit of v0.63 (the direct-pushed DLSSNR commit) found and fixed three real defects.
   (1) The same-version resync guard counted DLLs NO source ships: NgxDllNames grew to include
   nvngx_dlssnr.dll, no NVIDIA/Streamline release carries it, so every up-to-date install read

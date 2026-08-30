@@ -560,9 +560,15 @@ private async Task<string> ReassertOverridesAsync(string? dlssChannelVersion, st
 
 		// What the download channel just made available, per component. Both SR and RR/FG/DeepDVC
 		// come from the two SDKs, so the channel version for each DLL is whichever SDK supplies it.
+		// nvngx_dlssnr.dll is deliberately EXCLUDED (v0.65): no download channel ships NR, so any
+		// channel version we invent for it would falsely mark a user's dropped-in NR import
+		// "superseded" and skip re-asserting it — exactly the harm the manifest exists to prevent.
+		// Absent key => Evaluate sees channel unknown => never supersedes.
 		var channelByDll = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 		foreach (var dll in UpgradeService.NgxDllNames)
 		{
+			if (string.Equals(dll, "nvngx_dlssnr.dll", StringComparison.OrdinalIgnoreCase))
+				continue;
 			channelByDll[dll] = string.Equals(dll, "nvngx_dlss.dll", StringComparison.OrdinalIgnoreCase)
 				? dlssChannelVersion
 				: streamlineChannelVersion ?? dlssChannelVersion;
@@ -582,6 +588,7 @@ private async Task<string> ReassertOverridesAsync(string? dlssChannelVersion, st
 			installedByDll["nvngx_dlssg.dll"] = ngxEntry.FrameGen;
 			installedByDll["nvngx_dlssd.dll"] = ngxEntry.DLSSD;
 			installedByDll["nvngx_deepdvc.dll"] = ngxEntry.DeepDVC;
+			installedByDll["nvngx_dlssnr.dll"] = ngxEntry.DLSSNR;
 		}
 		var statuses = await Task.Run(() =>
 			_overrideManifestService.Evaluate(installedByDll, channelByDll));
@@ -1776,6 +1783,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                                 "nvngx_dlssg.dll"   => entry.FrameGen,
                                 "nvngx_dlssd.dll"   => entry.DLSSD,
                                 "nvngx_deepdvc.dll" => entry.DeepDVC,
+                                "nvngx_dlssnr.dll"  => entry.DLSSNR,
                                 _ => null
                             };
 
