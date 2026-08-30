@@ -87,12 +87,8 @@ public class GlobalScanner : IGlobalScanner
     private static string GetDllVersion(string dllPath)
     {
         var version = DllVersionReader.ReadFileVersion(dllPath);
-        return !string.IsNullOrEmpty(version) && IsValidVersionString(version) ? version : "Unknown";
-    }
-
-    private static bool IsValidVersionString(string version)
-    {
-        return System.Text.RegularExpressions.Regex.IsMatch(version, @"^\d+\.\d+(\.\d+){1,3}$");
+        // One validity rule for the whole tree (v0.0.61): DllVersionReader.IsValidVersion.
+        return DllVersionReader.IsValidVersion(version) ? version! : "Unknown";
     }
 
     private static bool IsReparsePoint(string path)

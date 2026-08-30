@@ -220,6 +220,64 @@ public class SiblingSweepTests
         Assert.True(populateAt >= 0 && evalAt > populateAt);
     }
 
+    // ------------------------------------------------------------------
+    // C9 (v0.0.61): the v0.0.57 verify-fail→delete fix landed on the DLL loop of
+    // ExtractGlomFromCache but not its sibling glom-file loop in the SAME method.
+    // A size-corrupt nvidiaDlssGlom.exe passes the File.Exists gate below it, so setup
+    // reports success over a broken install. Pin: no VerifyFile failure arm in this file
+    // may consist of Debug.WriteLine alone.
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void AnWaveVerifyFailures_NeverDebugOnly()
+    {
+        var srcRoot = FindRepoSubdir("src");
+        var lines = File.ReadAllLines(Path.Combine(srcRoot, "DLSSVersionToolkit.Core", "Services",
+            "AnWaveAutoService.cs"));
+
+        // Scan the 4-line arm following every failed-verify check. A body regex cannot be used:
+        // interpolated braces inside the Debug.WriteLine argument ($"{destPath}") truncate any
+        // [^}]* capture before the File.Delete, making fixed code read as broken.
+        var offenders = 0;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (!lines[i].Contains("if (!OperationGuard.VerifyFile(")) continue;
+            var arm = string.Join("\n", lines.Skip(i + 1).Take(4));
+            if (arm.Contains("Debug.WriteLine") && !arm.Contains("File.Delete")
+                && !arm.Contains("ErrorMessage") && !arm.Contains("FailedFiles"))
+                offenders++;
+        }
+
+        Assert.True(offenders == 0,
+            $"{offenders} verify-failure arm(s) log to Debug and count the file anyway");
+    }
+
+    // ------------------------------------------------------------------
+    // C10 (v0.0.61): the version-validity regex was byte-identical in GlobalScanner,
+    // StreamlineScanner, and NgxConfigParser. Divergence = surfaces disagreeing on what
+    // a version is. ONE definition (DllVersionReader.IsValidVersion); no private copies.
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void VersionValidityRegex_HasOneDefinition()
+    {
+        var srcRoot = FindRepoSubdir("src");
+        var copies = Directory.GetFiles(srcRoot, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.EndsWith("DllVersionReader.cs", StringComparison.Ordinal))
+            // Verbatim substring: scanner sources contain this exact literal text. (A regex with
+            // doubled backslashes here would match nothing and the gate would pass vacuously.)
+            .Where(f => File.ReadAllText(f).Contains(@"\d+\.\d+(\.\d+){1,3}", StringComparison.Ordinal))
+            .Select(f => Path.GetFileName(f))
+            .ToList();
+
+        Assert.True(copies.Count == 0,
+            "Version-validity regex rebuilt outside DllVersionReader: " + string.Join(", ", copies));
+
+        var canonical = File.ReadAllText(Path.Combine(srcRoot, "DLSSVersionToolkit.Core",
+            "Services", "DllVersionReader.cs"));
+        Assert.Contains("public static bool IsValidVersion(", canonical);
+    }
+
     /// <summary>Walks up from the test binary to the repo root and returns the src/ subdir.</summary>
     internal static string FindRepoSubdir(string name)
     {

@@ -147,7 +147,7 @@ public class NgxConfigParser : INgxConfigParser
         if (match.Success)
         {
             var version = match.Groups[1].Value;
-            if (IsValidVersionFormat(version))
+            if (DllVersionReader.IsValidVersion(version))
             {
                 return version;
             }
@@ -155,10 +155,8 @@ public class NgxConfigParser : INgxConfigParser
         return "Unknown";
     }
 
-    private static bool IsValidVersionFormat(string version)
-    {
-        return Regex.IsMatch(version, @"^\d+\.\d+(\.\d+){1,3}$");
-    }
+    // IsValidVersionFormat lived here as a third private copy of the version-validity regex;
+    // deleted v0.0.61 — DllVersionReader.IsValidVersion is the ONE definition.
 
     private static bool IsReparsePoint(string path)
     {
