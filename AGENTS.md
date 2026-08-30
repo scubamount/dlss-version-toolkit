@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-08-24 (v0.0.59).
+Hand-maintained. Last updated: 2026-08-25 (v0.0.60).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -38,7 +38,7 @@ src/
 ├── DLSSVersionToolkit/                 # WPF application
 │   ├── ViewModels/MainViewModel.cs      # ~2.4k lines; Update All orchestration lives here
 │   ├── Views/                           # SettingsDialog, BackupsDialog,
-│   │                                    #   UpdateAllPreflightDialog
+│   │                                    #   UpdateAllPreflightDialog, ThemedMessageBox
 │   ├── Converters/
 │   ├── MainWindow.xaml                  # sidebar-dashboard UI
 │   └── App.xaml                         # theme, styles, startup
@@ -46,10 +46,10 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 19 files, 371 tests at v0.0.59
+└── DLSSVersionToolkit.Tests/            # xUnit, 19 files, 374 tests at v0.0.60
 ```
 
-The single-file `DLSSVersionToolkit.exe` (3,990,041 bytes at v0.0.55) is produced by CI on each
+The single-file `DLSSVersionToolkit.exe` (~3.99 MB, framework-dependent) is produced by CI on each
 `v*` tag and attached to the GitHub release — it is not committed.
 
 ## Commands
@@ -156,6 +156,14 @@ applied."
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.
 
+- **v0.0.60**: Re-audit of v0.0.59's own new dialog. Keyboard parity restored (primary button
+  `IsDefault` — Enter did nothing before, which native MessageBox never allowed); message body
+  moved into a `ScrollViewer` (`SizeToContent=Height` + `MaxHeight` clipped long reports — same
+  failure mode as the v0.0.48 fixed-size class, opposite mechanism). AGENTS.md: exe-size claim
+  relaxed to stable `~3.99 MB` form (exact bytes pinned at v0.0.55 went stale on both later
+  releases); structure diagram names ThemedMessageBox, and a new reverse gate (`EveryViewDialog_
+  IsNamedInDiagram`) enumerates `Views/*.xaml` against the fenced diagram so a new View without a
+  diagram line reddens CI at the commit that adds it.
 - **v0.0.59**: Cosmetic cleanup closing the two deferred audit findings — all 70 native
   `MessageBox.Show` call sites routed through a themed in-app dialog (`Views.ThemedMessageBox`,
   same dark palette + button styles; the old boxes rendered bright white OS chrome mid-flow), and

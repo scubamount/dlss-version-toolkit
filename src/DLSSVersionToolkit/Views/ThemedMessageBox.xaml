@@ -18,13 +18,18 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
-            <TextBlock x:Name="IconText" FontSize="18" FontWeight="Bold"
-                       VerticalAlignment="Top" Margin="0,1,10,0"
-                       FontFamily="Consolas"/>
-            <TextBlock x:Name="MessageText" TextWrapping="Wrap" FontSize="13"
-                       Foreground="{StaticResource Text1Brush}" MaxWidth="520"/>
-        </StackPanel>
+        <!-- ScrollViewer: with SizeToContent=Height + MaxHeight, a long report (Update All
+             failures list) would clip at the window edge — v0.0.48's clip class. The message
+             scrolls instead; buttons stay pinned. -->
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" MaxHeight="480">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                <TextBlock x:Name="IconText" FontSize="18" FontWeight="Bold"
+                           VerticalAlignment="Top" Margin="0,1,10,0"
+                           FontFamily="Consolas"/>
+                <TextBlock x:Name="MessageText" TextWrapping="Wrap" FontSize="13"
+                           Foreground="{StaticResource Text1Brush}" MaxWidth="520"/>
+            </StackPanel>
+        </ScrollViewer>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right"
                     Margin="0,16,0,0" x:Name="ButtonsPanel"/>

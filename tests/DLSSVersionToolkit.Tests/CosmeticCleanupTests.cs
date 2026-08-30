@@ -59,4 +59,31 @@ public class CosmeticCleanupTests
         Assert.DoesNotContain(0.45, nav);
         Assert.DoesNotContain(0.4, nav);
     }
+
+    /// <summary>Native MessageBox accepts Enter for the default button from the moment it opens.
+    /// The themed replacement must not lose that (v0.0.59 shipped without IsDefault — Enter did
+    /// nothing, keyboard users had to Tab). Primary button must be IsDefault; Escape handled.</summary>
+    [Fact]
+    public void ThemedMessageBox_KeepsNativeKeyboardParity()
+    {
+        var cs = Read("DLSSVersionToolkit", "Views", "ThemedMessageBox.xaml.cs");
+
+        Assert.Contains("IsDefault = isPrimary", cs);
+        Assert.Contains("Key.Escape", cs);
+    }
+
+    /// <summary>SizeToContent=Height + MaxHeight without a scrollable region clips long content
+    /// at the window edge — the v0.0.48 fixed-size class, opposite mechanism. The message must
+    /// live in a ScrollViewer.</summary>
+    [Fact]
+    public void ThemedMessageBox_LongMessages_ScrollNotClip()
+    {
+        var xaml = Read("DLSSVersionToolkit", "Views", "ThemedMessageBox.xaml");
+
+        Assert.Contains("MaxHeight", xaml);
+        var scrollAt = xaml.IndexOf("<ScrollViewer", StringComparison.Ordinal);
+        var messageAt = xaml.IndexOf("MessageText", StringComparison.Ordinal);
+        Assert.True(scrollAt >= 0 && messageAt > scrollAt,
+            "MessageText must sit inside the ScrollViewer or long reports clip at MaxHeight");
+    }
 }
