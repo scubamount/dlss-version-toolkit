@@ -52,15 +52,7 @@ public interface IAnWaveAutoService
     /// </summary>
     string? GetInstalledPath();
 
-    /// <summary>
-    /// Returns the installed nvidiaDlssGlom version string.
-    /// </summary>
-    string? GetInstalledGlomVersion();
 
-    /// <summary>
-    /// Returns the DLL version currently in the AnWave folder.
-    /// </summary>
-    string? GetInstalledDllVersion();
 
     /// <summary>
     /// Probes the known install directory on disk for an existing AnWave/nvidiaDlssGlom setup
@@ -108,8 +100,6 @@ public class AnWaveAutoService : IAnWaveAutoService
     }
 
     public string? GetInstalledPath() => _installedPath;
-    public string? GetInstalledGlomVersion() => _glomVersion;
-    public string? GetInstalledDllVersion() => _dllVersion;
 
     /// <summary>
     /// Read-only probe of the install dir. Reads the real DLL/glom versions via FileVersionInfo

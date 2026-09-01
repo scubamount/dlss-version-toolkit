@@ -27,8 +27,6 @@ public interface IDlssDownloadService
     (int Count, long TotalBytes) GetCacheInfo();
     /// <summary>Removes all cached downloads older than the latest N, keeping the most recent keepCount versions.</summary>
     void TrimCache(int keepCount = 3);
- /// <summary>Returns a list of DLSS SDK version strings currently in the cache (e.g., ["310.6.0", "310.5.0"]).</summary>
- List<string> GetCachedVersions();
 }
 
 public class DlssDownloadService : IDlssDownloadService
@@ -358,17 +356,5 @@ public class DlssDownloadService : IDlssDownloadService
             catch { }
         }
     }
-    public List<string> GetCachedVersions()
-    {
-        if (!Directory.Exists(CacheDir))
-            return new List<string>();
 
-        return Directory.GetFiles(CacheDir, "dlss-sdk-*.zip")
-            .Select(f => ParseVersionFromZipName(Path.GetFileName(f)))
-            .Where(v => v != null)
-            .Select(v => v!)
-            // Numeric ordering — lexical OrderByDescending put "310.6.0" above "310.10.0".
-            .OrderByDescending(v => Version.TryParse(v, out var p) ? p : new Version(0, 0))
-            .ToList();
-    }
 }

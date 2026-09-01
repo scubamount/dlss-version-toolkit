@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-08-30 (v0.65).
+Hand-maintained. Last updated: 2026-08-30 (v0.66).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -46,7 +46,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 20 files, 391 tests at v0.65
+└── DLSSVersionToolkit.Tests/            # xUnit, 20 files, 393 tests at v0.66
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -156,6 +156,19 @@ applied."
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.
 
+- **v0.66**: Backup retention wired + interface dead-code retired. `CleanupOldBackups` existed
+  since the backups feature with ZERO callers — every sync and every restore-safety copy added a
+  backup folder, nothing ever removed one (unbounded disk growth, worst case ~158MB/run once NR
+  ships). Fix: retention lives IN the producer — `CreateBackup` prunes after verifying the new
+  copy (newest, never its own victim), covering all callers through the one choke point; returns
+  the pruned count; `DefaultKeepCount=10` is now one definition. Gates: retention behavior test
+  (13→10, decoy survives) + wiring gate pinning the call and its position after verification.
+  The dead-method sweep that found it also retired five zero-caller interface members
+  (ApplyToAnWave, GetInstalledGlom/DllVersion, GetCachedVersions, VerifyDllIntegrity).
+  - Lesson: an interface member is not a caller. When auditing liveness, the test-only call
+    sites keep a member alive (TrimCache's internal call, Remove/GetOverrideVersion tests) but
+    a public method whose only references are its own decl/def is dead by the retirement policy.
+    Wire cleanup at the producer, not the UI that would forget it.
 - **v0.65**: NR override parity. v0.63's DLSSNR migration covered services/scanners/grid/export
   but missed both MainViewModel dictionaries: re-assert's installedByDll never carried the NR row,
   and the grid's override-marker switch dropped it — so an imported NR DLL re-asserted without

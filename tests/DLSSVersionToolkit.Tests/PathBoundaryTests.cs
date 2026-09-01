@@ -47,7 +47,7 @@ public class PathBoundaryTests
         public bool RestoreBackup(string backupPath, string releaseFolderPath) =>
             throw new InvalidOperationException("Restore should not be attempted for a rejected path.");
 
-        public void CleanupOldBackups(string versionsParentPath, int keepCount = 10) =>
+        public int CleanupOldBackups(string versionsParentPath, int keepCount = Core.Services.BackupService.DefaultKeepCount) =>
             throw new InvalidOperationException("Cleanup should not be attempted for a rejected path.");
 
         public bool VerifyBackup(string backupPath, int expectedFileCount = -1) =>
