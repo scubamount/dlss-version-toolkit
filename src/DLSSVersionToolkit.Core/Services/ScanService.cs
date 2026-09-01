@@ -6,8 +6,6 @@ using System.Diagnostics;
 public interface IScanService
 {
 	Task<ScanResult> ScanAllAsync(string? ngxBasePath = null, string? anWavePath = null, string? streamlinePath = null);
-	/// <summary>Verifies that a DLL file has a valid MZ/PE header signature.</summary>
-	bool VerifyDllIntegrity(string dllPath);
 }
 
 public class ScanService : IScanService
@@ -169,12 +167,5 @@ public class ScanService : IScanService
 
         return null;
     }
-	/// <summary>
-	/// Verifies that a DLL file has a valid MZ/PE header signature.
-	/// Delegates to OperationGuard.VerifyDllSignature.
-	/// </summary>
-	public bool VerifyDllIntegrity(string dllPath)
-	{
-		return OperationGuard.VerifyDllSignature(dllPath);
-	}
+
 }

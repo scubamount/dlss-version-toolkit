@@ -1314,7 +1314,7 @@ public class UpgradeServiceTests
 		public bool VerifyResult { get; set; } = true;
 		public string? CreateBackup(string releaseFolderPath, string versionsParentPath) => BackupResult;
 		public bool RestoreBackup(string backupPath, string releaseFolderPath) => true;
-		public void CleanupOldBackups(string versionsParentPath, int keepCount = 10) { }
+		public int CleanupOldBackups(string versionsParentPath, int keepCount = Core.Services.BackupService.DefaultKeepCount) => 0;
 		public bool VerifyBackup(string backupPath, int expectedFileCount = -1) => VerifyResult;
 	}
 

@@ -7,7 +7,8 @@ public interface IBackupService
 {
 	string? CreateBackup(string releaseFolderPath, string versionsParentPath);
 	bool RestoreBackup(string backupPath, string releaseFolderPath);
-	void CleanupOldBackups(string versionsParentPath, int keepCount = 10);
+	/// <summary>Deletes backups beyond the newest <paramref name="keepCount"/>; returns how many were removed.</summary>
+	int CleanupOldBackups(string versionsParentPath, int keepCount = BackupService.DefaultKeepCount);
 	/// <summary>Verifies that a backup directory exists, contains files, and optionally matches expected file count.</summary>
 	bool VerifyBackup(string backupPath, int expectedFileCount = -1);
 }
@@ -22,6 +23,13 @@ public class BackupService : IBackupService
     // how a producer and its skip-filter drift apart (rename the prefix, the scanner silently
     // starts listing backups as installed versions).
     private const string BackupPrefix = NgxScanner.BackupFolderPrefix;
+
+    /// <summary>
+    /// Backups retained per versions parent. ONE definition: the interface default and the
+    /// producer both read it. Every producer (both sync paths, the restore safety copy) prunes
+    /// through CreateBackup, so this is the only number that governs backup disk growth.
+    /// </summary>
+    public const int DefaultKeepCount = 10;
 
     /// <summary>
     /// Enumerates backup folders under a versions parent, newest first. These folders have
@@ -97,6 +105,15 @@ public class BackupService : IBackupService
                 catch (Exception ex_c) { Debug.WriteLine($"CreateBackup: cleanup failed ({ex_c.Message})"); }
                 return null;
             }
+
+            // Retention lives with the producer (v0.66). CleanupOldBackups existed since the
+            // backups feature and had ZERO callers: every sync and every restore-safety copy
+            // added a folder and nothing ever removed one. Pruning here — after the new backup
+            // is verified, so it is the newest and never its own victim — covers all producers
+            // through the one method they all call.
+            var pruned = CleanupOldBackups(versionsParentPath);
+            if (pruned > 0)
+                Debug.WriteLine($"CreateBackup: pruned {pruned} backup(s) beyond the newest {DefaultKeepCount}");
 
             return backupPath;
         }
@@ -182,11 +199,12 @@ public class BackupService : IBackupService
         }
     }
 
-    public void CleanupOldBackups(string versionsParentPath, int keepCount = 10)
+    public int CleanupOldBackups(string versionsParentPath, int keepCount = DefaultKeepCount)
     {
         if (string.IsNullOrEmpty(versionsParentPath) || !Directory.Exists(versionsParentPath))
-            return;
+            return 0;
 
+        var removed = 0;
         try
         {
             // Route through ListBackups so retention counts EXACTLY the backups the user can
@@ -200,11 +218,12 @@ public class BackupService : IBackupService
 
             foreach (var backup in backups)
             {
-                try { Directory.Delete(backup.Path, true); }
+                try { Directory.Delete(backup.Path, true); removed++; }
                 catch (Exception ex_b) { Debug.WriteLine($"CleanupOldBackups: delete failed: {ex_b.Message}"); }
             }
         }
         catch (Exception ex) { Debug.WriteLine($"CleanupOldBackups: error: {ex.Message}"); }
+        return removed;
     }
 
     private static int CountFiles(string path)
