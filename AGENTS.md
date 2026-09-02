@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-08-30 (v0.66).
+Hand-maintained. Last updated: 2026-09-02 (v0.67).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -22,7 +22,7 @@ not referenced by the README. Nothing reads them. Treat as removable, not as a s
 
 ```text
 src/
-├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 26 services
+├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 27 services
 │   ├── Models/                         # AppSettings, DlssPreset, OverrideManifest,
 │   │                                   #   UpdateRunReport, ScanResult, ...
 │   └── Services/
@@ -46,7 +46,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 20 files, 393 tests at v0.66
+└── DLSSVersionToolkit.Tests/            # xUnit, 21 files, 398 tests at v0.67
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -156,6 +156,20 @@ applied."
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.
 
+- **v0.67**: Streamline plugin override — the glom mechanism, reverse-engineered and integrated.
+  `models\sl_<plugin>_0\versions\<packed>\files\160_E658703.dll` payloads plus per-plugin
+  `[sl_<plugin>_0]` / `app_E658703 = <version>` sections in nvngx_config.txt. Ground truth was
+  triple-confirmed: three independent runtime observations of the written tree (AnWave #66 log,
+  Crimson Desert walkthrough, MSFS crash report) AND the literal config templates + dir->DLL
+  table extracted from nvidiaDlssGlom.exe v2.8.24.13's .NET string heap; the 11-plugin set is
+  what Streamline SDK v2.12.0 bin/x64 actually ships. `StreamlineOverrideService` syncs every
+  mapped plugin DLL present in a sync source (PerformSync, after nvngx verification; DLSS-demo
+  sources no-op) and `InstalledPlugins` decodes activation state from packed folder names — DLL
+  bytes remain the only version authority; the config file is state, not evidence. sl_dlss_nr_0
+  and sl_sdk_0 are known to glom but have no SDK DLL yet — unmapped on purpose; when NVIDIA
+  ships sl.dlss_nr.dll the map gains one line.
+  - Lesson: RE of a closed tool is a doc claim — cite the observation sources AND pin the shapes
+    (extension, appId, dir spelling) with gates, because a silent drift here activates nothing.
 - **v0.66**: Backup retention wired + interface dead-code retired. `CleanupOldBackups` existed
   since the backups feature with ZERO callers — every sync and every restore-safety copy added a
   backup folder, nothing ever removed one (unbounded disk growth, worst case ~158MB/run once NR

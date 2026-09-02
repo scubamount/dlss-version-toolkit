@@ -87,7 +87,7 @@ DLSS override enabled.
 | **Export** | Save a snapshot of your DLSS setup as CSV or JSON |
 | **Advanced (manual)** | Every step Update All runs is also available on its own for recovery: whitelist, unlock, downloads, NGX syncs, profile indexing |
 
-**Supported components:** DLSS, Frame Generation (dlssg), DLSSD (Ray Reconstruction), DeepDVC, DLSSNR, Streamline SDK.
+**Supported components:** DLSS, Frame Generation (dlssg), DLSSD (Ray Reconstruction), DeepDVC, DLSSNR, Streamline SDK (incl. global Streamline-plugin override — `sl.common`, `sl.interposer`, `sl.dlss_g`, and friends — same mechanism as the DLSS override).
 
 > **DLSSNR (DLSS 5 neural rendering) — what this tool does with it:** it scans, displays, syncs,
 > backs up, and **imports** `nvngx_dlssnr.dll` like any other NGX component. No download channel

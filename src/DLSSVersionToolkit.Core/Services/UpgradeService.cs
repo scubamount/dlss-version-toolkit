@@ -384,6 +384,17 @@ var needsResync = ShouldResyncForMissingDlls(operation.TargetPath, operation.Sou
                 throw new InvalidOperationException("Post-copy verification failed");
             }
 
+            // Streamline plugin override (v0.67): once the nvngx set has landed and verified,
+            // mirror every Streamline plugin DLL the source carries into its plugin model tree
+            // — the tree the driver's streamline override reads (RE from glom; see
+            // NgxModelLayout). Sources without sl.* DLLs (the DLSS demo zip) no-op. Sync is
+            // idempotent by construction (same packed folder => byte-identical payload), so no
+            // per-plugin backup. Activation comes from WriteNgXConfig's per-plugin sections.
+            var pl = StreamlineOverrideService.SyncPlugins(binPath, ngxBasePath);
+            foreach (var w in pl.Written) operation.FilesCopied.Add("plugins\\" + w);
+            foreach (var s in pl.Skipped)
+                Debug.WriteLine($"PerformSync: streamline plugin {s}");
+
             operation.Status = OperationStatus.Completed;
             operation.CompletedAt = DateTime.UtcNow;
         }

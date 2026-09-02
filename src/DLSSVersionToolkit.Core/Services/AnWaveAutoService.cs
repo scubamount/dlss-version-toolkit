@@ -635,6 +635,18 @@ progress?.Report(30);
             if (ngxDir != null && !Directory.Exists(ngxDir))
                 Directory.CreateDirectory(ngxDir);
 
+            // Activation for Streamline plugins (v0.67) — the per-plugin sections glom writes,
+            // exactly its observed template: one `app_E658703 = <dotted>` line per plugin whose
+            // payload is actually on disk (versions decoded from the packed folders, not from
+            // this file). Written fresh every time: plugin presence IS the activation state, so
+            // removing a plugin's tree and re-applying cleans its section the same way.
+            var pluginSections = string.Concat(
+                StreamlineOverrideService.InstalledPlugins(Path.GetDirectoryName(ConfigFilePath)!)
+                    .Select(p => $@"
+[{p.ComponentDir}]
+app_E658703 = {p.Version}
+"));
+
             var config = $@"[dlss_override]
 app_E658700_force = 1
 app_E658700 = {version}
@@ -642,7 +654,7 @@ app_E658700 = {version}
 [streamline_override]
 app_E658703_force = 1
 app_E658703 = {version}
-";
+{pluginSections}";
             File.WriteAllText(ConfigFilePath, config);
         }
         catch (UnauthorizedAccessException)
