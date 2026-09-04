@@ -1,3 +1,4 @@
+using DLSSVersionToolkit.Core.Models;
 using DLSSVersionToolkit.Core.Services;
 
 namespace DLSSVersionToolkit.Tests;
@@ -372,8 +373,8 @@ public class OtaCacheScannerTests : IDisposable
     [Fact]
     public void OtaSources_HaveDistinctDisplayNames_AndStagingIsLabelledPreRelease()
     {
-        var production = new Models.DLSSVersionEntry { Source = OtaCacheScanner.SourceProduction };
-        var staging = new Models.DLSSVersionEntry { Source = OtaCacheScanner.SourceStaging };
+        var production = new DLSSVersionEntry { Source = OtaCacheScanner.SourceProduction };
+        var staging = new DLSSVersionEntry { Source = OtaCacheScanner.SourceStaging };
 
         Assert.Equal("NVIDIA OTA cache", production.DisplaySource);
         Assert.Equal("NVIDIA OTA cache (pre-release)", staging.DisplaySource);
