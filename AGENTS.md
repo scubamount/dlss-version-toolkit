@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-09-04 (v0.70).
+Hand-maintained. Last updated: 2026-09-04 (v0.71).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -22,7 +22,7 @@ not referenced by the README. Nothing reads them. Treat as removable, not as a s
 
 ```text
 src/
-├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 28 services
+├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 29 services
 │   ├── Models/                         # AppSettings, DlssPreset, OverrideManifest,
 │   │                                   #   UpdateRunReport, ScanResult, ...
 │   └── Services/
@@ -46,7 +46,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 24 files, 429 tests at v0.70
+└── DLSSVersionToolkit.Tests/            # xUnit, 25 files, 446 tests at v0.71
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -156,6 +156,25 @@ applied."
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.
 
+- **v0.71**: LATEST AVAILABLE consults NVIDIA's OTA channel, not just GitHub. The header compared
+  installed versions against GitHub release feeds only — but those publish the *SDK* (what you
+  build against) and lag what the driver loads: GitHub's newest DLSS was 310.7.0 while NVIDIA's
+  own OTA channel served 310.7.128, Streamline 2.12.0 versus 2.12.128. So "UP TO DATE" was measured
+  against a number that was not the newest NVIDIA ships. New `NvidiaOtaService` reads
+  `nvngx_server_config.txt` from the NGX OTA CDN and takes the newest of {OTA, GitHub, cached,
+  installed}; the header now labels which feed won, because two sources that legitimately disagree
+  presented as one anonymous figure reads as a bug.
+  - The endpoint is **undocumented**. Every claim about it was verified by fetching (manifest
+    parses, implied packed folders resolve to real payloads, published `.sha256` matched an 89 MB
+    download, PE FileVersion inside matched the manifest). Therefore: every failure path is
+    non-fatal and falls back to GitHub, and the service reads **version metadata only** — it
+    downloads no payloads. Pulling executables from an undocumented host into `%ProgramData%` is a
+    supply-chain decision that is deliberately not taken here.
+  - Production channel, not `dev-models` staging (which already showed 310.9.0 / 2.14.0). A
+    staging build is not an update available to the user; prompting toward one creates an update
+    that the driver can never satisfy.
+  - Lesson: "latest" is not one question. Ask which authority the number is supposed to come from
+    before comparing against it, and say so in the UI.
 - **v0.70**: DLSS-RR default is Preset F. The app held two contradictory statements about one
   question: `PresetVersionRules` said RR 310.7.128+ "needs Preset F — Preset E does not engage the
   new model" (first-party observation), while `RayReconstructionDefault` — read by fresh installs

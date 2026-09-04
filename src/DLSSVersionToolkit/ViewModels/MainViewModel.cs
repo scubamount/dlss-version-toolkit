@@ -136,6 +136,17 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     [ObservableProperty]
     private string _availableDlssVersion = "—";
 
+    // Which feed produced "LATEST AVAILABLE" (v0.71). The app now consults two sources that
+    // answer different questions — GitHub publishes the SDK you can build against, NVIDIA's OTA
+    // channel publishes what the driver will actually load — and they disagree by design
+    // (310.7.0 vs 310.7.128). Naming the winner means a surprising version number is explainable
+    // instead of just wrong-looking.
+    [ObservableProperty]
+    private string _dlssLatestSource = "";
+
+    [ObservableProperty]
+    private string _streamlineLatestSource = "";
+
     [ObservableProperty]
     private string _versionStatusMessage = "";
 
@@ -215,6 +226,13 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
 
     private readonly AppUpdateService _appUpdateService = new();
     private readonly IVersionComparer _versionComparer;
+
+    /// <summary>
+    /// NVIDIA's NGX OTA manifest reader (v0.71). Constructed directly rather than injected: it
+    /// has no state worth substituting, every call is already non-fatal, and the tests exercise
+    /// the parser and comparator as pure functions.
+    /// </summary>
+    private readonly NvidiaOtaService _otaService = new();
     private readonly UpdateRunReportManager _runReports = new();
 
 public MainViewModel(
@@ -1922,6 +1940,26 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 Debug.WriteLine($"ScanAsync: could not query latest Streamline releases (offline?): {ex.Message}");
             }
 
+            // Streamline OTA (v0.71), same reasoning as DLSS: GitHub's newest was 2.12.0 while
+            // the OTA channel served 2.12.128.
+            try
+            {
+                var otaSl = await _otaService.GetComponentVersionAsync("sl_sdk_0");
+                if (otaSl != null && (slLatest == null || _versionComparer.IsNewer(otaSl, slLatest)))
+                {
+                    slLatest = otaSl;
+                    StreamlineLatestSource = "OTA";
+                }
+                else if (slLatest != null && otaSl != null)
+                {
+                    StreamlineLatestSource = "GitHub";
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ScanAsync: Streamline OTA lookup failed (non-fatal): {ex.Message}");
+            }
+
             // v0.0.42: compare against the NEWEST known Streamline, same rule as the display.
             // slScanned ?? slCached let a stale ~/Downloads extract (a SOURCE folder that
             // never updates when Update All syncs) win the comparison — so "update available"
@@ -1983,6 +2021,31 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             catch (Exception ex)
             {
                 Debug.WriteLine($"ScanAsync: could not query latest DLSS releases (offline?): {ex.Message}");
+            }
+
+            // OTA (v0.71). GitHub publishes the SDK — what you can build against — and it lags
+            // what the driver actually loads: GitHub's newest DLSS was 310.7.0 while NVIDIA's own
+            // OTA channel served 310.7.128. Comparing only against GitHub therefore reported
+            // "UP TO DATE" against a number that was not the newest NVIDIA ships. Non-fatal by
+            // construction: an unreachable or withdrawn endpoint leaves the GitHub answer intact.
+            string? otaDlss = null;
+            try
+            {
+                otaDlss = await _otaService.GetComponentVersionAsync("dlss");
+                if (otaDlss != null &&
+                    (latestAvailable == null || _versionComparer.IsNewer(otaDlss, latestAvailable)))
+                {
+                    latestAvailable = otaDlss;
+                    DlssLatestSource = "OTA";
+                }
+                else if (latestAvailable != null && otaDlss != null)
+                {
+                    DlssLatestSource = "GitHub";
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ScanAsync: OTA manifest unavailable (non-fatal): {ex.Message}");
             }
 
             // Take the newest of {upstream latest, cached, installed} as the displayed "available".

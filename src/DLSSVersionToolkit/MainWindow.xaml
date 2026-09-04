@@ -387,6 +387,21 @@
                                 <TextBlock Text="LATEST AVAILABLE" Style="{StaticResource HeroKey}"/>
                                 <TextBlock Text="{Binding AvailableDlssVersion, FallbackValue='—'}" FontFamily="Consolas"
                                            FontSize="20" FontWeight="Bold" Foreground="{StaticResource Text1Brush}" Margin="0,3,0,0"/>
+                                <!-- Which feed won (v0.71): GitHub publishes the SDK, NVIDIA's OTA channel
+                                     publishes what the driver loads, and they differ by design. Empty until a
+                                     scan resolves a source, so it never renders a stale claim. -->
+                                <TextBlock Text="{Binding DlssLatestSource}" FontSize="10"
+                                           Foreground="{StaticResource Text3Brush}" Margin="0,1,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding DlssLatestSource}" Value="">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </StackPanel>
                             <!-- Streamline SDK version (v0.0.38). Sits in the flexible column so the
                                  status pill stays pinned right. NGX folders can't carry a Streamline
