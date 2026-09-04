@@ -87,6 +87,62 @@ DLSS override enabled.
 | **Export** | Save a snapshot of your DLSS setup as CSV or JSON |
 | **Advanced (manual)** | Every step Update All runs is also available on its own for recovery: whitelist, unlock, downloads, NGX syncs, profile indexing |
 
+### How versions are reported
+
+Every version the app shows — the header, each INSTALLED VERSIONS cell, the completion dialog,
+the run report — is read from that specific file's own PE version resource. Nothing is derived
+from a folder name, a sidecar config, or the version an update *intended* to install. The
+`nvngx_package_config.txt` the driver writes is treated as activation state only; it goes stale
+the moment a DLL is swapped, which is what used to put mismatched versions in the grid.
+
+Three status codes, and they mean different things:
+
+| Cell shows | Meaning |
+|---|---|
+| `310.7.128.0` | The file is present and this is its version |
+| `Unknown` | The file **is** there but its version could not be read — corrupt, or held open by a running game |
+| `—` | No such file in this tree. Nothing is wrong; that component just isn't installed here |
+| `N/A` | Not applicable to this row (e.g. Streamline on an NGX row, which never contains `sl.common.dll`) |
+
+**LATEST AVAILABLE** compares against NVIDIA's feeds, and labels which one it used:
+
+- **GitHub** — NVIDIA's published SDK releases (`NVIDIA/DLSS`, `NVIDIA-RTX/Streamline`). This is
+  what a developer builds against.
+- **OTA** — NVIDIA's NGX production update channel, the one the driver itself pulls from. It
+  usually runs ahead of GitHub (for example DLSS 310.7.128 via OTA while GitHub's newest release
+  was 310.7.0), which is why a version here can legitimately be higher than the latest GitHub tag.
+- **OTA pre-release** — NVIDIA's staging channel, off by default. It runs ahead of production
+  again (310.9.0 / Streamline 2.14.0 while production served 310.7.128 / 2.12.128).
+
+Enable **Settings → Include pre-release (staging) channel** to see the staging builds. They are
+real, published NVIDIA builds, but the driver does not hand them to a game on its own, so they are
+labelled `OTA pre-release` wherever they appear. A staging version is only ever shown when it is
+strictly newer than every other feed — if production catches up to the same number, production
+wins and the pre-release label disappears.
+
+If the OTA endpoint is unreachable, the GitHub answer stands and nothing breaks.
+
+### Where downloads come from
+
+By default the toolkit downloads only from NVIDIA's GitHub releases. **Settings → Allow OTA
+payload downloads** additionally permits fetching component payloads from NVIDIA's NGX CDN — the
+same files the driver's own updater pulls, and the only way to install a build that GitHub has
+not published yet.
+
+This is opt-in because it fetches NVIDIA-copyrighted binaries from an endpoint NVIDIA does not
+document. Nothing downloaded this way reaches your NGX folder unverified:
+
+1. HTTPS only.
+2. The digest published alongside the file must match the bytes received. **No published digest
+   means no install** — a missing checksum is treated as a failure, not as a check to skip.
+3. The payload must actually be a PE image, which catches a CDN error page returned as HTTP 200.
+4. Its Authenticode signature must be valid and the signer must be NVIDIA.
+5. Only then is it moved into place, so a failed check can never leave a partial DLL behind.
+
+Any failure falls back to the GitHub path. Note that redistribution terms for NVIDIA's DLSS
+binaries are NVIDIA's to set — this feature retrieves what your driver would fetch anyway, but if
+you are shipping something built on it, read the SDK license first.
+
 **Supported components:** DLSS, Frame Generation (dlssg), DLSSD (Ray Reconstruction), DeepDVC, DLSSNR, Streamline SDK (incl. global Streamline-plugin override — `sl.common`, `sl.interposer`, `sl.dlss_g`, and friends — same mechanism as the DLSS override).
 
 > **DLSSNR (DLSS 5 neural rendering) — what this tool does with it:** it scans, displays, syncs,

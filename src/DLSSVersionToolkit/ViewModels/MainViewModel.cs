@@ -1944,11 +1944,12 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             // the OTA channel served 2.12.128.
             try
             {
-                var otaSl = await _otaService.GetComponentVersionAsync("sl_sdk_0");
-                if (otaSl != null && (slLatest == null || _versionComparer.IsNewer(otaSl, slLatest)))
+                var otaSl = await _otaService.GetNewestAsync(
+                    "sl_sdk_0", _settingsService.GetCached().IncludePreReleaseChannel);
+                if (otaSl != null && (slLatest == null || _versionComparer.IsNewer(otaSl.Version, slLatest)))
                 {
-                    slLatest = otaSl;
-                    StreamlineLatestSource = "OTA";
+                    slLatest = otaSl.Version;
+                    StreamlineLatestSource = otaSl.IsPreRelease ? "OTA pre-release" : "OTA";
                 }
                 else if (slLatest != null && otaSl != null)
                 {
@@ -2031,12 +2032,14 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             string? otaDlss = null;
             try
             {
-                otaDlss = await _otaService.GetComponentVersionAsync("dlss");
+                var otaDlssResult = await _otaService.GetNewestAsync(
+                    "dlss", _settingsService.GetCached().IncludePreReleaseChannel);
+                otaDlss = otaDlssResult?.Version;
                 if (otaDlss != null &&
                     (latestAvailable == null || _versionComparer.IsNewer(otaDlss, latestAvailable)))
                 {
                     latestAvailable = otaDlss;
-                    DlssLatestSource = "OTA";
+                    DlssLatestSource = otaDlssResult!.IsPreRelease ? "OTA pre-release" : "OTA";
                 }
                 else if (latestAvailable != null && otaDlss != null)
                 {

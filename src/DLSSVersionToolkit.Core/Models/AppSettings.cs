@@ -53,4 +53,25 @@ public class AppSettings
     /// </summary>
     public string OverrideLibraryPath { get; set; } = "";
 
+    /// <summary>
+    /// Show NVIDIA's staging-channel (pre-release) builds in LATEST AVAILABLE (v0.72).
+    ///
+    /// Off by default: staging runs ahead of production (310.9.0 vs 310.7.128 when this shipped),
+    /// so leaving it on for everyone would mark up-to-date machines as behind against a build the
+    /// driver will not serve them on its own. When on, a staging version is shown only if it is
+    /// strictly newer than every other feed, and it is always labelled as pre-release.
+    /// </summary>
+    public bool IncludePreReleaseChannel { get; set; } = false;
+
+    /// <summary>
+    /// Allow downloading component payloads from NVIDIA's OTA CDN (v0.72).
+    ///
+    /// Separate from <see cref="IncludePreReleaseChannel"/> on purpose: seeing that a newer build
+    /// exists and pulling binaries from an undocumented endpoint are different decisions, and a
+    /// user may reasonably want the first without the second. Off by default; the GitHub SDK
+    /// remains the default source. Every OTA payload is checked against its published SHA-256 and
+    /// its Authenticode signer before it is written into the NGX tree.
+    /// </summary>
+    public bool AllowOtaPayloadDownloads { get; set; } = false;
+
 }

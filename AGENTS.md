@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-09-04 (v0.71).
+Hand-maintained. Last updated: 2026-09-04 (v0.72).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -22,7 +22,7 @@ not referenced by the README. Nothing reads them. Treat as removable, not as a s
 
 ```text
 src/
-├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 29 services
+├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 31 services
 │   ├── Models/                         # AppSettings, DlssPreset, OverrideManifest,
 │   │                                   #   UpdateRunReport, ScanResult, ...
 │   └── Services/
@@ -46,7 +46,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 25 files, 446 tests at v0.71
+└── DLSSVersionToolkit.Tests/            # xUnit, 27 files, 446+ tests at v0.72
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -97,10 +97,35 @@ spending a CI round-trip:** port its predicate to Python, run it against
 
 Read these before touching version logic, path logic, or any report.
 
-**DLL bytes are the only version authority.** Six separate bugs came from deriving a version or
+**DLL bytes are the only version authority.** *Nine* separate bugs came from deriving a version or
 status from a stale non-DLL source (a sidecar config, a folder name, a session field, a
-source-folder scan). Use `FileVersionInfo`. Corollary: when a fix changes which source wins, audit
-every other consumer of those sources in the same pass.
+source-folder scan, the version a run intended to write). Use `FileVersionInfo` via
+`DllVersionReader`. Corollary: when a fix changes which source wins, audit every other consumer of
+those sources in the same pass.
+
+**This rule was stated here for six releases and kept being broken anyway** — instances seven,
+eight and nine (config-derived grid cells, a DLSSNR column with no DLL read at all, a completion
+dialog assembled before the writes it described) all landed *after* it was written down. A rule in
+prose is a suggestion. It is now enforced by `VersionAuthorityTests`: no version field may be
+assigned from parsed text, no service may call `FileVersionInfo.GetVersionInfo` outside
+`DllVersionReader`, the three status codes have one definition each, and applied state must come
+from `AppliedVersionVerifier` rather than from intent. Add a tenth surface and CI reddens.
+
+**A report describes an operation's effect, not its input.** Any summary string assigned before
+the last write is a prediction. v0.69's dialog printed override versions computed at Step 2b —
+before AnWave and Streamline wrote — beside the version the run *meant* to install, and the two
+disagreed on screen.
+
+**"Latest" is not one question.** GitHub publishes the SDK you build against; NVIDIA's OTA
+production channel publishes what the driver loads; NVIDIA's staging channel (`dev-models`) runs
+ahead of both. They differ by design (310.7.0 / 310.7.128 / 310.9.0 concurrently). Decide which
+authority a comparison means, label the answer in the UI, and keep anything pre-release opt-in.
+
+**Bytes from an undocumented endpoint are verified before they are trusted.** The OTA payload path
+(v0.72) refuses to install without a matching published SHA-256, PE-header sanity, and an NVIDIA
+Authenticode signer; a missing sidecar is a failure, never a skipped check. Gated by
+`VersionAuthorityTests.OtaPayloads_AreVerifiedBeforeInstall` and the rejection arms in
+`OtaChannelTests`.
 
 **A resolver serving both readers and writers will hand a writer a path it cannot write** (v0.0.53).
 `NgxPathResolver.GetCandidatePaths` is ordered `explicit → registry → defaults`, and the driver's
