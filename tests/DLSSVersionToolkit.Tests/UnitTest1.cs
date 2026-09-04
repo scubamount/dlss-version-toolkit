@@ -1255,9 +1255,13 @@ public class DlssPresetTests
 	[Fact]
 	public void RecommendedDefaults_AreCorrect()
 	{
-		// The whole point of v0.0.35: RR defaults to E and FG to B, NOT L.
+		// v0.0.35 established that RR and FG have their own defaults rather than inheriting SR's L.
+		// v0.70 moved RR from E to F: PresetVersionRules records that RR 310.7.128+ does not engage
+		// on E, and every RR build this toolkit installs is 310.7.128 or newer, so E was a default
+		// that did nothing. PresetDefaultTests additionally pins the default to the rule table's
+		// answer so the two can't drift apart again.
 		Assert.Equal(DlssPreset.L, DlssPresetDisplay.SuperResolutionDefault);
-		Assert.Equal(DlssPreset.E, DlssPresetDisplay.RayReconstructionDefault);
+		Assert.Equal(DlssPreset.F, DlssPresetDisplay.RayReconstructionDefault);
 		Assert.Equal(DlssPreset.B, DlssPresetDisplay.FrameGenerationDefault);
 	}
 
