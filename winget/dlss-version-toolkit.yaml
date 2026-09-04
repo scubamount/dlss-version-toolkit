@@ -1,5 +1,5 @@
 PackageIdentifier: DLSSVersionToolkit.DLSSVersionToolkit
-PackageVersion: 0.73
+PackageVersion: 0.74
 PackageName: DLSS Version Toolkit
 Publisher: Scubamount
 License: MIT
@@ -16,8 +16,8 @@ Tags:
 Installers:
   - InstallerType: exe
     Architecture: x64
-  InstallerUrl: https://github.com/scubamount/dlss-version-toolkit/releases/download/v0.73/DLSSVersionToolkit.exe
-  InstallerSha256: 464391e1dd3d3c1e92498556d5cee967f185d63951f1595ff6cda915f0917e9e
+  InstallerUrl: https://github.com/scubamount/dlss-version-toolkit/releases/download/v0.74/DLSSVersionToolkit.exe
+  InstallerSha256: 712442b72b4d11936a2ff69bc7991dfa26bfc178f9de911565720fdaabd2f7c8
     Dependencies:
       - PackageIdentifier: Microsoft.DotNet.Runtime.9
 ManifestType: singleton
