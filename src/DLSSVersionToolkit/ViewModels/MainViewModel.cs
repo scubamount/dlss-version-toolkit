@@ -772,16 +772,82 @@ private async Task ResetSelectionsAsync()
 }
 
 /// <summary>
-/// Stops all Update All progress indicators (v0.0.39). MUST be called immediately before any
-/// terminal MessageBox inside OneClickUpdateAllAsync: the dialogs are modal, so the finally
-/// block that clears these flags doesn't run until the user dismisses the popup — the bar
-/// kept animating behind "All done!", hiding when the work actually finished.
+/// Stops all Update All progress indicators (v0.0.39) AND refreshes dashboard state from disk
+/// (v0.69). MUST be called immediately before any terminal MessageBox inside
+/// OneClickUpdateAllAsync: the dialogs are modal, so the finally block that clears these flags
+/// doesn't run until the user dismisses the popup — the bar kept animating behind "All done!",
+/// hiding when the work actually finished.
+///
+/// The rescan belongs here for the same structural reason. Until v0.69 the only ScanAsync ran
+/// AFTER the dialog returned, so the header, presets and INSTALLED VERSIONS grid still showed
+/// pre-update values while the user read "All done!", and stayed stale until the modal was
+/// dismissed. Refreshing at the single point every terminal dialog already funnels through means
+/// a new dialog cannot forget to do it.
 /// </summary>
-private void EndUpdateAllProgress()
+private async Task EndUpdateAllProgressAsync()
 {
 	IsUpdatingAll = false;
 	ScanStatus = "Ready";
 	DownloadStatus = "";
+
+	// Re-read disk before the dialog renders. Non-fatal: a failed refresh must not turn a
+	// successful update into an error dialog.
+	try
+	{
+		await ScanAsync();
+	}
+	catch (Exception ex)
+	{
+		Debug.WriteLine($"EndUpdateAllProgressAsync: post-update rescan failed (non-fatal): {ex.Message}");
+		_runReports.Add("Rescan", "warn", $"post-update rescan failed: {ex.Message}");
+	}
+}
+
+/// <summary>
+/// The override summary for a completion dialog, read from the override directory AFTER every
+/// write in the run has finished (v0.69).
+///
+/// This replaces text built from the pre-run manifest disposition. Those lines were computed at
+/// Step 2b, before AnWave and Streamline had written anything, so a dialog could state
+/// "Override nvngx_dlss.dll v310.7.128.0 still applied" directly above
+/// "AnWave: v310.7.0.0 applied (4 files)" — two contradictory answers to "what is installed",
+/// neither read from the files the run had just written.
+/// </summary>
+private string BuildAppliedOverrideLines(string? ngxBase)
+{
+	try
+	{
+		var applied = AppliedVersionVerifier.Verify(ngxBase);
+		if (applied.Count == 0)
+			return "";
+
+		var lines = new List<string>();
+		foreach (var component in applied)
+		{
+			if (!component.IsPresent)
+				continue;   // absent components are not news; the run may not install them
+
+			lines.Add($"🔒 {component.DllName} v{component.Version} active");
+			_runReports.Add("Applied", "ok", $"{component.DllName} v{component.Version} verified on disk");
+		}
+
+		// A present-but-unreadable component is the one case worth interrupting for: the file is
+		// there and we could not confirm what it is. Usually a game holding the DLL open.
+		foreach (var component in applied.Where(c =>
+			c.Version == NgxConfigParser.VersionUnreadable))
+		{
+			lines.Add($"⚠️ {component.DllName} is present but its version could not be read " +
+					  "— close any running game and re-run Update All");
+			_runReports.Add("Applied", "warn", $"{component.DllName}: version unreadable after write");
+		}
+
+		return lines.Count > 0 ? string.Join("\n", lines) + "\n\n" : "";
+	}
+	catch (Exception ex)
+	{
+		Debug.WriteLine($"BuildAppliedOverrideLines failed (non-fatal): {ex.Message}");
+		return "";
+	}
 }
 
 /// <summary>
@@ -1529,7 +1595,14 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             // exactly the swallowed-failure shape v0.0.42 was about. But re-asserting BLINDLY is a
             // downgrade the day NVIDIA finally publishes something newer, so each override is
             // compared against the channel version first and a superseded one is left alone.
-            var overrideLine = await ReassertOverridesAsync(sdkVersion, streamlineVersion);
+            // Re-assertion still happens here (it must run before AnWave/Streamline write), but
+            // its return text is NOT what the dialog prints. The dialog reports post-write disk
+            // state via BuildAppliedOverrideLines — see v0.69. Keeping the re-assert's own
+            // findings in the run report preserves the diagnostic without letting a pre-write
+            // string describe post-write reality.
+            var reassertFindings = await ReassertOverridesAsync(sdkVersion, streamlineVersion);
+            if (!string.IsNullOrWhiteSpace(reassertFindings))
+                _runReports.Add("Override", "ok", reassertFindings.Replace("\n", " ").Trim());
 
             DownloadStatus = "Applying to AnWave...";
 
@@ -1569,7 +1642,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     var ngxFiles = ngxOp.FilesCopied.Count > 0
                         ? string.Join("\n  • ", ngxOp.FilesCopied)
                         : "  (no files needed copying)";
-                    EndUpdateAllProgress();
+                    await EndUpdateAllProgressAsync();
                     ThemedMessageBox.Show(
                         $"Partial update — NGX succeeded but AnWave failed.\n\n" +
                         $"✅ NGX Release: v{sdkVersion} applied ({ngxOp.FilesCopied.Count} files)\n" +
@@ -1599,11 +1672,11 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                         : streamlineOp.FilesCopied.Count > 0
                             ? $"✅ Streamline SDK: v{streamlineVersion} synced ({streamlineOp.FilesCopied.Count} files)\n"
                             : $"✅ Streamline SDK: v{streamlineVersion} already applied (no files needed)\n";
-                    EndUpdateAllProgress();
+                    await EndUpdateAllProgressAsync();
                     ThemedMessageBox.Show(
                         $"All done!\n\n" +
                         unlockLine +
-                        overrideLine +
+                        BuildAppliedOverrideLines(ngxBase) +
                         slLine +
                         $"✅ NGX Release: {ngxStatus}\n" +
                         $"  {ngxDetail}\n\n" +
@@ -1667,11 +1740,11 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 				if (!anWaveOp.Success)
 				{
 					_runReports.Add("AnWave", "fail", anWaveOp.ErrorMessage ?? "apply failed");
-					EndUpdateAllProgress();
+					await EndUpdateAllProgressAsync();
 					ThemedMessageBox.Show(
 						$"Partial update — NGX succeeded but AnWave apply failed after setup.\n\n" +
 						unlockLine +
-						overrideLine +
+						BuildAppliedOverrideLines(ngxBase) +
 						$"✅ NGX Release: {ngxStatus}\n" +
 						$" {ngxFiles}\n\n" +
 						$"❌ AnWave apply: {anWaveOp.ErrorMessage}\n\n" +
@@ -1687,11 +1760,11 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 							$"{anWaveOp.FailedFiles.Count} DLL(s) skipped: " + string.Join("; ", anWaveOp.FailedFiles));
 					var anWaveFiles = string.Join("\n • ", anWaveOp.FilesCopied);
 					var appliedVer = anWaveOp.AppliedVersion ?? sdkVersion;
-					EndUpdateAllProgress();
+					await EndUpdateAllProgressAsync();
 					ThemedMessageBox.Show(
 						$"All done!\n\n" +
 						unlockLine +
-						overrideLine +
+						BuildAppliedOverrideLines(ngxBase) +
 						$"✅ NGX Release: {ngxStatus}\n" +
 						$" {ngxFiles}\n\n" +
 						$"✅ AnWave setup + apply: v{appliedVer} ({anWaveOp.FilesCopied.Count} files)\n" +
@@ -1709,11 +1782,11 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 				var versionStatus = ngxOp.FilesCopied.Count > 0
 					? $"NGX Release updated to v{sdkVersion}."
 					: $"NGX Release already at v{sdkVersion}.";
-				EndUpdateAllProgress();
+				await EndUpdateAllProgressAsync();
 				ThemedMessageBox.Show(
 					$"{versionStatus}\n\n" +
 					unlockLine +
-					overrideLine +
+					BuildAppliedOverrideLines(ngxBase) +
 					$"Files copied ({ngxOp.FilesCopied.Count}):\n" +
 					$" {ngxFiles}\n\n" +
 					$"❌ AnWave auto-setup failed: {setupResult.ErrorMessage}\n\n" +
@@ -1722,7 +1795,9 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 			}
 		}
 
-            await ScanAsync();
+            // No trailing ScanAsync: EndUpdateAllProgressAsync already refreshed from disk
+            // BEFORE each terminal dialog rendered (v0.69). Rescanning again here would only
+            // repeat the work after the user dismissed the modal.
         }
         catch (Exception ex)
         {
