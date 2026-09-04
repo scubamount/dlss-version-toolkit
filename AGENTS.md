@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-09-04 (v0.69).
+Hand-maintained. Last updated: 2026-09-04 (v0.70).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -46,7 +46,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 23 files, 424 tests at v0.69
+└── DLSSVersionToolkit.Tests/            # xUnit, 24 files, 429 tests at v0.70
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -156,6 +156,14 @@ applied."
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.
 
+- **v0.70**: DLSS-RR default is Preset F. The app held two contradictory statements about one
+  question: `PresetVersionRules` said RR 310.7.128+ "needs Preset F — Preset E does not engage the
+  new model" (first-party observation), while `RayReconstructionDefault` — read by fresh installs
+  and by the Reset button — said E. Every RR build this toolkit installs is 310.7.128+, so the
+  default was a preset that silently does nothing. Gated by asserting the default *equals the rule
+  table's answer*, so the two cannot diverge again.
+  - Lesson: when a codebase states a rule as data AND as a constant, the constant is the one that
+    goes stale — the data was written to be read, the constant was written once.
 - **v0.69**: The completion dialog reports disk, and the dashboard is fresh when it closes.
   Update All built its override summary from the pre-run manifest disposition computed at Step 2b
   — before AnWave and Streamline wrote anything — so a run could print

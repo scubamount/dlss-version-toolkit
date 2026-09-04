@@ -391,7 +391,7 @@ private void LoadPresetDefaults()
 		SelectedPreset = DlssPresetDisplay.SuperResolutionDefault;  // L
 
 		AvailableRrPresets = new ObservableCollection<DlssPreset>(DlssPresetDisplay.RayReconstructionPresets);
-		SelectedRrPreset = DlssPresetDisplay.RayReconstructionDefault;  // E
+		SelectedRrPreset = DlssPresetDisplay.RayReconstructionDefault;  // F (v0.70)
 
 		AvailableFgPresets = new ObservableCollection<DlssPreset>(DlssPresetDisplay.FrameGenerationPresets);
 		SelectedFgPreset = DlssPresetDisplay.FrameGenerationDefault;  // B
