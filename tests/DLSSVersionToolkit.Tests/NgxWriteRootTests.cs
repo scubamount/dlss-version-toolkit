@@ -174,6 +174,57 @@ public class NgxWriteRootTests
     }
 
     /// <summary>
+    /// The OTA cache probe, added in v0.74 after a grep showed <c>OTACachePath</c> appeared
+    /// nowhere in <c>src/</c>.
+    ///
+    /// NVIDIA's own resolver (Streamline <c>source/core/sl.ota/ota.cpp</c>, <c>OTA::getNGXPath</c>)
+    /// reads <c>HKLM\SOFTWARE\NVIDIA Corporation\Global\NGXCore : OTACachePath</c> and returns
+    /// immediately when it is set, BEFORE falling back to <c>%ProgramData%\NVIDIA\NGX</c>. We
+    /// probed four other values in that key and not this one, so on a machine where the driver
+    /// relocated its OTA cache the scanner looked at a path the driver no longer populates and
+    /// truthfully reported nothing — a silent miss, which is the failure mode a probe list has.
+    ///
+    /// Asserting the SET rather than the lookup is the point: an omitted probe cannot throw, so
+    /// only an explicit membership check can fail when one goes missing again.
+    /// </summary>
+    [Fact]
+    public void RegistryProbes_IncludeOtaCachePath_AheadOfProgramDataFallback()
+    {
+        var probes = NgxPathResolver.RegistryProbes;
+
+        Assert.Contains(
+            (@"SOFTWARE\NVIDIA Corporation\Global\NGXCore", "OTACachePath"),
+            probes);
+
+        // Every value NVIDIA's chain touches, so a future edit cannot drop one silently.
+        foreach (var expected in new[] { "OTACachePath", "NGXPath", "FullPath" })
+        {
+            Assert.Contains(probes,
+                p => p.Key == @"SOFTWARE\NVIDIA Corporation\Global\NGXCore" && p.Value == expected);
+        }
+
+        Assert.Equal(probes.Distinct().Count(), probes.Count);
+    }
+
+    /// <summary>
+    /// The resolver must never hand a caller a duplicate or blank candidate, and must not throw on
+    /// a machine with no NVIDIA driver (every CI runner). Cheap, but this is the path that feeds
+    /// every scan.
+    /// </summary>
+    [Fact]
+    public void GetCandidatePaths_IsDeduplicated_AndNeverBlank()
+    {
+        var candidates = NgxPathResolver.GetCandidatePaths(@"C:\ProgramData\NVIDIA\NGX");
+
+        Assert.NotEmpty(candidates);
+        Assert.DoesNotContain(candidates, string.IsNullOrWhiteSpace);
+        Assert.Equal(
+            candidates.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            candidates.Count);
+        Assert.Equal(@"C:\ProgramData\NVIDIA\NGX", candidates[0]);
+    }
+
+    /// <summary>
     /// Walks up from the test binary to the repo root and returns the named subdirectory.
     /// CI runs from bin/Release/net9.0, so this needs several hops.
     /// </summary>
