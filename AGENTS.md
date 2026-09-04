@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-09-02 (v0.68).
+Hand-maintained. Last updated: 2026-09-04 (v0.69).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -22,7 +22,7 @@ not referenced by the README. Nothing reads them. Treat as removable, not as a s
 
 ```text
 src/
-├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 27 services
+├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 28 services
 │   ├── Models/                         # AppSettings, DlssPreset, OverrideManifest,
 │   │                                   #   UpdateRunReport, ScanResult, ...
 │   └── Services/
@@ -46,7 +46,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 22 files, 412 tests at v0.68
+└── DLSSVersionToolkit.Tests/            # xUnit, 23 files, 424 tests at v0.69
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -156,6 +156,19 @@ applied."
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.
 
+- **v0.69**: The completion dialog reports disk, and the dashboard is fresh when it closes.
+  Update All built its override summary from the pre-run manifest disposition computed at Step 2b
+  — before AnWave and Streamline wrote anything — so a run could print
+  `Override nvngx_dlss.dll v310.7.128.0 still applied` directly above
+  `AnWave: v310.7.0.0 applied (4 files)`: two contradictory answers to "what is installed", neither
+  read from the files just written. And the run's only `ScanAsync` sat *after* the modal returned,
+  so the header/presets/grid stayed stale behind "All done!" until the user dismissed it and hit
+  Rescan. New `AppliedVersionVerifier` reads the newest `dlss_override` version folder after all
+  writes; `BuildAppliedOverrideLines` binds every dialog to that read. The refresh moved into
+  `EndUpdateAllProgressAsync` — the single funnel every terminal dialog already called — so a new
+  dialog cannot forget it.
+  - Lesson: a report of what an operation did must be derived from the operation's *effect*, not
+    its *input*. Any summary string assigned before the last write is a prediction.
 - **v0.68**: Version truth — every grid cell reads its own DLL. `NgxConfigParser` had been
   deriving INSTALLED VERSIONS from `nvngx_package_config.txt` **text**, with a DLL read layered
   over only four of five components (DLSSNR had none). A component whose DLL was absent inherited
