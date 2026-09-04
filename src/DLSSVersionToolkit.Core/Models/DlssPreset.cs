@@ -170,7 +170,12 @@ public static class DlssPresetDisplay
     public static string GetRrDescription(DlssPreset preset) => preset switch
     {
         DlssPreset.Default => "Default (no override)",
-        DlssPreset.E => "Preset E — recommended (best quality)",
+        // E was the recommendation for pre-4.5 RR models and is kept labelled for anyone running
+        // an older DLL, but it must not read as "recommended" while F is the default (v0.70) —
+        // a dropdown that recommends the preset the app doesn't pick is the same two-answers
+        // problem the default itself had.
+        DlssPreset.E => "Preset E — older RR models (pre-310.7.128)",
+        DlssPreset.F => "Preset F — recommended (DLSS 4.5 RR and newer)",
         DlssPreset.Latest => "Latest — always use newest preset",
         _ => $"Preset {preset}"
     };

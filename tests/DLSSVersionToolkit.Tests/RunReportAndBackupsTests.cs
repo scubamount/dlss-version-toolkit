@@ -134,7 +134,8 @@ public class RunReportAndBackupsTests
     public void PresetOutcomeLabels_DocumentOnlyKnownLetters()
     {
         // Documented meanings render as prose; undocumented letters fall back to "Preset X".
-        Assert.Equal("Preset E — recommended (best quality)", DlssPresetDisplay.GetRrDescription(DlssPreset.E));
+        Assert.Equal("Preset E — older RR models (pre-310.7.128)", DlssPresetDisplay.GetRrDescription(DlssPreset.E));
+        Assert.Equal("Preset F — recommended (DLSS 4.5 RR and newer)", DlssPresetDisplay.GetRrDescription(DlssPreset.F));
         Assert.Equal("Preset B — recommended (higher quality than A)", DlssPresetDisplay.GetFgDescription(DlssPreset.B));
         Assert.Equal("Preset K", DlssPresetDisplay.GetRrDescription(DlssPreset.K));   // no invented claim
         Assert.Equal("Preset J", DlssPresetDisplay.GetFgDescription(DlssPreset.J));    // no invented claim
