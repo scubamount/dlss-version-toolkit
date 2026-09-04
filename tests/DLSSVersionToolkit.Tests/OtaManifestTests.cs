@@ -164,7 +164,9 @@ public class OtaManifestTests
             "DLSSVersionToolkit", "MainWindow.xaml"));
 
         Assert.Contains("_dlssLatestSource", vm);
-        Assert.Contains("DlssLatestSource = \"OTA\"", vm);
+        // v0.72: the OTA label now distinguishes production from staging, so the assertion is on
+        // the prefix rather than the exact literal — "OTA" and "OTA pre-release" both qualify.
+        Assert.Contains("DlssLatestSource = otaDlssResult!.IsPreRelease ? \"OTA pre-release\" : \"OTA\"", vm);
         Assert.Contains("DlssLatestSource = \"GitHub\"", vm);
         Assert.Contains("{Binding DlssLatestSource}", xaml);
     }
@@ -172,6 +174,10 @@ public class OtaManifestTests
     /// <summary>
     /// The OTA lookup must be consulted for both components the app tracks. Wiring gate: RED
     /// against v0.70, where neither call existed.
+    ///
+    /// v0.72 moved these to GetNewestAsync, which folds the staging channel in when the user has
+    /// enabled it. The invariant is unchanged — both components are still consulted — so the gate
+    /// tracks the new call rather than being deleted.
     /// </summary>
     [Fact]
     public void ScanAsync_ConsultsOta_ForDlssAndStreamline()
@@ -179,7 +185,8 @@ public class OtaManifestTests
         var vm = File.ReadAllText(Path.Combine(SiblingSweepTests.FindRepoSubdir("src"),
             "DLSSVersionToolkit", "ViewModels", "MainViewModel.cs"));
 
-        Assert.Contains("_otaService.GetComponentVersionAsync(\"dlss\")", vm);
-        Assert.Contains("_otaService.GetComponentVersionAsync(\"sl_sdk_0\")", vm);
+        Assert.Contains("_otaService.GetNewestAsync(", vm);
+        Assert.Contains("\"dlss\", _settingsService.GetCached().IncludePreReleaseChannel", vm);
+        Assert.Contains("\"sl_sdk_0\", _settingsService.GetCached().IncludePreReleaseChannel", vm);
     }
 }
