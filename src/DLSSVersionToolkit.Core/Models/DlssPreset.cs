@@ -206,7 +206,7 @@ public static class DlssPresetDisplay
     public static readonly DlssPreset[] SuperResolutionPresets =
         [DlssPreset.Default, .. LettersAtoM, DlssPreset.Latest];
 
-    /// <summary>DLSS-RR (Ray Reconstruction) presets — full A–M range. Recommended default: E.</summary>
+    /// <summary>DLSS-RR (Ray Reconstruction) presets — full A–M range. Recommended default: F.</summary>
     public static readonly DlssPreset[] RayReconstructionPresets =
         [DlssPreset.Default, .. LettersAtoM, DlssPreset.Latest];
 
@@ -217,8 +217,16 @@ public static class DlssPresetDisplay
     /// <summary>Recommended default for DLSS-SR.</summary>
     public const DlssPreset SuperResolutionDefault = DlssPreset.L;
 
-    /// <summary>Recommended default for DLSS-RR (best quality per NVIDIA's current models).</summary>
-    public const DlssPreset RayReconstructionDefault = DlssPreset.E;
+    /// <summary>
+    /// Recommended default for DLSS-RR.
+    ///
+    /// F, not E (v0.70). Every RR build this toolkit installs is 310.7.128 or newer, and on those
+    /// builds Preset E does not engage the model at all — see the PresetVersionRules row below,
+    /// which has said so since the rule table was added. The constant defaulted to E anyway, so a
+    /// fresh install and every Reset handed the user a preset that silently does nothing until
+    /// they take the version-rule prompt. The rule and the default now agree.
+    /// </summary>
+    public const DlssPreset RayReconstructionDefault = DlssPreset.F;
 
     /// <summary>Recommended default for DLSS-FG (B is higher quality than A).</summary>
     public const DlssPreset FrameGenerationDefault = DlssPreset.B;
