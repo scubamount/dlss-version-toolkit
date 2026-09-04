@@ -97,6 +97,13 @@
                            FontSize="10" TextWrapping="Wrap" Margin="24,0,0,4"
                            Foreground="{StaticResource TextSecondaryBrush}"/>
 
+                <CheckBox x:Name="OtaRedistributionAcceptedCheckBox"
+                          Content="I accept responsibility for fetching NVIDIA components"
+                          Margin="24,4,0,4"/>
+                <TextBlock Text="Required before any OTA download runs. These are NVIDIA-copyrighted files served from an endpoint NVIDIA does not publicly document; redistribution terms are unresolved. Until this is checked the toolkit only reports which versions exist and downloads nothing."
+                           FontSize="10" TextWrapping="Wrap" Margin="44,0,0,4"
+                           Foreground="{StaticResource TextSecondaryBrush}"/>
+
                 <!-- Watermark -->
                 <TextBlock Text="by Scubamount" FontSize="10"
                            Foreground="{StaticResource TextSecondaryBrush}"

@@ -1,5 +1,6 @@
 namespace DLSSVersionToolkit.Core.Services;
 
+using DLSSVersionToolkit.Core.Models;
 using System.Net.Http;
 using System.Security.Cryptography;
 
@@ -82,6 +83,22 @@ public class OtaPayloadDownloader
             PackVersion(version), fileName);
 
     /// <summary>
+    /// The single predicate governing whether any OTA payload may be fetched. Both the
+    /// preference and the acceptance must hold.
+    ///
+    /// Two flags rather than one because they answer different questions. AllowOtaPayloadDownloads
+    /// is "prefer this source", which a default may reasonably set. OtaRedistributionAccepted is
+    /// "I accept what fetching NVIDIA-copyrighted bytes from an undocumented endpoint means",
+    /// which no default may set on a user's behalf. Collapsing them would let a shipped default
+    /// stand in for consent nobody gave.
+    ///
+    /// Every download path routes through here — DownloadAsync refuses if this is false, so a
+    /// future caller cannot reach the network by forgetting the check.
+    /// </summary>
+    public static bool IsDownloadPermitted(AppSettings settings) =>
+        settings is { AllowOtaPayloadDownloads: true, OtaRedistributionAccepted: true };
+
+    /// <summary>
     /// Fetches one component payload and verifies it end to end. Returns a failed result rather
     /// than throwing — the caller treats this as "OTA had nothing usable" and uses GitHub.
     /// </summary>
@@ -90,6 +107,7 @@ public class OtaPayloadDownloader
         string version,
         string destinationPath,
         OtaChannel channel = OtaChannel.Production,
+        AppSettings? settings = null,
         CancellationToken ct = default)
     {
         var result = new OtaDownloadResult
@@ -98,6 +116,16 @@ public class OtaPayloadDownloader
             Version = version,
             Channel = channel,
         };
+
+        // Consent is enforced at the download path itself, not only at the call site. A caller
+        // that omits settings gets a refusal, so the failure mode of forgetting the gate is
+        // "no download", never "silent download".
+        if (settings is null || !IsDownloadPermitted(settings))
+        {
+            result.Error = "OTA payload downloads are not permitted: "
+                + "both the OTA download setting and the redistribution acceptance are required.";
+            return result;
+        }
 
         var url = BuildPayloadUrl(channel, component, version);
 

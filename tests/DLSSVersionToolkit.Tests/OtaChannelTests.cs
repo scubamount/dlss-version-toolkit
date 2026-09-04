@@ -1,4 +1,5 @@
 using DLSSVersionToolkit.Core.Services;
+using DLSSVersionToolkit.Core.Models;
 
 namespace DLSSVersionToolkit.Tests;
 
@@ -50,10 +51,12 @@ public class OtaChannelTests
         Assert.Equal(NvidiaOtaService.StagingChannel, NvidiaOtaService.RootFor(OtaChannel.Staging));
         Assert.NotEqual(NvidiaOtaService.ProductionChannel, NvidiaOtaService.StagingChannel);
 
-        // Both opt-ins default to off — a fresh install behaves exactly as v0.71 did.
+        // v0.73: both update-source preferences ship on. The licensing acceptance does NOT —
+        // a preference default must never stand in for consent (see IsDownloadPermitted).
         var settings = new DLSSVersionToolkit.Core.Models.AppSettings();
-        Assert.False(settings.IncludePreReleaseChannel);
-        Assert.False(settings.AllowOtaPayloadDownloads);
+        Assert.True(settings.IncludePreReleaseChannel);
+        Assert.True(settings.AllowOtaPayloadDownloads);
+        Assert.False(settings.OtaRedistributionAccepted);
     }
 
     // ---- payload URL shape -------------------------------------------------
@@ -114,6 +117,17 @@ public class OtaChannelTests
     private static string TempTarget() =>
         Path.Combine(Path.GetTempPath(), "dlssvt-ota-tests", Guid.NewGuid().ToString("N"), "nvngx_dlss.dll");
 
+    /// <summary>
+    /// Settings with both consent flags set. The verification tests below exercise digest/PE/
+    /// signature behavior, which is only reachable once consent is granted, so they must pass
+    /// this explicitly — see Download_Refuses_WithoutRedistributionAcceptance for the gate itself.
+    /// </summary>
+    private static AppSettings Permitting() => new()
+    {
+        AllowOtaPayloadDownloads = true,
+        OtaRedistributionAccepted = true,
+    };
+
     /// <summary>GREEN arm: correct digest, PE bytes, accepted signer.</summary>
     [Fact]
     public async Task Download_Succeeds_WhenDigestAndSignatureAreGood()
@@ -126,7 +140,7 @@ public class OtaChannelTests
             new StubAuthenticode(valid: true));
 
         var target = TempTarget();
-        var result = await downloader.DownloadAsync("dlss", "310.7.128", target);
+        var result = await downloader.DownloadAsync("dlss", "310.7.128", target, OtaChannel.Production, Permitting());
 
         Assert.True(result.Success, result.Error);
         Assert.True(File.Exists(target));
@@ -145,7 +159,7 @@ public class OtaChannelTests
             new StubAuthenticode(valid: true));
 
         var target = TempTarget();
-        var result = await downloader.DownloadAsync("dlss", "310.7.128", target);
+        var result = await downloader.DownloadAsync("dlss", "310.7.128", target, OtaChannel.Production, Permitting());
 
         Assert.False(result.Success);
         Assert.Contains("SHA-256 mismatch", result.Error);
@@ -163,7 +177,7 @@ public class OtaChannelTests
             new StubAuthenticode(valid: true));
 
         var target = TempTarget();
-        var result = await downloader.DownloadAsync("dlss", "310.7.128", target);
+        var result = await downloader.DownloadAsync("dlss", "310.7.128", target, OtaChannel.Production, Permitting());
 
         Assert.False(result.Success);
         Assert.Contains("No published .sha256", result.Error);
@@ -182,7 +196,7 @@ public class OtaChannelTests
             new StubAuthenticode(valid: false));
 
         var target = TempTarget();
-        var result = await downloader.DownloadAsync("dlss", "310.7.128", target);
+        var result = await downloader.DownloadAsync("dlss", "310.7.128", target, OtaChannel.Production, Permitting());
 
         Assert.False(result.Success);
         Assert.Contains("Authenticode", result.Error);
@@ -204,7 +218,7 @@ public class OtaChannelTests
             new StubAuthenticode(valid: true));
 
         var target = TempTarget();
-        var result = await downloader.DownloadAsync("dlss", "310.7.128", target);
+        var result = await downloader.DownloadAsync("dlss", "310.7.128", target, OtaChannel.Production, Permitting());
 
         Assert.False(result.Success);
         Assert.Contains("not a PE image", result.Error);
@@ -224,7 +238,7 @@ public class OtaChannelTests
             new StubAuthenticode(valid: true));
 
         var target = TempTarget();
-        await downloader.DownloadAsync("dlss", "310.7.128", target);
+        await downloader.DownloadAsync("dlss", "310.7.128", target, OtaChannel.Production, Permitting());
 
         Assert.False(File.Exists(target));
         Assert.False(File.Exists(target + ".otadownload"));
@@ -251,4 +265,75 @@ public class OtaChannelTests
 
     private static string Sha256Hex(byte[] data) =>
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(data)).ToLowerInvariant();
+
+    // ---- consent gate ------------------------------------------------------
+
+    /// <summary>
+    /// RED arm for the flag flip. With downloads preferred but redistribution NOT accepted —
+    /// exactly the state a fresh v0.73 install is in — nothing may be fetched. This is the test
+    /// that makes turning the checkbox on by default safe.
+    /// </summary>
+    [Fact]
+    public async Task Download_Refuses_WithoutRedistributionAcceptance()
+    {
+        var payload = MakePeBytes();
+        var digest = Sha256Hex(payload);
+        var reachedNetwork = false;
+
+        var downloader = new OtaPayloadDownloader(
+            StubHttp(req =>
+            {
+                reachedNetwork = true;
+                return req.RequestUri!.AbsoluteUri.EndsWith(".sha256") ? Ok(digest) : Ok(payload);
+            }),
+            new StubAuthenticode(valid: true));
+
+        var target = TempTarget();
+        var settings = new AppSettings
+        {
+            AllowOtaPayloadDownloads = true,   // shipped default
+            OtaRedistributionAccepted = false, // never defaulted
+        };
+
+        var result = await downloader.DownloadAsync(
+            "dlss", "310.7.128", target, OtaChannel.Production, settings);
+
+        Assert.False(result.Success);
+        Assert.Contains("not permitted", result.Error);
+        Assert.False(File.Exists(target));
+        Assert.False(reachedNetwork); // refused before any request went out
+    }
+
+    /// <summary>
+    /// A caller that forgets to pass settings must fail closed. The gate lives on the download
+    /// path, so omitting it cannot be a way around it.
+    /// </summary>
+    [Fact]
+    public async Task Download_Refuses_WhenSettingsAreNotSupplied()
+    {
+        var downloader = new OtaPayloadDownloader(
+            StubHttp(_ => Ok(MakePeBytes())),
+            new StubAuthenticode(valid: true));
+
+        var result = await downloader.DownloadAsync("dlss", "310.7.128", TempTarget());
+
+        Assert.False(result.Success);
+        Assert.Contains("not permitted", result.Error);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true,  false, false)]
+    [InlineData(false, true,  false)]
+    [InlineData(true,  true,  true)]
+    public void IsDownloadPermitted_RequiresBothFlags(bool allow, bool accepted, bool expected)
+    {
+        var settings = new AppSettings
+        {
+            AllowOtaPayloadDownloads = allow,
+            OtaRedistributionAccepted = accepted,
+        };
+
+        Assert.Equal(expected, OtaPayloadDownloader.IsDownloadPermitted(settings));
+    }
 }
