@@ -95,6 +95,34 @@ public static class DllVersionReader
     }
 
     /// <summary>
+    /// Locates a component DLL inside a version folder using the same resolution
+    /// <see cref="ReadComponentVersion"/> uses (direct child, then shallow recursive), and
+    /// returns its full path — or null when it genuinely is not there.
+    ///
+    /// This exists because ReadComponentVersion returns null for two different facts: "no such
+    /// file" and "found it but could not read a version". Callers that need to tell those apart
+    /// (the grid, the post-apply verifier) must not each re-derive the search, or the answer to
+    /// "is it present?" drifts from the answer to "where did you read it?" (v0.69).
+    /// </summary>
+    public static string? FindComponentFile(string folder, string dllName)
+    {
+        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+            return null;
+        try
+        {
+            var direct = Path.Combine(folder, dllName);
+            if (File.Exists(direct))
+                return direct;
+            return Directory.GetFiles(folder, dllName, SearchOption.AllDirectories).FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"DllVersionReader.FindComponentFile failed for {folder}/{dllName}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Reads the version of a specific NGX component DLL inside a version folder, searching this
     /// folder and its subfolders (NGX layouts sometimes nest the DLL one level deep). Used by the
     /// scanner to report the REAL on-disk version from the DLL bytes — the authoritative source —

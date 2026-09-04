@@ -94,7 +94,14 @@ public static class AppliedVersionVerifier
 
                 if (version == null)
                 {
-                    component.Version = NgxConfigParser.VersionAbsent;
+                    // null means BOTH "no such file" and "found it but could not read a version".
+                    // Collapsing them would report a corrupt DLL as absent — the same conflation
+                    // v0.68 removed from the grid. Ask the file system which one it is.
+                    var found = DllVersionReader.FindComponentFile(newest, dll);
+                    component.Path = found ?? "";
+                    component.Version = found != null
+                        ? NgxConfigParser.VersionUnreadable
+                        : NgxConfigParser.VersionAbsent;
                 }
                 else
                 {

@@ -58,6 +58,50 @@ public class AppliedVerificationTests
         finally { Directory.Delete(ngx.FullName, true); }
     }
 
+    /// <summary>
+    /// "Present but unreadable" and "absent" must be distinguished by the ONE finder, not by
+    /// each caller re-deriving the search. This gate caught a real defect: the first cut of
+    /// AppliedVersionVerifier treated ReadComponentVersion's null as "absent", so a corrupt DLL
+    /// reported "—" instead of "Unknown". CI failed on it — the gate working.
+    ///
+    /// Scoped to the two surfaces that answer "is this component present in a version folder":
+    /// the grid's parser and the post-apply verifier. Other AllDirectories uses in the tree ask
+    /// different questions (locating a DLL inside an extracted zip, resolving a sync source) and
+    /// a gate that failed on those would be a gate that gets deleted rather than obeyed.
+    /// </summary>
+    [Fact]
+    public void ComponentPresenceCheck_UsesTheOneFinder()
+    {
+        var services = Path.Combine(SiblingSweepTests.FindRepoSubdir("src"),
+            "DLSSVersionToolkit.Core", "Services");
+
+        foreach (var name in new[] { "NgxConfigParser.cs", "AppliedVersionVerifier.cs" })
+        {
+            var text = File.ReadAllText(Path.Combine(services, name));
+
+            Assert.True(text.Contains("DllVersionReader.FindComponentFile("),
+                $"{name} must resolve component presence through the canonical finder");
+
+            // Only COMPONENT searches are forbidden. NgxConfigParser legitimately searches for
+            // nvngx_package_config.txt, which is a different question with a different answer.
+            var lines = File.ReadAllLines(Path.Combine(services, name));
+            var offenders = new List<int>();
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (!lines[i].Contains("SearchOption.AllDirectories")) continue;
+                var window = string.Join("\n", lines.Skip(Math.Max(0, i - 2)).Take(3));
+                if (window.Contains("nvngx_") && !window.Contains("package_config"))
+                    offenders.Add(i + 1);
+                if (window.Contains("dllName"))
+                    offenders.Add(i + 1);
+            }
+
+            Assert.True(offenders.Count == 0,
+                $"{name} re-derives the component search at line(s) " +
+                $"{string.Join(", ", offenders)} instead of calling FindComponentFile");
+        }
+    }
+
     [Fact]
     public void Verify_MissingTree_ReturnsEmpty_WithoutThrowing()
     {

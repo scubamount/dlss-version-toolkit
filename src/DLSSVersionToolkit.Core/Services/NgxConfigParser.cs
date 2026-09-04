@@ -172,7 +172,7 @@ public class NgxConfigParser : INgxConfigParser
                 {
                     // ReadComponentVersion returns null both for "file absent" and "read failed".
                     // Separate them here so the two facts stay distinguishable in the UI.
-                    assign(result, ComponentFileExists(folderPath, dllName)
+                    assign(result, DllVersionReader.FindComponentFile(folderPath, dllName) != null
                         ? VersionUnreadable
                         : VersionAbsent);
                     continue;
@@ -189,19 +189,6 @@ public class NgxConfigParser : INgxConfigParser
         }
     }
 
-    private static bool ComponentFileExists(string folderPath, string dllName)
-    {
-        try
-        {
-            if (File.Exists(Path.Combine(folderPath, dllName)))
-                return true;
-            return Directory.GetFiles(folderPath, dllName, SearchOption.AllDirectories).Length > 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
 
     private static string? FindConfigFile(string folderPath)
     {
