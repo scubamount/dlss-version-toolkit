@@ -30,6 +30,8 @@ public partial class SettingsDialog : Window
         MinimizeToTrayCheckBox.IsChecked = _settings.MinimizeToTray;
         NotifyOnNewVersionCheckBox.IsChecked = _settings.NotifyOnNewVersion;
         CheckForAppUpdatesCheckBox.IsChecked = _settings.CheckForAppUpdates;
+        IncludePreReleaseCheckBox.IsChecked = _settings.IncludePreReleaseChannel;
+        AllowOtaDownloadsCheckBox.IsChecked = _settings.AllowOtaPayloadDownloads;
     }
 
     private void BrowseNgxPath_Click(object sender, RoutedEventArgs e)
@@ -85,6 +87,9 @@ public partial class SettingsDialog : Window
         _settings.MinimizeToTray = MinimizeToTrayCheckBox.IsChecked ?? false;
         _settings.NotifyOnNewVersion = NotifyOnNewVersionCheckBox.IsChecked ?? true;
         _settings.CheckForAppUpdates = CheckForAppUpdatesCheckBox.IsChecked ?? true;
+        // Both default false: an unchecked box must never widen where bytes come from.
+        _settings.IncludePreReleaseChannel = IncludePreReleaseCheckBox.IsChecked ?? false;
+        _settings.AllowOtaPayloadDownloads = AllowOtaDownloadsCheckBox.IsChecked ?? false;
 
         await _settingsService.SaveAsync(_settings);
         DialogResult = true;

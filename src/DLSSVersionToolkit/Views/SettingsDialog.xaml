@@ -78,6 +78,25 @@
                 <CheckBox x:Name="NotifyOnNewVersionCheckBox" Content="Show notifications for new DLSS versions" Margin="0,4"/>
                 <CheckBox x:Name="CheckForAppUpdatesCheckBox" Content="Check for app updates on launch" Margin="0,4"/>
 
+                <!-- Advanced update sources (v0.72). Both default off: they widen where version
+                     information and binaries come from, so they are the user's call. -->
+                <TextBlock Text="Update sources" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,16,0,8"/>
+
+                <CheckBox x:Name="IncludePreReleaseCheckBox"
+                          Content="Include pre-release (staging) channel"
+                          Margin="0,4"/>
+                <TextBlock Text="Shows NVIDIA's staging builds, which run ahead of the ones the driver installs on its own. Labelled &quot;OTA pre-release&quot; and only shown when newer."
+                           FontSize="10" TextWrapping="Wrap" Margin="24,0,0,4"
+                           Foreground="{StaticResource TextSecondaryBrush}"/>
+
+                <CheckBox x:Name="AllowOtaDownloadsCheckBox"
+                          Content="Allow downloads from NVIDIA's OTA channel"
+                          Margin="0,4"/>
+                <TextBlock Text="Fetches component files from NVIDIA's update CDN instead of GitHub only. Every file is checked against its published SHA-256 and NVIDIA's Authenticode signature before it is installed."
+                           FontSize="10" TextWrapping="Wrap" Margin="24,0,0,4"
+                           Foreground="{StaticResource TextSecondaryBrush}"/>
+
                 <!-- Watermark -->
                 <TextBlock Text="by Scubamount" FontSize="10"
                            Foreground="{StaticResource TextSecondaryBrush}"
