@@ -149,6 +149,31 @@ public static class NgxPathResolver
     }
 
     /// <summary>
+    /// The (key, value-name) registry probes for "where does NGX live?", in priority order.
+    ///
+    /// Exposed rather than inlined so a test can assert the SET, not just that the lookup runs.
+    /// The list drifted once by omission and the symptom was silence: a missing probe cannot fail
+    /// loudly, it just makes the scanner look at the wrong directory and report nothing found.
+    ///
+    /// <c>OTACachePath</c> is first because NVIDIA's own resolver checks it first. From
+    /// Streamline's <c>source/core/sl.ota/ota.cpp</c> (<c>OTA::getNGXPath</c>), the driver-side
+    /// order is: in-process override → <c>OTACachePath</c> → <c>%ProgramData%\NVIDIA\NGX\</c>
+    /// (or <c>...\NGX\Staging\</c> when <c>CDNServerType == 1</c>). We had every value in that
+    /// chain EXCEPT the one NVIDIA consults before falling back, so on a machine where the driver
+    /// relocated its OTA cache we scanned a path the driver had stopped using.
+    ///
+    /// Order within this list only affects candidate priority; every entry is probed.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Key, string Value)> RegistryProbes = new[]
+    {
+        (@"SOFTWARE\NVIDIA Corporation\Global\NGXCore", "OTACachePath"),
+        (@"SOFTWARE\NVIDIA Corporation\Global\NGXCore", "NGXPath"),
+        (@"SOFTWARE\NVIDIA Corporation\Global\NGXCore", "FullPath"),
+        (@"SOFTWARE\NVIDIA Corporation\Global\NGX", "NGXResourcesPath"),
+        (@"SOFTWARE\NVIDIA Corporation\Global\NGX", "InstallPath"),
+    };
+
+    /// <summary>
     /// Reads NGX path hints from the NVIDIA driver's registry keys. Returns an empty list on
     /// non-Windows, missing keys, or access failure — never throws.
     /// </summary>
@@ -158,15 +183,7 @@ public static class NgxPathResolver
         if (!OperatingSystem.IsWindows())
             return results;
 
-        // (key, value-name) pairs seen across driver generations. NGXCore\NGXPath is what
-        // current drivers write; the Global\NGX values are older but harmless to probe.
-        var probes = new (string Key, string Value)[]
-        {
-            (@"SOFTWARE\NVIDIA Corporation\Global\NGXCore", "NGXPath"),
-            (@"SOFTWARE\NVIDIA Corporation\Global\NGXCore", "FullPath"),
-            (@"SOFTWARE\NVIDIA Corporation\Global\NGX", "NGXResourcesPath"),
-            (@"SOFTWARE\NVIDIA Corporation\Global\NGX", "InstallPath"),
-        };
+        var probes = RegistryProbes;
 
         try
         {
