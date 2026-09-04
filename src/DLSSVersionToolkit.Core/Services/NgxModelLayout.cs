@@ -222,4 +222,48 @@ public static class NgxModelLayout
     /// </summary>
     public static IEnumerable<string> GetBinFileNames(string archPrefix = DefaultArchPrefix) =>
         GenericAppIds.Select(appId => $"{archPrefix}_{appId}.bin");
+
+    // ------------------------------------------------------------------
+    // Streamline plugin override (v0.67, reverse-engineered from nvidiaDlssGlom).
+    //
+    // Ground truth (three independent runtime observations of the WRITTEN tree —
+    // SimonMacer/AnWave issue #66 full log 2025-08, a Crimson Desert modding walkthrough
+    // 2026-04, a MSFS crash report 2025-05, all the identical shape — plus the literal
+    // config templates and the dir->DLL table extracted from nvidiaDlssGlom.exe
+    // v2.8.24.13's .NET string heap 2026-09):
+    //
+    //   FILES:     models\sl_<plugin>_0\versions\<packed>\files\{arch}_E658703.dll
+    //              (NOT .bin — streamline payloads keep the .dll extension, and only the
+    //              E658703 generic-app file was ever observed, unlike the nvngx components'
+    //              E658700+E658703 twins; exactly-what-was-observed policy applies.)
+    //   ACTIVATE:  nvngx_config.txt gains, per plugin actually present:
+    //                  [sl_<plugin>_0]
+    //                  app_E658703 = <dotted version>
+    //
+    // The plugin set below is what Streamline SDK v2.12.0 bin/x64 actually ships (verified
+    // against the downloaded release asset 2026-09-02). glom's table also knows sl_dlss_nr_0
+    // and sl_sdk_0; neither has an SDK-supplied DLL yet, so neither is mapped — when NVIDIA
+    // ships sl.dlss_nr.dll the map gains one line and the write/activate paths pick it up.
+    // ------------------------------------------------------------------
+
+    /// <summary>SDK-shipped Streamline plugin DLL -> its model directory name.</summary>
+    public static readonly IReadOnlyDictionary<string, string> StreamlinePluginDirByDll =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["sl.common.dll"]     = "sl_common_0",
+            ["sl.deepdvc.dll"]    = "sl_deepdvc_0",
+            ["sl.directsr.dll"]   = "sl_directsr_0",
+            ["sl.dlss.dll"]       = "sl_dlss_0",
+            ["sl.dlss_d.dll"]     = "sl_dlss_d_0",
+            ["sl.dlss_g.dll"]     = "sl_dlss_g_0",
+            ["sl.interposer.dll"] = "sl_interposer_0",
+            ["sl.nis.dll"]        = "sl_nis_0",
+            ["sl.nvperf.dll"]     = "sl_nvperf_0",
+            ["sl.pcl.dll"]        = "sl_pcl_0",
+            ["sl.reflex.dll"]     = "sl_reflex_0",
+        };
+
+    /// <summary>The single observed payload filename form for streamline plugins.</summary>
+    public static IEnumerable<string> GetStreamlinePayloadFileNames(string archPrefix = DefaultArchPrefix) =>
+        new[] { $"{archPrefix}_E658703.dll" }; // E658703 only — the observed form (GenericAppIds[0])
 }
