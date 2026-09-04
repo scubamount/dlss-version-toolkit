@@ -15,19 +15,24 @@ public class ScanService : IScanService
     private readonly IStreamlineScanner _streamlineScanner;
     private readonly IVersionComparer _versionComparer;
     private readonly ISettingsService _settingsService;
+    private readonly OtaCacheScanner _otaCacheScanner;
 
     public ScanService(
         INgxScanner ngxScanner,
         IGlobalScanner globalScanner,
         IStreamlineScanner streamlineScanner,
         IVersionComparer versionComparer,
-        ISettingsService settingsService)
+        ISettingsService settingsService,
+        OtaCacheScanner? otaCacheScanner = null)
     {
         _ngxScanner = ngxScanner;
         _globalScanner = globalScanner;
         _streamlineScanner = streamlineScanner;
         _versionComparer = versionComparer;
         _settingsService = settingsService;
+        // Optional so the existing test constructions keep compiling; it is stateless and
+        // read-only, so a default instance is always correct rather than merely convenient.
+        _otaCacheScanner = otaCacheScanner ?? new OtaCacheScanner();
     }
 
     public async Task<ScanResult> ScanAllAsync(string? ngxBasePath = null, string? anWavePath = null, string? streamlinePath = null)
@@ -67,6 +72,25 @@ public class ScanService : IScanService
                     result.Sources.Add(entry);
             }
         }
+        // Harvest what NVIDIA's OWN updater already downloaded (v0.75). Same candidate roots, a
+        // sibling subtree: models\<component>\versions\<packed>\files\*.bin, which the loop above
+        // is structurally blind to because NgxScanner only walks models\dlss_override\versions.
+        //
+        // Deliberately NOT deduplicated by Source the way the loop above is. That dedup means
+        // "one row per source name", which is right when a source contributes a single row —
+        // but the OTA cache holds MANY versions under one source tag, and per-source dedup would
+        // silently keep the first and discard the rest. Dedup here is by (Source, BuildID).
+        foreach (var path in ngxCandidates)
+        {
+            var harvested = _otaCacheScanner.ToEntries(_otaCacheScanner.Harvest(path, scanErrors));
+            foreach (var entry in harvested)
+            {
+                if (!result.Sources.Any(s =>
+                        s.Source == entry.Source && s.BuildID == entry.BuildID))
+                    result.Sources.Add(entry);
+            }
+        }
+
         foreach (var e in scanErrors)
         {
             if (!result.Errors.Contains(e))
