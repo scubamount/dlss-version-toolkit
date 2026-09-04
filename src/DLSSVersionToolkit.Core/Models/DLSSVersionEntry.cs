@@ -43,6 +43,8 @@ public class DLSSVersionEntry
     {
         "NGX_Release" => "NGX Release",
         "NGX_Staging" => "NGX Staging",
+        "NGX_OTA" => "NVIDIA OTA cache",
+        "NGX_OTA_Staging" => "NVIDIA OTA cache (pre-release)",
         "AnWave" => "AnWave",
         "StreamlineSDK" => "Streamline SDK",
         _ => Source
