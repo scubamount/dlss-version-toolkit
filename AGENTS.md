@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-09-02 (v0.67).
+Hand-maintained. Last updated: 2026-09-02 (v0.68).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -46,7 +46,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 21 files, 398 tests at v0.67
+└── DLSSVersionToolkit.Tests/            # xUnit, 22 files, 412 tests at v0.68
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -156,6 +156,21 @@ applied."
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.
 
+- **v0.68**: Version truth — every grid cell reads its own DLL. `NgxConfigParser` had been
+  deriving INSTALLED VERSIONS from `nvngx_package_config.txt` **text**, with a DLL read layered
+  over only four of five components (DLSSNR had none). A component whose DLL was absent inherited
+  whatever the config still claimed, which is why the grid showed phantom `310.6.0.0` cells and
+  rows whose components disagreed. The config is now parsed for **activation state only**
+  (`ConfigNamesComponents`); all five components read their own file through
+  `DllVersionReader.ReadComponentVersion`. Status codes split into three distinct facts:
+  a version (present + readable), `Unknown` (present + unreadable), `—` (absent) — previously the
+  last two were one string. `DllVersionReader.IsReportedVersion` is the one predicate for "is this
+  a real version rather than a status code"; consumers testing `!= "Unknown"` by literal would
+  have treated `N/A` and `—` as versions. Grid column order now Source | Build ID | DLSS |
+  Frame Gen | DLSSD | DLSS NR | DeepDVC | Streamline | Override.
+  - Two existing tests asserted the defect (`StaleConfigKept_WhenNoDllPresent`,
+    `Parse_ValidConfig_ReturnsVersions`) and were inverted. A test named for the buggy behavior is
+    how a bug survives six audits: it reads as coverage.
 - **v0.67**: Streamline plugin override — the glom mechanism, reverse-engineered and integrated.
   `models\sl_<plugin>_0\versions\<packed>\files\160_E658703.dll` payloads plus per-plugin
   `[sl_<plugin>_0]` / `app_E658703 = <version>` sections in nvngx_config.txt. Ground truth was

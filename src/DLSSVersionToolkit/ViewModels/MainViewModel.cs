@@ -1809,7 +1809,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
             // Update version info after scan
             var ngxRelease = result.Sources.FirstOrDefault(s => s.Source == "NGX_Release");
-            if (ngxRelease != null && ngxRelease.DLSS != "Unknown")
+            if (ngxRelease != null && DllVersionReader.IsReportedVersion(ngxRelease.DLSS))
             {
                 CurrentDlssVersion = ngxRelease.DLSS;
             }
@@ -1822,7 +1822,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             // manually-extracted SDK folder in ~/Downloads used to shadow a newer cached
             // download because the scanned entry took priority unconditionally.
             var slEntry = result.Sources.FirstOrDefault(s => s.Source == "StreamlineSDK");
-            var slScanned = slEntry != null && slEntry.Streamline != "Unknown" ? slEntry.Streamline : null;
+            var slScanned = slEntry != null && DllVersionReader.IsReportedVersion(slEntry.Streamline) ? slEntry.Streamline : null;
             var slCached = _streamlineDownloadService.GetCachedSdkVersion();
             var slInstalled = slScanned != null && (slCached == null || !_versionComparer.IsNewer(slCached, slScanned))
                 ? slScanned
@@ -1890,7 +1890,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             //      has the newest DLLs and nothing newer exists upstream, the hero strip shows
             //      that version (not a blank "—") and correctly reads "UP TO DATE".
             // Comparison is numeric (VersionComparer), never lexical, so 310.6 < 310.10.
-            var installedVer = (ngxRelease != null && ngxRelease.DLSS != "Unknown") ? ngxRelease.DLSS : null;
+            var installedVer = (ngxRelease != null && DllVersionReader.IsReportedVersion(ngxRelease.DLSS)) ? ngxRelease.DLSS : null;
             var cachedVersion = _dlssDownloadService.GetCachedSdkVersion();
 
             string? latestAvailable = null;

@@ -100,24 +100,28 @@ public class NgxConfigParserTests
     }
 
     [Fact]
-    public void Parse_ValidConfig_ReturnsVersions()
+    public void Parse_ValidConfig_ReportsActivationState_NotVersions()
     {
+        // INVERTED IN v0.68. A config alone never yields versions — the DLLs it names do not
+        // exist in this temp folder, so every component is ABSENT. What the config still tells
+        // us is that components are activated, which is a separate, non-version fact.
         var tempDir = Path.Combine(Path.GetTempPath(), $"dlss-test-{Guid.NewGuid()}");
         Directory.CreateDirectory(tempDir);
         File.WriteAllText(Path.Combine(tempDir, "nvngx_package_config.txt"), "dlss, 310.6.0.0\ndlssg, 310.6.0.0\ndlssd, 310.6.0.0\ndeepdvc, 310.6.0.0");
 
         var result = _parser.Parse(tempDir);
 
-        Assert.Equal("310.6.0.0", result.DLSS);
-        Assert.Equal("310.6.0.0", result.FrameGen);
-        Assert.Equal("310.6.0.0", result.DLSSD);
-        Assert.Equal("310.6.0.0", result.DeepDVC);
+        Assert.Equal(Core.Services.NgxConfigParser.VersionAbsent, result.DLSS);
+        Assert.Equal(Core.Services.NgxConfigParser.VersionAbsent, result.FrameGen);
+        Assert.Equal(Core.Services.NgxConfigParser.VersionAbsent, result.DLSSD);
+        Assert.Equal(Core.Services.NgxConfigParser.VersionAbsent, result.DeepDVC);
+        Assert.True(result.ConfigNamesComponents);
 
         Directory.Delete(tempDir, true);
     }
 
     [Fact]
-    public void Parse_MissingComponent_ReturnsUnknown()
+    public void Parse_MissingComponent_ReturnsAbsent()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"dlss-test-{Guid.NewGuid()}");
         Directory.CreateDirectory(tempDir);
@@ -125,10 +129,11 @@ public class NgxConfigParserTests
 
         var result = _parser.Parse(tempDir);
 
-        Assert.Equal("310.6.0.0", result.DLSS);
-        Assert.Equal("Unknown", result.FrameGen);
-        Assert.Equal("Unknown", result.DLSSD);
-        Assert.Equal("Unknown", result.DeepDVC);
+        // No DLLs on disk, so nothing has a version — including the component the config names.
+        Assert.Equal(Core.Services.NgxConfigParser.VersionAbsent, result.DLSS);
+        Assert.Equal(Core.Services.NgxConfigParser.VersionAbsent, result.FrameGen);
+        Assert.Equal(Core.Services.NgxConfigParser.VersionAbsent, result.DLSSD);
+        Assert.Equal(Core.Services.NgxConfigParser.VersionAbsent, result.DeepDVC);
 
         Directory.Delete(tempDir, true);
     }

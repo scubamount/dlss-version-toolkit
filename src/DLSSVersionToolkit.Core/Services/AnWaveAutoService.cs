@@ -560,7 +560,7 @@ progress?.Report(30);
 
         // Final fallback: the scanned NGX entry's parsed version (from NgxScanner). Still never a
         // hardcoded literal.
-        if (string.IsNullOrEmpty(result.AppliedVersion) && latestRelease.DLSS != "Unknown")
+        if (string.IsNullOrEmpty(result.AppliedVersion) && DllVersionReader.IsReportedVersion(latestRelease.DLSS))
             result.AppliedVersion = latestRelease.DLSS;
 
         progress?.Report(70);

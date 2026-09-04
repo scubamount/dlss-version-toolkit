@@ -10,19 +10,48 @@ public interface INgxConfigParser
 
 public class NgxConfigResult
 {
-    public string DLSS { get; set; } = "Unknown";
-    public string FrameGen { get; set; } = "Unknown";
-    public string DLSSD { get; set; } = "Unknown";
-    public string DeepDVC { get; set; } = "Unknown";
-    public string DLSSNR { get; set; } = "Unknown";
+    // Default to "absent", not "Unknown": a folder that was never scanned has no component
+    // present, and "Unknown" is reserved for a file that IS there but unreadable (v0.68).
+    public string DLSS { get; set; } = NgxConfigParser.VersionAbsent;
+    public string FrameGen { get; set; } = NgxConfigParser.VersionAbsent;
+    public string DLSSD { get; set; } = NgxConfigParser.VersionAbsent;
+    public string DeepDVC { get; set; } = NgxConfigParser.VersionAbsent;
+    public string DLSSNR { get; set; } = NgxConfigParser.VersionAbsent;
     public string? Message { get; set; }
     public bool IsReparsePoint { get; set; }
     public bool IsCorrupt { get; set; }
+
+    /// <summary>
+    /// True when nvngx_package_config.txt names at least one component. This is ACTIVATION
+    /// state — diagnostics only. It must never be used to derive a version (v0.68).
+    /// </summary>
+    public bool ConfigNamesComponents { get; set; }
 }
 
 public class NgxConfigParser : INgxConfigParser
 {
     private const string ConfigFileName = "nvngx_package_config.txt";
+
+    /// <summary>File is present but its version resource could not be read.</summary>
+    public const string VersionUnreadable = "Unknown";
+
+    /// <summary>No such component file in this tree — nothing to report.</summary>
+    public const string VersionAbsent = "—";
+
+    /// <summary>
+    /// The five NGX components, each paired with the field it fills. One entry per component
+    /// keeps "which DLL feeds which column" a single table instead of five copy-pasted blocks
+    /// where DLSSNR was silently missing (its column rendered a config value or stale text
+    /// through v0.67).
+    /// </summary>
+    private static readonly (string DllName, Action<NgxConfigResult, string> Assign)[] ComponentAssignments =
+    {
+        ("nvngx_dlss.dll",    (r, v) => r.DLSS = v),
+        ("nvngx_dlssg.dll",   (r, v) => r.FrameGen = v),
+        ("nvngx_dlssd.dll",   (r, v) => r.DLSSD = v),
+        ("nvngx_dlssnr.dll",  (r, v) => r.DLSSNR = v),
+        ("nvngx_deepdvc.dll", (r, v) => r.DeepDVC = v),
+    };
 
     public NgxConfigResult Parse(string folderPath)
     {
@@ -46,10 +75,12 @@ public class NgxConfigParser : INgxConfigParser
         string? configPath = FindConfigFile(folderPath);
         if (configPath == null)
         {
-            // No sidecar config (current SDK zips ship none). Fall back to the authoritative
-            // DLL FileVersionInfo so a folder containing only DLLs still reports a real version.
-            OverrideVersionsFromDlls(folderPath, result);
-            result.Message = result.DLSS != "Unknown" ? "Version from DLL (no config)" : "Config file not found";
+            // No sidecar config (current SDK zips ship none). The DLL bytes are the version
+            // source either way — the config's absence changes nothing about what we report.
+            ReadVersionsFromDlls(folderPath, result);
+            result.Message = result.DLSS != VersionAbsent && result.DLSS != VersionUnreadable
+                ? "Version from DLL (no config)"
+                : "Config file not found";
             return result;
         }
 
@@ -86,12 +117,17 @@ public class NgxConfigParser : INgxConfigParser
                 result.Message = "Config file large, parsing may be slow";
             }
 
-            // Parse each component from the config (legacy/sidecar source).
-            result.DLSS = ParseComponent(content, "dlss");
-            result.FrameGen = ParseComponent(content, "dlssg");
-            result.DLSSD = ParseComponent(content, "dlssd");
-            result.DeepDVC = ParseComponent(content, "deepdvc");
-            result.DLSSNR = ParseComponent(content, "dlssnr");
+            // The config is ACTIVATION STATE, not version evidence (v0.68). It is parsed for
+            // presence/diagnostics only; every version reported to the UI comes from the DLL
+            // bytes in ReadVersionsFromDlls below. Reading versions here is what put stale
+            // sidecar strings in the INSTALLED VERSIONS grid: the driver rewrites this file on
+            // its own schedule, so after a sync it still described the previous build.
+            result.ConfigNamesComponents =
+                ParseComponent(content, "dlss") != VersionUnreadable ||
+                ParseComponent(content, "dlssg") != VersionUnreadable ||
+                ParseComponent(content, "dlssd") != VersionUnreadable ||
+                ParseComponent(content, "deepdvc") != VersionUnreadable ||
+                ParseComponent(content, "dlssnr") != VersionUnreadable;
             result.Message = "Success";
         }
         catch (UnauthorizedAccessException)
@@ -103,37 +139,67 @@ public class NgxConfigParser : INgxConfigParser
             result.Message = $"Read error: {ex.Message}";
         }
 
-        // AUTHORITATIVE OVERRIDE: the actual DLL bytes are the source of truth for the installed
-        // version. The nvngx_package_config.txt goes stale when newer DLLs are copied into an
-        // existing version folder (the SDK zips ship no config to overwrite it with), which made
-        // the scanner keep reporting the OLD version after a successful sync — and "update
-        // available" never cleared. Read each component's version from its DLL's FileVersionInfo
-        // when present; fall back to the parsed config value otherwise.
-        OverrideVersionsFromDlls(folderPath, result);
+        // DLL bytes are the only version authority (v0.68). Every component reads its OWN file;
+        // no column may inherit another column's value or a folder-derived string.
+        ReadVersionsFromDlls(folderPath, result);
 
         return result;
     }
 
-    // Replaces parsed component versions with the real DLL FileVersionInfo when the DLL exists.
-    private static void OverrideVersionsFromDlls(string folderPath, NgxConfigResult result)
+    /// <summary>
+    /// Reads each NGX component's version from its own DLL's FileVersionInfo. This is the sole
+    /// version source for the INSTALLED VERSIONS grid.
+    ///
+    /// Status codes are distinct facts and must not collapse into one another (v0.68):
+    ///   * a precise version  — the file is present and its PE version resource parsed;
+    ///   * <see cref="VersionUnreadable"/> ("Unknown") — the file IS present but its version could
+    ///     not be read (corrupt/stripped resource). Something is there and it is wrong.
+    ///   * <see cref="VersionAbsent"/> ("—") — no such file in this tree. Nothing is wrong; there
+    ///     is simply nothing to report.
+    /// Before v0.68 a missing file and an unreadable one both read "Unknown", and a stale config
+    /// value could occupy a cell whose DLL did not exist at all — which is why the grid showed
+    /// 310.6.0.0 for components that were not installed.
+    /// </summary>
+    private static void ReadVersionsFromDlls(string folderPath, NgxConfigResult result)
+    {
+        foreach (var (dllName, assign) in ComponentAssignments)
+        {
+            try
+            {
+                var version = DllVersionReader.ReadComponentVersion(folderPath, dllName);
+
+                if (version == null)
+                {
+                    // ReadComponentVersion returns null both for "file absent" and "read failed".
+                    // Separate them here so the two facts stay distinguishable in the UI.
+                    assign(result, ComponentFileExists(folderPath, dllName)
+                        ? VersionUnreadable
+                        : VersionAbsent);
+                    continue;
+                }
+
+                assign(result, DllVersionReader.IsValidVersion(version) ? version : VersionUnreadable);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"NgxConfigParser.ReadVersionsFromDlls failed for {folderPath}/{dllName}: {ex.Message}");
+                assign(result, VersionUnreadable);
+            }
+        }
+    }
+
+    private static bool ComponentFileExists(string folderPath, string dllName)
     {
         try
         {
-            var dlss = DllVersionReader.ReadComponentVersion(folderPath, "nvngx_dlss.dll");
-            if (!string.IsNullOrEmpty(dlss)) result.DLSS = dlss;
-
-            var dlssg = DllVersionReader.ReadComponentVersion(folderPath, "nvngx_dlssg.dll");
-            if (!string.IsNullOrEmpty(dlssg)) result.FrameGen = dlssg;
-
-            var dlssd = DllVersionReader.ReadComponentVersion(folderPath, "nvngx_dlssd.dll");
-            if (!string.IsNullOrEmpty(dlssd)) result.DLSSD = dlssd;
-
-            var deepdvc = DllVersionReader.ReadComponentVersion(folderPath, "nvngx_deepdvc.dll");
-            if (!string.IsNullOrEmpty(deepdvc)) result.DeepDVC = deepdvc;
+            if (File.Exists(Path.Combine(folderPath, dllName)))
+                return true;
+            return Directory.GetFiles(folderPath, dllName, SearchOption.AllDirectories).Length > 0;
         }
-        catch (Exception ex)
+        catch
         {
-            System.Diagnostics.Debug.WriteLine($"NgxConfigParser.OverrideVersionsFromDlls failed for {folderPath}: {ex.Message}");
+            return false;
         }
     }
 
