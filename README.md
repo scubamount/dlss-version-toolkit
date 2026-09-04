@@ -111,26 +111,33 @@ Three status codes, and they mean different things:
 - **OTA** — NVIDIA's NGX production update channel, the one the driver itself pulls from. It
   usually runs ahead of GitHub (for example DLSS 310.7.128 via OTA while GitHub's newest release
   was 310.7.0), which is why a version here can legitimately be higher than the latest GitHub tag.
-- **OTA pre-release** — NVIDIA's staging channel, off by default. It runs ahead of production
-  again (310.9.0 / Streamline 2.14.0 while production served 310.7.128 / 2.12.128).
+- **OTA pre-release** — NVIDIA's staging channel, consulted by default since v0.73. It runs ahead
+  of production again (310.9.0 / Streamline 2.14.0 while production served 310.7.128 / 2.12.128).
 
-Enable **Settings → Include pre-release (staging) channel** to see the staging builds. They are
-real, published NVIDIA builds, but the driver does not hand them to a game on its own, so they are
-labelled `OTA pre-release` wherever they appear. A staging version is only ever shown when it is
-strictly newer than every other feed — if production catches up to the same number, production
-wins and the pre-release label disappears.
+All three feeds are consulted out of the box, because the question this tool answers is "what
+versions exist?" and an answer that silently omits one is wrong. Staging builds are real, published
+NVIDIA builds, but the driver does not hand them to a game on its own, so they are labelled
+`OTA pre-release` wherever they appear. A staging version is only ever shown when it is strictly
+newer than every other feed — if production catches up to the same number, production wins and the
+pre-release label disappears. Turn it off with **Settings → Include pre-release (staging)
+channel**.
 
 If the OTA endpoint is unreachable, the GitHub answer stands and nothing breaks.
 
 ### Where downloads come from
 
-By default the toolkit downloads only from NVIDIA's GitHub releases. **Settings → Allow OTA
-payload downloads** additionally permits fetching component payloads from NVIDIA's NGX CDN — the
-same files the driver's own updater pulls, and the only way to install a build that GitHub has
-not published yet.
+**Settings → Allow OTA payload downloads** is on by default and permits fetching component
+payloads from NVIDIA's NGX CDN — the same files the driver's own updater pulls, and the only way to
+install a build GitHub has not published yet.
 
-This is opt-in because it fetches NVIDIA-copyrighted binaries from an endpoint NVIDIA does not
-document. Nothing downloaded this way reaches your NGX folder unverified:
+That preference alone does not download anything. A second box, **I accept responsibility for
+fetching NVIDIA components**, ships unchecked and is required before a single byte is fetched.
+The two are separate on purpose: the first says *prefer this source*, the second says *I understand
+these are NVIDIA-copyrighted files from an endpoint NVIDIA does not document, whose redistribution
+terms are unresolved*. A shipped default can set a preference; it cannot grant an acceptance on your
+behalf. Until you check it, the toolkit reports which versions exist and downloads nothing.
+
+Once accepted, nothing reaches your NGX folder unverified:
 
 1. HTTPS only.
 2. The digest published alongside the file must match the bytes received. **No published digest

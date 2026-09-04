@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-09-04 (v0.72).
+Hand-maintained. Last updated: 2026-09-04 (v0.73).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -46,7 +46,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 27 files, 446+ tests at v0.72
+└── DLSSVersionToolkit.Tests/            # xUnit, 27 files, 471+ tests at v0.73
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -119,7 +119,20 @@ disagreed on screen.
 **"Latest" is not one question.** GitHub publishes the SDK you build against; NVIDIA's OTA
 production channel publishes what the driver loads; NVIDIA's staging channel (`dev-models`) runs
 ahead of both. They differ by design (310.7.0 / 310.7.128 / 310.9.0 concurrently). Decide which
-authority a comparison means, label the answer in the UI, and keep anything pre-release opt-in.
+authority a comparison means and label the answer in the UI. Reporting a version is not the same
+act as installing one: since v0.73 every feed is consulted by default, because an answer to "what
+exists?" that omits a real published build is incomplete — but a pre-release number is always
+labelled as such and only wins when strictly newer.
+
+**A preference default is not a consent grant** (v0.73). `AllowOtaPayloadDownloads` ships on and
+means *prefer this source*; `OtaRedistributionAccepted` ships off and means *I accept fetching
+NVIDIA-copyrighted bytes from an undocumented endpoint whose redistribution terms are unresolved*.
+Collapsing the two would let a shipped default stand in for an acceptance no user made. Both are
+required by one predicate, `OtaPayloadDownloader.IsDownloadPermitted`, enforced inside
+`DownloadAsync` rather than at the call site — a caller that omits settings fails closed to "no
+download", never open to "silent download". Gated by the rejection arms in `OtaChannelTests`.
+Watch for the inverse of this bug: a flag with no production consumer gates nothing, so flipping
+its default is free today and silently live the day someone wires it up.
 
 **Bytes from an undocumented endpoint are verified before they are trusted.** The OTA payload path
 (v0.72) refuses to install without a matching published SHA-256, PE-header sanity, and an NVIDIA

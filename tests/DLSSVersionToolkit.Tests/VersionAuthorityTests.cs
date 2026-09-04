@@ -135,11 +135,19 @@ public class VersionAuthorityTests
         // Every channel-taking entry point defaults to Production.
         Assert.Contains("OtaChannel channel = OtaChannel.Production", ota);
 
-        // The settings that widen behavior are off unless the user turns them on.
+        // v0.73: the two update-source preferences ship on, so the tool reports every version
+        // that exists. The licensing acceptance that actually authorises fetching bytes stays
+        // off — that one is not a preference and no default may grant it.
         var settings = File.ReadAllText(Path.Combine(SiblingSweepTests.FindRepoSubdir("src"),
             "DLSSVersionToolkit.Core", "Models", "AppSettings.cs"));
-        Assert.Contains("IncludePreReleaseChannel { get; set; } = false", settings);
-        Assert.Contains("AllowOtaPayloadDownloads { get; set; } = false", settings);
+        Assert.Contains("IncludePreReleaseChannel { get; set; } = true", settings);
+        Assert.Contains("AllowOtaPayloadDownloads { get; set; } = true", settings);
+        Assert.Contains("OtaRedistributionAccepted { get; set; } = false", settings);
+
+        // The download path must consult both flags through one predicate.
+        var downloader = File.ReadAllText(Path.Combine(Services, "OtaPayloadDownloader.cs"));
+        Assert.Contains("IsDownloadPermitted", downloader);
+        Assert.Contains("AllowOtaPayloadDownloads: true, OtaRedistributionAccepted: true", downloader);
     }
 
     /// <summary>
