@@ -48,7 +48,7 @@ public class VersionComparer : IVersionComparer
                     _ => "Unknown"
                 };
 
-                if (version == "Unknown" || version == "N/A")
+                if (!DllVersionReader.IsReportedVersion(version))
                     continue;
 
                 if (newest == null || IsVersionNewer(version, newest.Version))
@@ -120,8 +120,8 @@ public class VersionComparer : IVersionComparer
 
     private static bool IsVersionNewer(string version1, string version2)
     {
-        if (version1 == "Unknown" || version1 == "N/A") return false;
-        if (version2 == "Unknown" || version2 == "N/A") return true;
+        if (!DllVersionReader.IsReportedVersion(version1)) return false;
+        if (!DllVersionReader.IsReportedVersion(version2)) return true;
         try
         {
             // Normalize: remove letters, trim to 4 parts

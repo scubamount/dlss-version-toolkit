@@ -93,16 +93,17 @@ public class ComprehensiveUpdateTests
     }
 
     [Fact]
-    public void NgxConfigParser_NoConfigNoDll_ReportsUnknown()
+    public void NgxConfigParser_NoConfigNoDll_ReportsAbsent()
     {
-        // The fix: a version folder with no config and no DLL must still parse cleanly to Unknown
-        // (not crash), and report "Config file not found".
+        // A version folder with no config and no DLL must parse cleanly (not crash) and report
+        // the ABSENT code — v0.68 split "no file here" ("—") from "file present but unreadable"
+        // ("Unknown"), which used to be the same string.
         var dir = Path.Combine(Path.GetTempPath(), $"dlsstest_{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         try
         {
             var result = new NgxConfigParser().Parse(dir);
-            Assert.Equal("Unknown", result.DLSS);
+            Assert.Equal(NgxConfigParser.VersionAbsent, result.DLSS);
         }
         finally
         {
@@ -111,17 +112,21 @@ public class ComprehensiveUpdateTests
     }
 
     [Fact]
-    public void NgxConfigParser_StaleConfigKept_WhenNoDllPresent()
+    public void NgxConfigParser_StaleConfigIsNotAVersion_WhenNoDllPresent()
     {
-        // With a config but no DLL, the parsed config version is used (DLL override is a no-op
-        // when the DLL is absent). Confirms the override only fires when a real DLL exists.
+        // INVERTED IN v0.68. This test previously asserted the defect: with a config naming
+        // dlss 310.6.0.0 and no DLL on disk, the parser reported 310.6.0.0 — a version for a
+        // file that does not exist. That is precisely what put phantom 310.6.0.0 cells in the
+        // INSTALLED VERSIONS grid. The config is activation state; only DLL bytes are versions.
         var dir = Path.Combine(Path.GetTempPath(), $"dlsstest_{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         try
         {
             File.WriteAllText(Path.Combine(dir, "nvngx_package_config.txt"), "dlss, 310.6.0.0\n");
             var result = new NgxConfigParser().Parse(dir);
-            Assert.Equal("310.6.0.0", result.DLSS);
+
+            Assert.Equal(NgxConfigParser.VersionAbsent, result.DLSS);
+            Assert.True(result.ConfigNamesComponents);   // still visible as activation state
         }
         finally
         {

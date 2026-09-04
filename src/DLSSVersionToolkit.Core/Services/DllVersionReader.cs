@@ -22,6 +22,19 @@ public static class DllVersionReader
     private const string PrimaryDll = "nvngx_dlss.dll";
 
     /// <summary>
+    /// True when a version string is a real, comparable version rather than a status code.
+    /// The grid uses three status codes — "Unknown" (present but unreadable), "N/A" (not
+    /// applicable to this source) and "—" (absent) — and callers that tested only for
+    /// "Unknown" treated the other two as real versions. One predicate, so a new status code
+    /// can never again leak into a comparison (v0.68).
+    /// </summary>
+    public static bool IsReportedVersion(string? version) =>
+        !string.IsNullOrWhiteSpace(version) &&
+        version != "Unknown" &&
+        version != "N/A" &&
+        version != "—";
+
+    /// <summary>
     /// "Is this string a plausible version at all?" — the ONE definition. Three scanners
     /// (GlobalScanner, StreamlineScanner, NgxConfigParser) each carried a byte-identical private
     /// copy of this regex until v0.0.61; any future divergence means two surfaces disagree on
