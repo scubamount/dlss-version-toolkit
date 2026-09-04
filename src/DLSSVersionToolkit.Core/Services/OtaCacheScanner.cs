@@ -151,7 +151,7 @@ public class OtaCacheScanner
                         var fromBytes = DllVersionReader.ReadFileVersion(payload);
                         var version = DllVersionReader.IsValidVersion(fromBytes)
                             ? fromBytes!
-                            : "Unknown";   // Present but unreadable — NOT absent. (v0.68 split.)
+                            : NgxConfigParser.VersionUnreadable;   // Present but unreadable — NOT absent. (v0.68 split.)
 
                         results.Add(new HarvestedPayload(
                             ComponentDir: componentDir,
@@ -184,9 +184,11 @@ public class OtaCacheScanner
     ///
     /// The OTA cache versions each component independently — dlss may be at 310.7.128 while dlssg
     /// sits at 310.6.0 — so a row shows the components that actually exist at that version and
-    /// <c>"—"</c> (absent) for the rest. That is the v0.68 status vocabulary: <c>"—"</c> means not
-    /// there, <c>"Unknown"</c> means there but unreadable, <c>"N/A"</c> means inapplicable. NR and
-    /// DeepDVC are always <c>"N/A"</c> here because NVIDIA's OTA channel does not carry them.
+    /// <see cref="NgxConfigParser.VersionAbsent"/> for the rest. That is the v0.68 status
+    /// vocabulary: absent means not there, <see cref="NgxConfigParser.VersionUnreadable"/> means
+    /// there but unreadable, and "N/A" means inapplicable. NR and DeepDVC are always "N/A" here
+    /// because NVIDIA's OTA channel does not carry them. The codes are referenced by name, never
+    /// respelled — a fourth spelling would compare as a real version (StatusCodes gate).
     /// </summary>
     public List<DLSSVersionEntry> ToEntries(IEnumerable<HarvestedPayload> payloads)
     {
@@ -200,7 +202,7 @@ public class OtaCacheScanner
             {
                 var hit = group.FirstOrDefault(p =>
                     string.Equals(p.DllName, dllName, StringComparison.OrdinalIgnoreCase));
-                return hit is null ? "—" : hit.Version;
+                return hit is null ? NgxConfigParser.VersionAbsent : hit.Version;
             }
 
             // Any payload in the group carries a usable path; prefer dlss for the row's location.

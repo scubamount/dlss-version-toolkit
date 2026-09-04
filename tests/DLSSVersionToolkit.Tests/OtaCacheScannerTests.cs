@@ -197,7 +197,7 @@ public class OtaCacheScannerTests : IDisposable
 
         var hit = Assert.Single(new OtaCacheScanner().Harvest(_root));
 
-        Assert.Equal("Unknown", hit.Version);
+        Assert.Equal(NgxConfigParser.VersionUnreadable, hit.Version);
         Assert.False(hit.VersionFromBytes);
         Assert.False(DllVersionReader.IsReportedVersion(hit.Version));
     }
@@ -217,7 +217,7 @@ public class OtaCacheScannerTests : IDisposable
         var found = new OtaCacheScanner().Harvest(_root);
 
         Assert.Equal(2, found.Count);
-        Assert.All(found, p => Assert.Equal("Unknown", p.Version));
+        Assert.All(found, p => Assert.Equal(NgxConfigParser.VersionUnreadable, p.Version));
         Assert.All(found, p => Assert.DoesNotContain(p.Version, new[] { "20318080", "131356" }));
         // The packed name survives as a diagnostic, which is its only legitimate use here.
         Assert.Contains(found, p => p.PackedFolder == "131356");
@@ -259,9 +259,9 @@ public class OtaCacheScannerTests : IDisposable
         var entry = Assert.Single(scanner.ToEntries(scanner.Harvest(_root)));
 
         Assert.Equal(OtaCacheScanner.SourceProduction, entry.Source);
-        Assert.Equal("Unknown", entry.DLSS);     // present, unreadable
-        Assert.Equal("—", entry.FrameGen);       // absent
-        Assert.Equal("—", entry.DLSSD);          // absent
+        Assert.Equal(NgxConfigParser.VersionUnreadable, entry.DLSS);   // present, unreadable
+        Assert.Equal(NgxConfigParser.VersionAbsent, entry.FrameGen);   // absent
+        Assert.Equal(NgxConfigParser.VersionAbsent, entry.DLSSD);      // absent
         Assert.Equal("N/A", entry.DLSSNR);       // channel does not carry it
         Assert.Equal("N/A", entry.DeepDVC);      // channel does not carry it
         Assert.Equal("N/A", entry.Streamline);   // not in the nvngx component tree
