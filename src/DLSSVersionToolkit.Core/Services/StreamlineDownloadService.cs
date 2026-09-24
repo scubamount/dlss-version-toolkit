@@ -297,12 +297,12 @@ public class StreamlineDownloadService : IStreamlineDownloadService
                 // every scan via ResolveNewestCachedZip).
                 using var s = entry.Open();
                 var head = new byte[4096];
-                var n = 0;
+                var got = 0;
                 int r;
-                while (n < head.Length && (r = s.Read(head, n, head.Length - n)) > 0) n += r;
+                while (got < head.Length && (r = s.Read(head, got, head.Length - got)) > 0) got += r;
                 // Any x64 hit qualifies; a non-x64 entry does not end the search, so the verdict
                 // never depends on zip enumeration order.
-                if (OperationGuard.ReadPeMachine(head.AsSpan(0, n).ToArray()) == OperationGuard.MachineAmd64)
+                if (OperationGuard.ReadPeMachine(head.AsSpan(0, got).ToArray()) == OperationGuard.MachineAmd64)
                     return true;
             }
         }
