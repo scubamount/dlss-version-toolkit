@@ -63,6 +63,15 @@ public interface IAnWaveAutoService
     AnWaveDetectionResult DetectInstalled();
 }
 
+/// <summary>
+/// What nvngx_config.txt actually says about the global override (v0.76). Read back after every
+/// write so the UI reports the driver-visible state instead of the app's intent.
+/// </summary>
+public sealed record OverrideConfigState(bool ConfigExists, bool DlssForced, string? DlssVersion, string? Error = null)
+{
+    public bool IsActive => ConfigExists && DlssForced && !string.IsNullOrEmpty(DlssVersion);
+}
+
 /// <summary>Read-only result of probing disk for an existing AnWave install.</summary>
 public class AnWaveDetectionResult
 {
@@ -574,6 +583,53 @@ progress?.Report(30);
         result.ConfigWritten = true;
 
         return result;
+    }
+
+    /// <summary>
+    /// Parses the override config the driver reads. Pure over the file contents so it can be
+    /// tested without a driver: <c>[dlss_override]</c> must contain <c>app_E658700_force = 1</c>
+    /// and a version line for the override to be live.
+    /// </summary>
+    public static OverrideConfigState ReadOverrideState(string configPath)
+    {
+        try
+        {
+            if (!File.Exists(configPath))
+                return new OverrideConfigState(false, false, null);
+            return ParseOverrideState(File.ReadAllText(configPath));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new OverrideConfigState(true, false, null, ex.Message);
+        }
+    }
+
+    /// <summary>Parse half of <see cref="ReadOverrideState"/>.</summary>
+    public static OverrideConfigState ParseOverrideState(string content)
+    {
+        string? section = null;
+        bool forced = false;
+        string? version = null;
+        foreach (var raw in content.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || line.StartsWith(';') || line.StartsWith('#')) continue;
+            if (line.StartsWith('[') && line.EndsWith(']'))
+            {
+                section = line[1..^1].Trim();
+                continue;
+            }
+            if (!string.Equals(section, "dlss_override", StringComparison.OrdinalIgnoreCase)) continue;
+            var eq = line.IndexOf('=');
+            if (eq < 0) continue;
+            var key = line[..eq].Trim();
+            var value = line[(eq + 1)..].Trim();
+            if (key.Equals("app_E658700_force", StringComparison.OrdinalIgnoreCase))
+                forced = value == "1";
+            else if (key.Equals("app_E658700", StringComparison.OrdinalIgnoreCase) && value.Length > 0)
+                version = value;
+        }
+        return new OverrideConfigState(true, forced, version);
     }
 
     private static List<string> GetNgxCandidatePaths(string? ngxBasePath)

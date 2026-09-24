@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-09-04 (v0.75).
+Hand-maintained. Last updated: 2026-09-24 (v0.76).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -22,7 +22,7 @@ not referenced by the README. Nothing reads them. Treat as removable, not as a s
 
 ```text
 src/
-├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 32 services
+├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 33 services
 │   ├── Models/                         # AppSettings, DlssPreset, OverrideManifest,
 │   │                                   #   UpdateRunReport, ScanResult, ...
 │   └── Services/
@@ -33,7 +33,8 @@ src/
 │       ├── UpgradeService.cs            # NGX/Streamline sync
 │       ├── WhitelistService.cs          # NVIDIA App whitelist + IsOpsSupported unlock
 │       ├── PresetOverrideService.cs     # SR/RR/FG preset writes via NvAPI
-│       ├── OperationGuard.cs            # PE signature, path containment, post-copy verify
+│       ├── OperationGuard.cs            # PE signature + x64 machine, path containment, post-copy verify
+│       ├── OverrideResetService.cs      # pre-toolkit baseline + Reset (undo) of config/records
 │       └── ...                          # scanners, downloaders, backup, export, app updater
 ├── DLSSVersionToolkit/                 # WPF application
 │   ├── ViewModels/MainViewModel.cs      # ~2.4k lines; Update All orchestration lives here
@@ -46,7 +47,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 28 files, 490+ tests at v0.75
+└── DLSSVersionToolkit.Tests/            # xUnit, 29 files, 530+ tests at v0.76
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -190,6 +191,33 @@ emoose/DLSSTweaks#137, not published by NVIDIA — which is why every write is b
 applied."
 
 ## Recent Changes
+
+- **v0.76**: Screenshot audit (Update All dialog + Settings). Root causes, each fixed at source:
+  (1) NVIDIA's production OTA root `3e933c08…` began returning 404 NoSuchKey; the app queried only
+  that root and the failure went to Debug, so LATEST AVAILABLE silently degraded to GitHub-only
+  and a newer NVIDIA build would never be found. Production is now a candidate list
+  (`d6e9b45e…` first), every root is tried, the newest manifest wins, payloads come from the root
+  that answered, and a dead feed shows on the dashboard ("Could not check NVIDIA OTA").
+  (2) The Streamline asset filter was prefix+`.zip`; 2.14.1 lists `-aarch64.zip` FIRST, so the
+  ARM64 SDK was downloaded and a recursive "any nvngx_dlss.dll" fallback synced it. Versions are
+  identical across arches, so no display could reveal it. Exact x64 asset name, no recursive
+  fallback, x64 check on the cached zip, and `VerifyDllSignature` now requires COFF Machine AMD64.
+  (3) Stale results: `ScanAsync` began `if (IsScanning) return;` — SyncAsync set IsScanning before
+  calling it and the post-Update-All rescan was dropped whenever another scan was in flight, so
+  the dialog/grid showed pre-run numbers and the NEXT run showed this run's. Scans now queue on a
+  SemaphoreSlim. (4) NGX Release row read the registry OTACachePath root first while Update All
+  wrote ProgramData — `ScanService.OrderForRowScan` puts the write root first for both the scan
+  and `SyncToNGX`. (5) "Current: Default (no override)" after applying L: the reader used
+  CurrentGlobalProfile and ignored the enable flag; the writer uses BaseProfile. Reader now
+  matches writer, and re-reads after an apply. (6) Dialog: 🔒 printed on every present DLL (it
+  means "user-imported override"), first file of each list had no bullet, and "DLSS Override is
+  now globally active" was asserted, not read — now read back from nvngx_config.txt with a
+  "What to do" line when it is not. New: Reset all overrides (confirmed, backs up first,
+  restores the pre-toolkit baseline captured at first launch), sidebar Override status, Settings
+  snapshot on open + Restore previous, atomic settings save, feed-health line.
+  - Lesson: a "latest version" source that fails silently is indistinguishable from "nothing
+    newer". Every feed must report its own failure where the user can see it.
+  - Lesson: `if (busy) return;` on a refresh path is a stale-state bug, not a guard. Queue it.
 
 > Per-release detail lives in `git log` and the GitHub releases. Only transferable rationale is
 > kept here; superseded implementation notes are deleted rather than annotated.

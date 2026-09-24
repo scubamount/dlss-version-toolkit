@@ -712,9 +712,35 @@ public class OperationGuardTests
 		data[0x3C] = 0x80;
 		data[0x80] = (byte)'P';
 		data[0x81] = (byte)'E';
+		data[0x84] = 0x64; // COFF Machine = AMD64 (0x8664), little-endian
+		data[0x85] = 0x86;
 		File.WriteAllBytes(tempFile, data);
 
 		Assert.True(Core.Services.OperationGuard.VerifyDllSignature(tempFile));
+
+		File.Delete(tempFile);
+	}
+
+	/// <summary>
+	/// v0.76 RED arm: a well-formed ARM64 PE (Machine 0xAA64) is rejected. Streamline 2.14.1 ships an
+	/// aarch64 SDK with identically named, identically versioned DLLs; before this check the app
+	/// could copy them into an x64 NGX tree and every version column would still look correct.
+	/// </summary>
+	[Fact]
+	public void VerifyDllSignature_Arm64Pe_ReturnsFalse()
+	{
+		var tempFile = Path.Combine(Path.GetTempPath(), $"dlss-guard-arm64-{Guid.NewGuid()}.dll");
+		var data = new byte[2048];
+		data[0] = (byte)'M';
+		data[1] = (byte)'Z';
+		data[0x3C] = 0x80;
+		data[0x80] = (byte)'P';
+		data[0x81] = (byte)'E';
+		data[0x84] = 0x64; // 0xAA64 little-endian
+		data[0x85] = 0xAA;
+		File.WriteAllBytes(tempFile, data);
+
+		Assert.False(Core.Services.OperationGuard.VerifyDllSignature(tempFile));
 
 		File.Delete(tempFile);
 	}
@@ -1464,6 +1490,8 @@ public class UpgradeServiceTests
 		data[0x3C] = 0x80;
 		data[0x80] = (byte)'P';
 		data[0x81] = (byte)'E';
+		data[0x84] = 0x64; // COFF Machine = AMD64 (0x8664), little-endian
+		data[0x85] = 0x86;
 		File.WriteAllBytes(path, data);
 	}
 }

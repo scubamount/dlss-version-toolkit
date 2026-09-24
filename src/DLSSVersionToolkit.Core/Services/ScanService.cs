@@ -63,7 +63,7 @@ public class ScanService : IScanService
         // v0.0.57: scan failures land in result.Errors instead of dying in Debug.WriteLine;
         // an empty grid must never be the only symptom.
         var scanErrors = new List<string>();
-        foreach (var path in ngxCandidates)
+        foreach (var path in OrderForRowScan(ngxCandidates, NgxPathResolver.GetWritableBase(explicitNgxPath)))
         {
             var entries = _ngxScanner.Scan(path, scanErrors);
             foreach (var entry in entries)
@@ -192,4 +192,28 @@ public class ScanService : IScanService
         return null;
     }
 
+
+    /// <summary>
+    /// Scan order for the one-row-per-source NGX loop: the root the app WRITES comes first, then
+    /// the remaining candidates in their original order (v0.76).
+    ///
+    /// The loop keeps the first NGX_Release / NGX_Staging row it finds. v0.74 put the registry's
+    /// OTACachePath at the head of the candidate list; where that differs from the write root, the
+    /// grid's NGX Release row described a tree Update All never touches, so a successful update
+    /// looked like it had changed nothing. Reading the written root first makes the row reflect
+    /// what was just written.
+    /// </summary>
+    public static List<string> OrderForRowScan(IReadOnlyList<string> candidates, string? writableBase)
+    {
+        var ordered = new List<string>();
+        if (!string.IsNullOrWhiteSpace(writableBase))
+            ordered.Add(writableBase);
+        foreach (var c in candidates)
+        {
+            if (!ordered.Any(o => string.Equals(
+                    o.TrimEnd('\\', '/'), c.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase)))
+                ordered.Add(c);
+        }
+        return ordered;
+    }
 }

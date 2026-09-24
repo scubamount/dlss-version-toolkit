@@ -121,9 +121,27 @@ public static class OperationGuard
         }
     }
 
+    /// <summary>IMAGE_FILE_MACHINE_AMD64 — the only architecture this app installs.</summary>
+    public const ushort MachineAmd64 = 0x8664;
+
     /// <summary>
-    /// Verifies that a file at <paramref name="filePath"/> has a valid DOS and PE signature
-    /// (minimum 1024 bytes, <c>MZ</c> at offset 0, and <c>PE\0\0</c> at the DOS-header offset).
+    /// COFF Machine field of an in-memory PE image, or null when the bytes are not a PE.
+    /// </summary>
+    public static ushort? ReadPeMachine(byte[] data)
+    {
+        if (data.Length < 64 || data[0] != 'M' || data[1] != 'Z') return null;
+        var peOffset = BitConverter.ToInt32(data, 0x3C);
+        if (peOffset < 64 || peOffset > data.Length - 6) return null;
+        if (data[peOffset] != 'P' || data[peOffset + 1] != 'E' || data[peOffset + 2] != 0 || data[peOffset + 3] != 0)
+            return null;
+        return BitConverter.ToUInt16(data, peOffset + 4);
+    }
+
+    /// <summary>
+    /// Verifies that a file at <paramref name="filePath"/> is an x64 PE image: minimum 1024 bytes,
+    /// <c>MZ</c> at offset 0, <c>PE\0\0</c> at the DOS-header offset, and COFF Machine =
+    /// AMD64 (v0.76). The machine check exists because the ARM64 Streamline SDK carries DLLs with
+    /// the same names and the same version strings; only the header tells them apart.
     /// </summary>
     public static bool VerifyDllSignature(string filePath)
     {
@@ -143,11 +161,15 @@ public static class OperationGuard
             if (peOffset < dosHeader.Length || peOffset > fs.Length - 4)
                 return false;
 
+            if (peOffset > fs.Length - 6)
+                return false;
+
             fs.Position = peOffset;
-            var peSignature = new byte[4];
-            fs.ReadExactly(peSignature);
-            return peSignature[0] == 'P' && peSignature[1] == 'E' &&
-                peSignature[2] == 0 && peSignature[3] == 0;
+            var peHeader = new byte[6];
+            fs.ReadExactly(peHeader);
+            return peHeader[0] == 'P' && peHeader[1] == 'E' &&
+                peHeader[2] == 0 && peHeader[3] == 0 &&
+                BitConverter.ToUInt16(peHeader, 4) == MachineAmd64;
         }
         catch (Exception ex)
         {

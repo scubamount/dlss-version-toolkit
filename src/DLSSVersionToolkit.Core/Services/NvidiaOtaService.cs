@@ -63,25 +63,37 @@ public class OtaComponentVersion
 public class NvidiaOtaService
 {
     /// <summary>
-    /// Production channel root — what the driver serves a normal machine.
+    /// Every production root NVIDIA has been observed serving, newest-known first (v0.76).
     ///
-    /// This pick is VERIFIED, not inferred (v0.72). Two independent checks agree:
-    ///   * NVIDIA's own Streamline OTA client (source/core/sl.ota/ota.cpp) documents the switch
-    ///     as registry `NGXCore\CDNServerType`, "0 - production / 1 - staging" — so a staging
-    ///     channel is a real, separate thing and not the default.
-    ///   * Only this root serves the build a current machine actually runs: the 310.7.128 payload
-    ///     (packed 20318080) returns HTTP 200 here and 404s on the `d6e9b45e…` root, which stops
-    ///     at 310.6.0 and whose manifest has not been touched since 2026-03-19.
+    /// WHY A LIST. NVIDIA moves this root without notice, and a single hardcoded GUID is a single
+    /// point of silent failure. v0.72 pinned `3e933c08…` after verifying it served 310.7.128 while
+    /// `d6e9b45e…` stopped at 310.6.0. By 2026-09-24 the reverse was true: `3e933c08…` returned
+    /// 404 NoSuchKey for the manifest AND every payload, and `d6e9b45e…` served a live manifest
+    /// with the same nested org/nvidia/team/ngx/models/ key layout. The app kept querying the
+    /// dead root and swallowed the 404 into Debug, so "latest available" degraded to GitHub-only
+    /// with nothing on screen saying so — which is exactly how a future NVIDIA release would go
+    /// unnoticed.
     ///
-    /// Note for anyone comparing with dlss-swapper: it hardcodes the `d6e9b45e…` root with a
-    /// FLATTER key layout (guid/dlss/versions/... — no org/nvidia/team/ngx/models/ segment).
-    /// That path still resolves for older builds but is stale for current ones — do not copy it.
+    /// So production is RESOLVED, not assumed: every candidate is fetched, and when more than
+    /// one answers the one publishing the newest DLSS wins (ties go to list order). The winning
+    /// root is what payload URLs are built from, so metadata and payloads cannot point at
+    /// different roots. When none answers, <see cref="GetLastError"/> says so and the UI shows it.
     /// </summary>
-    public const string ProductionChannel = "3e933c08-ea30-45ae-93d1-5114edf9c3b9";
+    public static readonly IReadOnlyList<string> ProductionChannelCandidates = new[]
+    {
+        "d6e9b45e-d4f6-4a84-a460-bf61decae3e8",
+        "3e933c08-ea30-45ae-93d1-5114edf9c3b9",
+    };
+
+    /// <summary>
+    /// The preferred production root — the first candidate. What an instance actually used is
+    /// <see cref="ResolvedRootFor"/>; this constant is only the starting preference.
+    /// </summary>
+    public static string ProductionChannel => ProductionChannelCandidates[0];
 
     /// <summary>
     /// Staging channel root. Runs ahead of production (310.9.0 / 2.14.0 while production served
-    /// 310.7.128 / 2.12.128) and is refreshed far more often.
+    /// 310.6.0) and is refreshed far more often.
     ///
     /// These are real published builds, not fabrications — but the driver does not hand them to a
     /// game on its own, so a staging version is a PRE-RELEASE. It is surfaced only when it is
@@ -89,9 +101,13 @@ public class NvidiaOtaService
     /// </summary>
     public const string StagingChannel = "dev-models";
 
-    /// <summary>Root for a channel.</summary>
+    /// <summary>Preferred root for a channel (before resolution).</summary>
     public static string RootFor(OtaChannel channel) =>
         channel == OtaChannel.Staging ? StagingChannel : ProductionChannel;
+
+    /// <summary>Roots to try for a channel, in preference order.</summary>
+    public static IReadOnlyList<string> CandidateRootsFor(OtaChannel channel) =>
+        channel == OtaChannel.Staging ? new[] { StagingChannel } : ProductionChannelCandidates;
 
     private const string ManifestUrlTemplate =
         "https://ngx.download.nvidia.com/{0}/org/nvidia/team/ngx/models/config/versions/2/files/nvngx_server_config.txt";
@@ -113,6 +129,28 @@ public class NvidiaOtaService
     /// <summary>Cached manifest text per channel, so a scan does not re-fetch per component.</summary>
     private readonly Dictionary<OtaChannel, (string Text, DateTime At)> _cache = new();
     private static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(10);
+
+    /// <summary>Why the last fetch for a channel produced nothing, or null when it succeeded.</summary>
+    private readonly Dictionary<OtaChannel, string?> _lastError = new();
+
+    /// <summary>Root that answered the last successful fetch, per channel.</summary>
+    private readonly Dictionary<OtaChannel, string> _resolvedRoot = new();
+
+    /// <summary>
+    /// The root this instance last fetched a manifest from, or the preferred root before any
+    /// fetch. Per instance, not static: a process-wide mutable root would let one caller's
+    /// resolution silently redirect another's payload URLs.
+    /// </summary>
+    public string ResolvedRootFor(OtaChannel channel) =>
+        _resolvedRoot.TryGetValue(channel, out var r) ? r : RootFor(channel);
+
+    /// <summary>
+    /// Why the most recent fetch for <paramref name="channel"/> produced no manifest, or null when
+    /// it succeeded (or has not run). Exists so an unreachable or withdrawn endpoint is visible in
+    /// the UI instead of silently reducing "latest available" to the GitHub feed.
+    /// </summary>
+    public string? GetLastError(OtaChannel channel) =>
+        _lastError.TryGetValue(channel, out var e) ? e : null;
 
     /// <summary>
     /// Fetches and parses one channel's manifest. Returns an empty list on any failure — offline,
@@ -176,31 +214,76 @@ public class NvidiaOtaService
         if (_cache.TryGetValue(channel, out var hit) && DateTime.UtcNow - hit.At < CacheLifetime)
             return hit.Text;
 
+        string? bestText = null;
+        string? bestRoot = null;
+        string? bestDlss = null;
+        var failures = new List<string>();
+
+        foreach (var root in CandidateRootsFor(channel))
+        {
+            var (text, error) = await FetchFromRootAsync(root, ct);
+            if (text == null)
+            {
+                failures.Add($"{ShortRoot(root)}: {error}");
+                continue;
+            }
+
+            // Newest published DLSS decides between two live roots. A root that answers but
+            // carries no generic dlss entry still beats having nothing.
+            var dlss = Parse(text, channel).FirstOrDefault(v =>
+                string.Equals(v.Component, "dlss", StringComparison.OrdinalIgnoreCase))?.Version;
+            if (bestText == null || CompareVersions(dlss, bestDlss) > 0)
+            {
+                bestText = text;
+                bestRoot = root;
+                bestDlss = dlss;
+            }
+        }
+
+        if (bestText == null)
+        {
+            _lastError[channel] = failures.Count > 0
+                ? $"NVIDIA {channel} update channel unreachable ({string.Join("; ", failures)})"
+                : $"NVIDIA {channel} update channel unreachable";
+            System.Diagnostics.Debug.WriteLine($"NvidiaOtaService: {_lastError[channel]}");
+            return null;
+        }
+
+        _resolvedRoot[channel] = bestRoot!;
+        _lastError[channel] = null;
+        _cache[channel] = (bestText, DateTime.UtcNow);
+        return bestText;
+    }
+
+    /// <summary>
+    /// One GET against one root. Returns the manifest text, or null plus a short reason. Offline is
+    /// the common failure and is reported as a reason, never thrown.
+    /// </summary>
+    private async Task<(string? Text, string? Error)> FetchFromRootAsync(string root, CancellationToken ct)
+    {
         try
         {
-            var url = string.Format(ManifestUrlTemplate, RootFor(channel));
+            var url = string.Format(ManifestUrlTemplate, root);
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             // The manifest is served no-cache precisely because it is meant to be re-read.
             using var response = await _http.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"NvidiaOtaService: {channel} manifest HTTP {(int)response.StatusCode}");
-                return null;
-            }
+                return (null, $"HTTP {(int)response.StatusCode}");
 
             var text = await response.Content.ReadAsStringAsync(ct);
-            _cache[channel] = (text, DateTime.UtcNow);
-            return text;
+            return string.IsNullOrWhiteSpace(text) ? (null, "empty manifest") : (text, null);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            // Offline is the common case and is not an error worth surfacing.
-            System.Diagnostics.Debug.WriteLine(
-                $"NvidiaOtaService: {channel} manifest fetch failed: {ex.Message}");
-            return null;
+            return (null, ex is TaskCanceledException ? "timed out" : ex.Message);
         }
     }
+
+    private static string ShortRoot(string root) => root.Length > 8 ? root[..8] + "…" : root;
 
     /// <summary>
     /// Parses the INI-style manifest: one [section] per component, one app_&lt;CMSID&gt; = version

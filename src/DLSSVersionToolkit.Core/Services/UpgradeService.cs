@@ -92,8 +92,11 @@ public class UpgradeService : IUpgradeService
 
     public UpgradeOperation SyncToNGX(string sourcePath, string sourceType, string ngxBasePath)
     {
-        // Collect NGX candidate paths (explicit path first, then default known paths)
-        var candidates = GetNgxCandidatePaths(ngxBasePath);
+        // Collect NGX candidate paths, the WRITE root first (v0.76) — the same order the scan uses
+        // for its NGX Release row (ScanService.OrderForRowScan). Before, a read-only registry root
+        // listed first could win here, so the sync targeted one tree and the grid showed another.
+        var candidates = ScanService.OrderForRowScan(
+            GetNgxCandidatePaths(ngxBasePath), NgxPathResolver.GetWritableBase(ngxBasePath));
 
         // Find NGX Release across all candidate paths (similar to ScanService.ScanAllAsync)
         var ngxScanner = new NgxScanner(new NgxConfigParser());

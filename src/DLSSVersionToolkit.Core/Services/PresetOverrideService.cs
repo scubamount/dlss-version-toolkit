@@ -142,21 +142,24 @@ public sealed class PresetOverrideService : IPresetOverrideService
             {
                 EnsureInitialized();
                 using var session = DriverSettingsSession.CreateAndLoad();
-                var profile = session.CurrentGlobalProfile;
+                // Read the profile ApplyPresetAsync WRITES (BaseProfile). v0.75 and earlier read
+                // CurrentGlobalProfile — a different profile whenever the user has a named global
+                // profile selected — so right after applying Preset L the dashboard said
+                // "Current: Default (no override)". Global profile is only the fallback.
+                var profile = session.BaseProfile ?? session.CurrentGlobalProfile;
                 if (profile is null)
                 {
                     return new PresetOverrideResult(false, null, "Could not get global profile.");
                 }
 
-                var setting = profile.GetSetting(DlssPresetSettingIds.SR_RENDER_PRESET);
-                if (setting is null)
-                {
-                    // No override set — driver default
+                // The preset selection is ignored by the driver unless the SR override is enabled
+                // (ApplyToProfile writes both). A leftover selection with the enable flag off is
+                // NOT an active override, and reporting it as one would be the opposite lie.
+                var enabled = ReadUInt(profile, DlssPresetSettingIds.SR_OVERRIDE_ENABLE);
+                if (enabled != DlssPresetSettingIds.OVERRIDE_ON)
                     return new PresetOverrideResult(true, DlssPreset.Default, null);
-                }
 
-                var rawValue = setting.CurrentValue;
-                var presetValue = rawValue is uint u ? u : (uint?)Convert.ToUInt32(rawValue);
+                var presetValue = ReadUInt(profile, DlssPresetSettingIds.SR_RENDER_PRESET);
                 var preset = PresetFromValue(presetValue ?? 0);
                 return new PresetOverrideResult(true, preset, null);
             }
@@ -532,6 +535,23 @@ public sealed class PresetOverrideService : IPresetOverrideService
         {
             Debug.WriteLine($"PresetOverrideService: NVIDIA init failed: {ex.Message}");
             return false;
+        }
+    }
+
+    /// <summary>Raw integer value of a DRS setting on a profile, or null when it is not set.</summary>
+    private static uint? ReadUInt(DriverSettingsProfile profile, uint settingId)
+    {
+        try
+        {
+            var setting = profile.GetSetting(settingId);
+            if (setting is null) return null;
+            var raw = setting.CurrentValue;
+            return raw is uint u ? u : Convert.ToUInt32(raw);
+        }
+        catch (NVIDIAApiException ex) when (ex.Status == Status.SettingNotFound)
+        {
+            // NvAPIWrapper reports an unset setting by throwing, not by returning null.
+            return null;
         }
     }
 
