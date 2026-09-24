@@ -35,6 +35,8 @@ public class V076RegressionTests : IDisposable
     [InlineData("streamline-sdk-v2.14.1-arm64.zip", false)]
     [InlineData("streamline-sdk-v2.14.1-debug.zip", false)]
     [InlineData("streamline-sdk-v2.14.1.tar.gz", false)]
+    [InlineData("streamline-sdk-v2.zip", false)]            // not a version
+    [InlineData("streamline-sdk-v2.14.1.0.0.zip", false)]   // >4 parts
     public void StreamlineAssetFilter_OnlyPlainX64Zip(string name, bool expected) =>
         Assert.Equal(expected, StreamlineDownloadService.IsX64SdkAssetName(name));
 
@@ -74,6 +76,22 @@ public class V076RegressionTests : IDisposable
         Assert.True(StreamlineDownloadService.ZipHasX64Bin(nested));
         Assert.False(StreamlineDownloadService.ZipHasX64Bin(arm));
         Assert.False(StreamlineDownloadService.ZipHasX64Bin(liar));
+
+        // Order-independent: a non-x64 match listed first must not hide a valid x64 one.
+        var mixed = Zip("mixed.zip",
+            ("other/bin/x64/nvngx_dlss.dll", Pe(0xAA64)),
+            ("bin/x64/nvngx_dlss.dll", Pe(OperationGuard.MachineAmd64)));
+        Assert.True(StreamlineDownloadService.ZipHasX64Bin(mixed));
+    }
+
+    /// <summary>The name DownloadLatestAsync writes to the cache must pass the same filter.</summary>
+    [Fact]
+    public void CachedZipName_RoundTripsThroughFilter()
+    {
+        var src = SrcFile("DLSSVersionToolkit.Core", "Services", "StreamlineDownloadService.cs");
+        Assert.Contains("var fileName = $\"streamline-sdk-{latest.Version}.zip\";", src);
+        Assert.True(StreamlineDownloadService.IsX64SdkAssetName("streamline-sdk-2.14.1.zip"));
+        Assert.Equal("2.14.1", StreamlineDownloadService.ParseVersionFromZipName("streamline-sdk-2.14.1.zip"));
     }
 
     [Fact]
@@ -174,6 +192,11 @@ public class V076RegressionTests : IDisposable
         Assert.DoesNotContain("if (IsScanning) return;", head);
         Assert.Contains("_scanGate.WaitAsync()", head);
         Assert.Contains("_scanGate.Release()", vm);
+        // Two owners, each clears only its own flag (reviewer finding: a restored snapshot wedged
+        // the UI in "Scanning..." when a queued scan finished after SyncAsync).
+        Assert.DoesNotContain("ownerHeldScanning", vm);
+        Assert.Contains("IsScanning = _syncActive;", vm);
+        Assert.Contains("IsScanning = _scanActive;", vm);
     }
 
     // ---- Reset baseline ----------------------------------------------------------------
@@ -241,6 +264,23 @@ public class V076RegressionTests : IDisposable
         Assert.False(svc.EnsureBaselineCaptured(null));
 
         Assert.Equal("[user]\nfirst = 1\n", svc.LoadBaseline()!.NgxConfigText);
+    }
+
+    /// <summary>Reviewer finding: a failed capture must be recorded, never retried into a false "absent".</summary>
+    [Fact]
+    public void Baseline_CaptureFailure_IsRecordedNotRetried()
+    {
+        var (svc, cfg) = Reset();
+        File.WriteAllText(cfg, "[user]\nmine = 1\n");
+        using (new FileStream(cfg, FileMode.Open, FileAccess.Read, FileShare.None))
+            Assert.True(svc.EnsureBaselineCaptured(null));      // locked -> unreadable
+
+        Assert.True(svc.LoadBaseline()!.ConfigCaptureFailed);
+        Assert.False(svc.EnsureBaselineCaptured(null));          // no second capture
+
+        // User's own file (not toolkit-written) survives Reset when the original is unknown.
+        Assert.True(svc.ResetFiles().AllSucceeded);
+        Assert.Equal("[user]\nmine = 1\n", File.ReadAllText(cfg));
     }
 
     [Fact]

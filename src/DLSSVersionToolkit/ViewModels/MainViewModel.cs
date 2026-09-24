@@ -865,6 +865,14 @@ private async Task ResetOverridesAsync()
 		"Reset overrides", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
 	if (confirm != MessageBoxResult.OK)
 		return;
+	// The modal pumps messages: a timer scan or Update All may have started while it was open.
+	if (IsScanning || IsUpdatingAll || IsApplyingPreset)
+	{
+		ThemedMessageBox.Show("Another operation started while this was open. Nothing was reset.\n\n" +
+			"What to do: wait for it to finish, then run Reset again.",
+			"Reset overrides", MessageBoxButton.OK, MessageBoxImage.Information);
+		return;
+	}
 
 	IsApplyingPreset = true;
 	DownloadStatus = "Resetting overrides...";
@@ -894,13 +902,20 @@ private async Task ResetOverridesAsync()
 			lines.Add($"{(step.Success ? "✅" : "❌")} {step.Name}: {step.Detail}");
 		}
 
-		// 3) Indicator back to its baseline value (absent → off).
+		// 3) Indicator back to its exact baseline value; absent in the baseline = value deleted.
+		//    No baseline at all = leave the indicator alone (nothing true to restore to).
 		try
 		{
-			var wantOn = baseline?.IndicatorRawValue is int raw && raw != 0;
-			_dlssIndicatorService.SetEnabled(wantOn);
-			IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
-			lines.Add($"✅ DLSS indicator: {(IsDlssIndicatorEnabled ? "on" : "off")}");
+			if (baseline != null)
+			{
+				_dlssIndicatorService.SetRawValue(baseline.IndicatorRawValue);
+				IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
+				lines.Add($"✅ DLSS indicator: restored ({(IsDlssIndicatorEnabled ? "on" : "off")})");
+			}
+			else
+			{
+				lines.Add("ℹ️ DLSS indicator: left as is (no pre-toolkit snapshot)");
+			}
 		}
 		catch (Exception ex)
 		{
@@ -1048,11 +1063,9 @@ private static string BuildOverrideActivationLine(string? intendedVersion)
 	       $"Games using DLSS will load v{state.DlssVersion} after a full restart.";
 }
 
-private static bool VersionsMatch(string? a, string? b)
-{
-	static string N(string? v) => (v ?? "").Trim().Replace(',', '.').TrimEnd('0', '.');
-	return N(a) == N(b);
-}
+// Numeric 4-part compare ("310.9.1" == "310.9.1.0", "310.9.10" != "310.9.1").
+private static bool VersionsMatch(string? a, string? b) =>
+	NvidiaOtaService.CompareVersions(a?.Replace(',', '.'), b?.Replace(',', '.')) == 0;
 
 /// <summary>
 /// Progress adapter for ApplyPresetAsync (v0.0.39): first report switches the bar from
@@ -1486,7 +1499,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
     [RelayCommand]
     private async Task OneClickUpdateAllAsync()
     {
-        if (IsScanning || IsSettingUpAnWave || IsUpdatingAll) return;
+        if (IsScanning || IsSettingUpAnWave || IsUpdatingAll || IsApplyingPreset) return;
 
         // Pre-flight dialog (v0.0.54). Update All used to fire on click with no confirmation.
         // Local DLL import is the one step it cannot do unattended — it needs a folder the user
@@ -2023,13 +2036,18 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
     /// </summary>
     private readonly SemaphoreSlim _scanGate = new(1, 1);
 
+    // IsScanning has two independent owners: a scan (inside the gate) and SyncAsync (around its
+    // whole operation). Each clears only its own flag; IsScanning is the OR. Capturing and
+    // restoring a single value let a queued scan re-assert true after Sync had cleared it.
+    // All writes run on the UI thread (async continuations), so plain bools are sufficient.
+    private bool _scanActive;
+    private bool _syncActive;
+
     [RelayCommand]
     private async Task ScanAsync()
     {
         await _scanGate.WaitAsync();
-        // Callers such as SyncAsync own IsScanning around their whole operation; restore their
-        // value rather than clearing it out from under them.
-        var ownerHeldScanning = IsScanning;
+        _scanActive = true;
         IsScanning = true;
         ScanStatus = "Scanning...";
         StatusMessage = "";
@@ -2257,13 +2275,13 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 : $"Could not check {string.Join(", ", feedProblems.Distinct())} — latest version may be out of date";
 
             // Take the newest of {upstream latest, cached, installed} as the displayed "available".
-            foreach (var candidate in new[] { cachedVersion, installedVer })
+            foreach (var (candidate, label) in new[] { (cachedVersion, "cached download"), (installedVer, "installed") })
             {
                 if (!string.IsNullOrWhiteSpace(candidate) &&
                     (latestAvailable == null || _versionComparer.IsNewer(candidate!, latestAvailable)))
                 {
                     latestAvailable = candidate;
-                    DlssLatestSource = candidate == installedVer ? "installed" : "cached download";
+                    DlssLatestSource = label;
                 }
             }
 
@@ -2379,7 +2397,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
         finally
         {
-            IsScanning = ownerHeldScanning;
+            _scanActive = false;
+            IsScanning = _syncActive;
             RefreshGamesSection();
             _scanGate.Release();
         }
@@ -2403,6 +2422,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
         if (result != MessageBoxResult.Yes) return;
 
+        _syncActive = true;
         IsScanning = true;
         ScanStatus = "Syncing...";
 
@@ -2470,7 +2490,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
         finally
         {
-            IsScanning = false;
+            _syncActive = false;
+            IsScanning = _scanActive;
             ScanStatus = "Ready";
         }
     }

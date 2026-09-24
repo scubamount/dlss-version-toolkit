@@ -15,6 +15,13 @@ public sealed class OverrideBaseline
 
     /// <summary>Raw ShowDlssIndicator DWORD at capture, or null when the value was absent.</summary>
     public int? IndicatorRawValue { get; set; }
+
+    /// <summary>
+    /// True when nvngx_config.txt existed but could not be read at capture. Recorded instead of
+    /// retrying later: a later retry could read the toolkit's own config and record "no config
+    /// existed", which Reset would then report as fact.
+    /// </summary>
+    public bool ConfigCaptureFailed { get; set; }
 }
 
 /// <summary>One line of the Reset report: what was undone, or why it could not be.</summary>
@@ -93,6 +100,7 @@ public sealed class OverrideResetService
         if (File.Exists(BaselinePath)) return false;
 
         string? configText = null;
+        var captureFailed = false;
         try
         {
             if (File.Exists(_configPath))
@@ -100,9 +108,10 @@ public sealed class OverrideResetService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Unreadable config: do not write a baseline that would claim "no config existed".
+            // Unreadable now = unknowable later: once the toolkit writes the file (AnWave replaces
+            // it whole), the original is gone. Record that fact once rather than retrying.
             System.Diagnostics.Debug.WriteLine($"OverrideResetService: cannot read config for baseline: {ex.Message}");
-            return false;
+            captureFailed = true;
         }
 
         if (configText != null && LooksToolkitWritten(configText))
@@ -112,6 +121,7 @@ public sealed class OverrideResetService
         {
             CapturedAt = DateTime.UtcNow,
             NgxConfigText = configText,
+            ConfigCaptureFailed = captureFailed,
             // 1024 is the value this app writes; treat it as toolkit state, not original.
             IndicatorRawValue = indicatorRawValue == 1024 ? null : indicatorRawValue,
         };
@@ -163,11 +173,20 @@ public sealed class OverrideResetService
                 result.Steps.Add(new ResetStep("Override config", true,
                     "nvngx_config.txt restored to the version from before this app changed it"));
             }
+            else if (File.Exists(_configPath) && baseline?.ConfigCaptureFailed == true &&
+                     !LooksToolkitWritten(File.ReadAllText(_configPath)))
+            {
+                // Original unknown and the file on disk is not ours: leave it.
+                result.Steps.Add(new ResetStep("Override config", true,
+                    "nvngx_config.txt left unchanged (not written by this app; original could not be recorded)"));
+            }
             else if (File.Exists(_configPath))
             {
                 File.Delete(_configPath);
                 result.Steps.Add(new ResetStep("Override config", true,
-                    "nvngx_config.txt removed (it did not exist before this app created it)"));
+                    baseline == null || baseline.ConfigCaptureFailed
+                        ? "nvngx_config.txt removed (the original could not be recorded; the removed copy is in the backup below)"
+                        : "nvngx_config.txt removed (it did not exist before this app created it)"));
             }
             else
             {

@@ -75,9 +75,11 @@ public class NvidiaOtaService
     /// unnoticed.
     ///
     /// So production is RESOLVED, not assumed: every candidate is fetched, and when more than
-    /// one answers the one publishing the newest DLSS wins (ties go to list order). The winning
-    /// root is what payload URLs are built from, so metadata and payloads cannot point at
-    /// different roots. When none answers, <see cref="GetLastError"/> says so and the UI shows it.
+    /// one answers the one publishing the newest DLSS wins (ties go to list order); the winner is
+    /// exposed as <see cref="ResolvedRootFor"/>. When none answers, <see cref="GetLastError"/>
+    /// says so and the UI shows it. OtaPayloadDownloader has no production caller yet and builds
+    /// URLs from the preferred root (candidate 0, the live one); the first caller that downloads
+    /// payloads must pass ResolvedRootFor so metadata and bytes come from the same root.
     /// </summary>
     public static readonly IReadOnlyList<string> ProductionChannelCandidates = new[]
     {
@@ -283,7 +285,8 @@ public class NvidiaOtaService
         }
     }
 
-    private static string ShortRoot(string root) => root.Length > 8 ? root[..8] + "…" : root;
+    // Full GUID: this string is the user-facing "which root died" diagnostic.
+    private static string ShortRoot(string root) => root;
 
     /// <summary>
     /// Parses the INI-style manifest: one [section] per component, one app_&lt;CMSID&gt; = version

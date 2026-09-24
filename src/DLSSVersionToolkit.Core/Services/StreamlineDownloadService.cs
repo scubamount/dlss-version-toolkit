@@ -260,7 +260,7 @@ public class StreamlineDownloadService : IStreamlineDownloadService
     public string? GetCachedDownloadPath() => _cachedDownloadPath;
 
     private static readonly System.Text.RegularExpressions.Regex X64AssetName =
-        new(@"^streamline-sdk-v?\d+(\.\d+)*\.zip$",
+        new(@"^streamline-sdk-v?\d+(\.\d+){1,3}\.zip$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>
@@ -296,7 +296,10 @@ public class StreamlineDownloadService : IStreamlineDownloadService
                 using var s = entry.Open();
                 using var ms = new MemoryStream();
                 s.CopyTo(ms);
-                return OperationGuard.ReadPeMachine(ms.ToArray()) == OperationGuard.MachineAmd64;
+                // Any x64 hit qualifies; a non-x64 entry does not end the search, so the verdict
+                // never depends on zip enumeration order.
+                if (OperationGuard.ReadPeMachine(ms.ToArray()) == OperationGuard.MachineAmd64)
+                    return true;
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)

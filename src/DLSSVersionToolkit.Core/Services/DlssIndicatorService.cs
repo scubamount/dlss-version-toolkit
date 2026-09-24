@@ -9,6 +9,13 @@ public interface IDlssIndicatorService
     void SetEnabled(bool enabled);
     /// <summary>Raw DWORD currently stored, or null if the value/key is absent.</summary>
     int? GetRawValue();
+
+    /// <summary>
+    /// Writes <paramref name="value"/> verbatim, or DELETES the value when null (v0.76 Reset).
+    /// SetEnabled cannot restore a baseline: it only writes 1024/0, so an absent value came back
+    /// as DWORD 0 and a custom value came back as 1024.
+    /// </summary>
+    void SetRawValue(int? value);
 }
 
 [SupportedOSPlatform("windows")]
@@ -44,6 +51,25 @@ public class DlssIndicatorService : IDlssIndicatorService
     {
         var raw = GetRawValue();
         return raw.HasValue && raw.Value != 0;
+    }
+
+    public void SetRawValue(int? value)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.CreateSubKey(RegSubKey, writable: true)
+                ?? throw new InvalidOperationException("Failed to open NGXCore registry key.");
+            if (value is int v)
+                key.SetValue(RegValueName, v, RegistryValueKind.DWord);
+            else
+                key.DeleteValue(RegValueName, throwOnMissingValue: false);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                "Administrator access is required to change the DLSS Indicator. " +
+                "Restart the app as Administrator and try again.");
+        }
     }
 
     public void SetEnabled(bool enabled)
