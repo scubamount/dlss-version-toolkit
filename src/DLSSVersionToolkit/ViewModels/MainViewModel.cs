@@ -147,6 +147,49 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     [ObservableProperty]
     private string _streamlineLatestSource = "";
 
+    /// <summary>
+    /// Health of the version feeds behind LATEST AVAILABLE (v0.76). Empty when every feed
+    /// answered. Non-empty names the feed that did not — e.g. NVIDIA moved its OTA root and the
+    /// old one 404s. Until v0.76 that failure went to Debug only, so "latest" silently degraded to
+    /// GitHub-only and a newer NVIDIA build could sit unnoticed.
+    /// </summary>
+    [ObservableProperty]
+    private string _versionFeedWarning = "";
+
+    /// <summary>Full reason (which root, which HTTP status) behind VersionFeedWarning; shown as its tooltip.</summary>
+    [ObservableProperty]
+    private string _versionFeedDetail = "";
+
+    /// <summary>
+    /// Driver-visible override state, read from nvngx_config.txt on every scan (v0.76). The
+    /// sidebar showed AnWave's DLL version and nothing about whether the override was actually
+    /// switched on, so "installed" and "active" looked identical.
+    /// </summary>
+    [ObservableProperty]
+    private string _overrideStatus = "checking…";
+
+    [ObservableProperty]
+    private bool _isOverrideActive;
+
+    private void RefreshOverrideStatus()
+    {
+        try
+        {
+            var state = AnWaveAutoService.ReadOverrideState(NgxPathResolver.GetConfigFilePath());
+            IsOverrideActive = state.IsActive;
+            OverrideStatus = state.IsActive ? $"active v{state.DlssVersion}"
+                : !state.ConfigExists ? "off (NVIDIA default)"
+                : state.Error != null ? "unreadable"
+                : "off (config present, not forced)";
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"RefreshOverrideStatus failed (non-fatal): {ex.Message}");
+            IsOverrideActive = false;
+            OverrideStatus = "unknown";
+        }
+    }
+
     [ObservableProperty]
     private string _versionStatusMessage = "";
 
@@ -233,6 +276,7 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     /// the parser and comparator as pure functions.
     /// </summary>
     private readonly NvidiaOtaService _otaService = new();
+    private readonly OverrideResetService _resetService;
     private readonly UpdateRunReportManager _runReports = new();
 
 public MainViewModel(
@@ -265,8 +309,14 @@ _dlssIndicatorService = dlssIndicatorService;
 _versionComparer = versionComparer;
 _localDllImportService = localDllImportService;
 _overrideManifestService = overrideManifestService;
+_resetService = new OverrideResetService(overrideManifestService);
 
 IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
+
+// Record the pre-toolkit state once, before anything can change it, so Reset has something
+// true to restore to (v0.76). Never overwrites an existing baseline.
+try { _resetService.EnsureBaselineCaptured(_dlssIndicatorService.GetRawValue()); }
+catch (Exception ex) { Debug.WriteLine($"Override baseline capture failed (non-fatal): {ex.Message}"); }
 
  LoadPresetDefaults();
 
@@ -790,6 +840,120 @@ private async Task ResetSelectionsAsync()
 }
 
 /// <summary>
+/// Undoes the driver-side changes this app makes (v0.76): turns the DRS preset overrides off,
+/// restores nvngx_config.txt and the DLSS indicator to their pre-toolkit baseline, and clears the
+/// imported-override records. The old "↺ Reset" only reset dropdowns, which read like an undo and
+/// was not one. Destructive enough to warrant an explicit confirmation that lists every change.
+/// </summary>
+[RelayCommand]
+private async Task ResetOverridesAsync()
+{
+	if (IsScanning || IsUpdatingAll || IsApplyingPreset) return;
+
+	var baseline = _resetService.LoadBaseline();
+	var baselineNote = baseline != null
+		? $"Restores the state recorded on {baseline.CapturedAt.ToLocalTime():yyyy-MM-dd HH:mm}."
+		: "No pre-toolkit snapshot exists, so the override config will be removed.";
+
+	var confirm = ThemedMessageBox.Show(
+		"Reset DLSS overrides to NVIDIA defaults?\n\n" +
+		"This will:\n" +
+		"  • Turn OFF the DLSS-SR / RR / FG preset overrides in the NVIDIA driver (all game profiles)\n" +
+		"  • Restore nvngx_config.txt (the global DLSS version override)\n" +
+		"  • Restore the DLSS on-screen indicator setting\n" +
+		"  • Clear this app's imported-override records\n\n" +
+		$"{baselineNote}\n" +
+		"The current nvngx_config.txt is backed up first. DLSS files in the NGX folder are not deleted — " +
+		"NVIDIA's updater manages them.\n\n" +
+		"Requires Administrator. Fully restart any running game afterwards.",
+		"Reset overrides", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+	if (confirm != MessageBoxResult.OK)
+		return;
+	// The modal pumps messages: a timer scan or Update All may have started while it was open.
+	if (IsScanning || IsUpdatingAll || IsApplyingPreset)
+	{
+		ThemedMessageBox.Show("Another operation started while this was open. Nothing was reset.\n\n" +
+			"What to do: wait for it to finish, then run Reset again.",
+			"Reset overrides", MessageBoxButton.OK, MessageBoxImage.Information);
+		return;
+	}
+
+	IsApplyingPreset = true;
+	DownloadStatus = "Resetting overrides...";
+	var lines = new List<string>();
+	var ok = true;
+	try
+	{
+		// 1) Driver presets: Default writes "override off" for SR/RR/FG on base + every game profile.
+		if (_presetOverrideService.IsAvailable)
+		{
+			var pr = await _presetOverrideService.ApplyPresetAsync(DlssPreset.Default, BuildPresetOptions(), MakeApplyProgress());
+			ok &= pr.Success;
+			lines.Add(pr.Success
+				? $"✅ Preset overrides turned off ({pr.GameProfilesUpdated} game profile(s))"
+				: $"❌ Preset overrides: {pr.ErrorMessage}");
+		}
+		else
+		{
+			lines.Add("ℹ️ Preset overrides: NVIDIA driver API unavailable — nothing to reset");
+		}
+
+		// 2) Config file + override records.
+		var files = await Task.Run(() => _resetService.ResetFiles());
+		foreach (var step in files.Steps)
+		{
+			ok &= step.Success;
+			lines.Add($"{(step.Success ? "✅" : "❌")} {step.Name}: {step.Detail}");
+		}
+
+		// 3) Indicator back to its exact baseline value; absent in the baseline = value deleted.
+		//    No baseline at all = leave the indicator alone (nothing true to restore to).
+		try
+		{
+			if (baseline != null)
+			{
+				_dlssIndicatorService.SetRawValue(baseline.IndicatorRawValue);
+				IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
+				lines.Add($"✅ DLSS indicator: restored ({(IsDlssIndicatorEnabled ? "on" : "off")})");
+			}
+			else
+			{
+				lines.Add("ℹ️ DLSS indicator: left as is (no pre-toolkit snapshot)");
+			}
+		}
+		catch (Exception ex)
+		{
+			ok = false;
+			lines.Add($"❌ DLSS indicator: {ex.Message}");
+		}
+
+		if (files.BackupFolder != null)
+			lines.Add($"\nPrevious config backed up to:\n  {files.BackupFolder}");
+	}
+	catch (Exception ex)
+	{
+		ok = false;
+		lines.Add($"❌ Reset failed: {ex.Message}");
+	}
+	finally
+	{
+		IsApplyingPreset = false;
+		DownloadStatus = "";
+	}
+
+	await DetectCurrentPresetSafeAsync();
+	await ScanAsync();
+
+	ThemedMessageBox.Show(
+		(ok ? "Overrides reset.\n\n" : "Reset finished with problems.\n\n") +
+		string.Join("\n", lines) +
+		(ok ? "\n\nFully restart any running game for the change to take effect."
+		    : "\n\nWhat to do: restart the app as Administrator and run Reset again."),
+		"Reset overrides", MessageBoxButton.OK,
+		ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+}
+
+/// <summary>
 /// Stops all Update All progress indicators (v0.0.39) AND refreshes dashboard state from disk
 /// (v0.69). MUST be called immediately before any terminal MessageBox inside
 /// OneClickUpdateAllAsync: the dialogs are modal, so the finally block that clears these flags
@@ -845,7 +1009,10 @@ private string BuildAppliedOverrideLines(string? ngxBase)
 			if (!component.IsPresent)
 				continue;   // absent components are not news; the run may not install them
 
-			lines.Add($"🔒 {component.DllName} v{component.Version} active");
+			// ✔ = read back from disk. 🔒 is reserved for a user-imported override (the grid's
+			// Override column); printing it on every present DLL made the dialog claim four
+			// overrides after a plain update (v0.76).
+			lines.Add($"✔ {component.DllName} v{component.Version} verified on disk");
 			_runReports.Add("Applied", "ok", $"{component.DllName} v{component.Version} verified on disk");
 		}
 
@@ -867,6 +1034,42 @@ private string BuildAppliedOverrideLines(string? ngxBase)
 		return "";
 	}
 }
+
+/// <summary>
+/// Bulleted file list, every item bulleted. The old <c>string.Join("\n  • ", files)</c> put the
+/// separator only BETWEEN items, so the first file printed without a bullet (v0.76 screenshot).
+/// </summary>
+internal static string BulletList(IEnumerable<string> items, string empty)
+{
+	var list = items.ToList();
+	return list.Count == 0 ? $"  {empty}" : string.Join("\n", list.Select(i => $"  • {i}"));
+}
+
+/// <summary>
+/// The closing "is the override active" sentence, read back from nvngx_config.txt instead of
+/// asserted (v0.76). The dialog used to print "DLSS Override is now globally active" whenever
+/// AnWave returned success, whether or not the driver config said so.
+/// </summary>
+private static string BuildOverrideActivationLine(string? intendedVersion)
+{
+	var state = AnWaveAutoService.ReadOverrideState(NgxPathResolver.GetConfigFilePath());
+	if (!state.ConfigExists)
+		return "⚠️ DLSS Override is NOT active: nvngx_config.txt was not found.\n" +
+		       "What to do: run Update All as Administrator, or use Setup AnWave.";
+	if (!state.DlssForced || string.IsNullOrEmpty(state.DlssVersion))
+		return "⚠️ DLSS Override is NOT active: nvngx_config.txt does not force a DLSS version.\n" +
+		       "What to do: run Update All again as Administrator.";
+	if (!string.IsNullOrEmpty(intendedVersion) &&
+		!VersionsMatch(state.DlssVersion, intendedVersion))
+		return $"⚠️ DLSS Override points at v{state.DlssVersion}, not v{intendedVersion}.\n" +
+		       "What to do: run Update All again; if it persists, use Reset and re-apply.";
+	return $"DLSS Override is active (verified in nvngx_config.txt).\n" +
+	       $"Games using DLSS will load v{state.DlssVersion} after a full restart.";
+}
+
+// Numeric 4-part compare ("310.9.1" == "310.9.1.0", "310.9.10" != "310.9.1").
+private static bool VersionsMatch(string? a, string? b) =>
+	NvidiaOtaService.CompareVersions(a?.Replace(',', '.'), b?.Replace(',', '.')) == 0;
 
 /// <summary>
 /// Progress adapter for ApplyPresetAsync (v0.0.39): first report switches the bar from
@@ -1300,7 +1503,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
     [RelayCommand]
     private async Task OneClickUpdateAllAsync()
     {
-        if (IsScanning || IsSettingUpAnWave || IsUpdatingAll) return;
+        if (IsScanning || IsSettingUpAnWave || IsUpdatingAll || IsApplyingPreset) return;
 
         // Pre-flight dialog (v0.0.54). Update All used to fire on click with no confirmation.
         // Local DLL import is the one step it cannot do unattended — it needs a folder the user
@@ -1443,6 +1646,9 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     // path for most users, so it must save too, not just the Apply button.
                     await SavePresetSelectionsAsync();
                     _runReports.Add("Presets", "ok", $"{DlssPresetDisplay.GetShortLabel(presetToApply)} applied to {pr.GameProfilesUpdated} game profile(s)");
+                    // Re-read from the driver so "Current:" reflects what was written, not the
+                    // startup probe (v0.76: it kept saying "Default (no override)" after an apply).
+                    await DetectCurrentPresetSafeAsync();
                     if (pr.ProfilesSkipped > 0)
                         _runReports.Add("Presets", "warn",
                             $"{pr.ProfilesSkipped} profile(s) skipped (driver write failed): " +
@@ -1657,14 +1863,12 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 if (!anWaveOp.Success)
                 {
                     _runReports.Add("AnWave", "fail", anWaveOp.ErrorMessage ?? "apply failed");
-                    var ngxFiles = ngxOp.FilesCopied.Count > 0
-                        ? string.Join("\n  • ", ngxOp.FilesCopied)
-                        : "  (no files needed copying)";
+                    var ngxFiles = BulletList(ngxOp.FilesCopied, "(no files needed copying)");
                     await EndUpdateAllProgressAsync();
                     ThemedMessageBox.Show(
                         $"Partial update — NGX succeeded but AnWave failed.\n\n" +
                         $"✅ NGX Release: v{sdkVersion} applied ({ngxOp.FilesCopied.Count} files)\n" +
-                        $"  {ngxFiles}\n\n" +
+                        $"{ngxFiles}\n\n" +
                         $"❌ AnWave: {anWaveOp.ErrorMessage}\n\n" +
                         "What to do: NGX is updated. Run 'Update All' again or re-run 'Setup AnWave' to fix AnWave.",
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1676,10 +1880,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     var ngxStatus = ngxOp.FilesCopied.Count > 0
                         ? $"v{sdkVersion} updated ({ngxOp.FilesCopied.Count} files)"
                         : "already up to date";
-                    var ngxDetail = ngxOp.FilesCopied.Count > 0
-                        ? string.Join("\n  • ", ngxOp.FilesCopied)
-                        : "  (no files needed)";
-                    var anWaveFiles = string.Join("\n  • ", anWaveOp.FilesCopied);
+                    var ngxDetail = BulletList(ngxOp.FilesCopied, "(no files needed)");
+                    var anWaveFiles = BulletList(anWaveOp.FilesCopied, "(no files needed)");
                     var appliedVer = anWaveOp.AppliedVersion ?? sdkVersion;
                     // v0.0.42: honest Streamline line. The old one showed "✅ synced (0 files)"
                     // even when the sync FAILED — which hid the bin\x64 doubling bug for 5 releases.
@@ -1697,11 +1899,10 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                         BuildAppliedOverrideLines(ngxBase) +
                         slLine +
                         $"✅ NGX Release: {ngxStatus}\n" +
-                        $"  {ngxDetail}\n\n" +
+                        $"{ngxDetail}\n\n" +
                         $"✅ AnWave: v{appliedVer} applied ({anWaveOp.FilesCopied.Count} files)\n" +
-                        $"  {anWaveFiles}\n\n" +
-                        "DLSS Override is now globally active.\n" +
-                        "Games using DLSS will use v" + appliedVer + ".",
+                        $"{anWaveFiles}\n\n" +
+                        BuildOverrideActivationLine(appliedVer),
                         "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             }
@@ -1748,9 +1949,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 					: ngxBase;
 				var anWaveOp = await _anWaveAutoService.AutoApplyAsync(anWaveTarget!, anWaveNgxSource, null);
 
-				var ngxFiles = ngxOp.FilesCopied.Count > 0
-					? string.Join("\n • ", ngxOp.FilesCopied)
-					: " (no files needed)";
+				var ngxFiles = BulletList(ngxOp.FilesCopied, "(no files needed)");
 				var ngxStatus = ngxOp.FilesCopied.Count > 0
 					? $"v{sdkVersion} updated ({ngxOp.FilesCopied.Count} files)"
 					: "already up to date";
@@ -1764,7 +1963,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 						unlockLine +
 						BuildAppliedOverrideLines(ngxBase) +
 						$"✅ NGX Release: {ngxStatus}\n" +
-						$" {ngxFiles}\n\n" +
+						$"{ngxFiles}\n\n" +
 						$"❌ AnWave apply: {anWaveOp.ErrorMessage}\n\n" +
 						"What to do: NGX is updated. Run 'Update All' again or re-run 'Setup AnWave' to fix AnWave.",
 						"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1776,7 +1975,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 					if (anWaveOp.FailedFiles.Count > 0)
 						_runReports.Add("AnWave", "warn",
 							$"{anWaveOp.FailedFiles.Count} DLL(s) skipped: " + string.Join("; ", anWaveOp.FailedFiles));
-					var anWaveFiles = string.Join("\n • ", anWaveOp.FilesCopied);
+					var anWaveFiles = BulletList(anWaveOp.FilesCopied, "(no files needed)");
 					var appliedVer = anWaveOp.AppliedVersion ?? sdkVersion;
 					await EndUpdateAllProgressAsync();
 					ThemedMessageBox.Show(
@@ -1784,19 +1983,16 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 						unlockLine +
 						BuildAppliedOverrideLines(ngxBase) +
 						$"✅ NGX Release: {ngxStatus}\n" +
-						$" {ngxFiles}\n\n" +
+						$"{ngxFiles}\n\n" +
 						$"✅ AnWave setup + apply: v{appliedVer} ({anWaveOp.FilesCopied.Count} files)\n" +
-						$" {anWaveFiles}\n\n" +
-						"DLSS Override is now globally active.\n" +
-						"Games using DLSS will use v" + appliedVer + ".",
+						$"{anWaveFiles}\n\n" +
+						BuildOverrideActivationLine(appliedVer),
 						"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
 				}
 			}
 			else
 			{
-				var ngxFiles = ngxOp.FilesCopied.Count > 0
-					? string.Join("\n • ", ngxOp.FilesCopied)
-					: " (already up to date)";
+				var ngxFiles = BulletList(ngxOp.FilesCopied, "(already up to date)");
 				var versionStatus = ngxOp.FilesCopied.Count > 0
 					? $"NGX Release updated to v{sdkVersion}."
 					: $"NGX Release already at v{sdkVersion}.";
@@ -1806,7 +2002,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 					unlockLine +
 					BuildAppliedOverrideLines(ngxBase) +
 					$"Files copied ({ngxOp.FilesCopied.Count}):\n" +
-					$" {ngxFiles}\n\n" +
+					$"{ngxFiles}\n\n" +
 					$"❌ AnWave auto-setup failed: {setupResult.ErrorMessage}\n\n" +
 					"What to do: NGX is updated. Try 'Setup AnWave' separately from the Advanced menu.",
 					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1834,17 +2030,35 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
     }
 
+    /// <summary>
+    /// Serializes scans. v0.75 and earlier had <c>if (IsScanning) return;</c> here, which DROPPED
+    /// the refresh instead of running it: SyncAsync sets IsScanning before calling ScanAsync (so its
+    /// refresh never ran), and the post-Update-All rescan was discarded whenever the launch scan or
+    /// a Rescan click was still in flight. The completion dialog and grid then showed the numbers
+    /// from before the run — and the NEXT run showed this run's results. A caller that asks for a
+    /// refresh now waits its turn and gets one.
+    /// </summary>
+    private readonly SemaphoreSlim _scanGate = new(1, 1);
+
+    // IsScanning has two independent owners: a scan (inside the gate) and SyncAsync (around its
+    // whole operation). Each clears only its own flag; IsScanning is the OR. Capturing and
+    // restoring a single value let a queued scan re-assert true after Sync had cleared it.
+    // All writes run on the UI thread (async continuations), so plain bools are sufficient.
+    private bool _scanActive;
+    private bool _syncActive;
+
     [RelayCommand]
     private async Task ScanAsync()
     {
-        if (IsScanning) return;
-
+        await _scanGate.WaitAsync();
+        _scanActive = true;
         IsScanning = true;
         ScanStatus = "Scanning...";
         StatusMessage = "";
 
         try
         {
+            RefreshOverrideStatus();
             var result = await _scanService.ScanAllAsync();
             _lastScanResult = result;
 
@@ -1925,6 +2139,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             // the "UP TO DATE" pill ignored Streamline entirely — 2.11.1 showed green while
             // 2.12.0 sat on GitHub).
             string? slLatest = null;
+            StreamlineLatestSource = "";
+            var feedProblems = new List<string>();
             try
             {
                 var slReleases = await _streamlineDownloadService.GetAvailableReleasesAsync();
@@ -1934,10 +2150,15 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     .OrderBy(v => v, Comparer<string>.Create((a, b) =>
                         _versionComparer.IsNewer(a, b) ? 1 : _versionComparer.IsNewer(b, a) ? -1 : 0))
                     .LastOrDefault();
+                if (slLatest != null)
+                    StreamlineLatestSource = "GitHub";
+                else
+                    feedProblems.Add("GitHub (Streamline)");
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"ScanAsync: could not query latest Streamline releases (offline?): {ex.Message}");
+                feedProblems.Add("GitHub (Streamline)");
             }
 
             // Streamline OTA (v0.71), same reasoning as DLSS: GitHub's newest was 2.12.0 while
@@ -1950,10 +2171,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 {
                     slLatest = otaSl.Version;
                     StreamlineLatestSource = otaSl.IsPreRelease ? "OTA pre-release" : "OTA";
-                }
-                else if (slLatest != null && otaSl != null)
-                {
-                    StreamlineLatestSource = "GitHub";
                 }
             }
             catch (Exception ex)
@@ -2008,6 +2225,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             var cachedVersion = _dlssDownloadService.GetCachedSdkVersion();
 
             string? latestAvailable = null;
+            DlssLatestSource = "";
             try
             {
                 var releases = await _dlssDownloadService.GetAvailableReleasesAsync();
@@ -2018,10 +2236,15 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     .OrderBy(v => v, Comparer<string>.Create((a, b) =>
                         _versionComparer.IsNewer(a, b) ? 1 : _versionComparer.IsNewer(b, a) ? -1 : 0))
                     .LastOrDefault();
+                if (latestAvailable != null)
+                    DlssLatestSource = "GitHub";
+                else
+                    feedProblems.Add("GitHub (DLSS)");
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"ScanAsync: could not query latest DLSS releases (offline?): {ex.Message}");
+                feedProblems.Add("GitHub (DLSS)");
             }
 
             // OTA (v0.71). GitHub publishes the SDK — what you can build against — and it lags
@@ -2041,23 +2264,36 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     latestAvailable = otaDlss;
                     DlssLatestSource = otaDlssResult!.IsPreRelease ? "OTA pre-release" : "OTA";
                 }
-                else if (latestAvailable != null && otaDlss != null)
-                {
-                    DlssLatestSource = "GitHub";
-                }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"ScanAsync: OTA manifest unavailable (non-fatal): {ex.Message}");
             }
 
+            // The OTA service never throws for an unreachable endpoint; it records why. Read that
+            // record here so a dead channel is on screen rather than only in the debugger.
+            if (_otaService.GetLastError(OtaChannel.Production) is { } prodErr)
+            {
+                feedProblems.Add("NVIDIA OTA");
+                Debug.WriteLine($"ScanAsync: {prodErr}");
+            }
+            // Staging is consulted only when the user opted in; its failure must show too.
+            if (_settingsService.GetCached().IncludePreReleaseChannel &&
+                _otaService.GetLastError(OtaChannel.Staging) is not null)
+                feedProblems.Add("NVIDIA OTA pre-release");
+            VersionFeedWarning = feedProblems.Count == 0
+                ? ""
+                : $"Could not check {string.Join(", ", feedProblems.Distinct())} — latest version may be out of date";
+            VersionFeedDetail = _otaService.GetLastError(OtaChannel.Production) ?? "";
+
             // Take the newest of {upstream latest, cached, installed} as the displayed "available".
-            foreach (var candidate in new[] { cachedVersion, installedVer })
+            foreach (var (candidate, label) in new[] { (cachedVersion, "cached download"), (installedVer, "installed") })
             {
                 if (!string.IsNullOrWhiteSpace(candidate) &&
                     (latestAvailable == null || _versionComparer.IsNewer(candidate!, latestAvailable)))
                 {
                     latestAvailable = candidate;
+                    DlssLatestSource = label;
                 }
             }
 
@@ -2173,8 +2409,10 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
         finally
         {
-            IsScanning = false;
+            _scanActive = false;
+            IsScanning = _syncActive;
             RefreshGamesSection();
+            _scanGate.Release();
         }
     }
 
@@ -2196,6 +2434,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
         if (result != MessageBoxResult.Yes) return;
 
+        _syncActive = true;
         IsScanning = true;
         ScanStatus = "Syncing...";
 
@@ -2263,7 +2502,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
         finally
         {
-            IsScanning = false;
+            _syncActive = false;
+            IsScanning = _scanActive;
             ScanStatus = "Ready";
         }
     }
@@ -2436,12 +2676,18 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
     }
 
     [RelayCommand]
-    private void OpenSettings()
+    private async Task OpenSettingsAsync()
     {
-        var settingsDialog = new SettingsDialog(_settingsService);
+        var settingsDialog = new SettingsDialog(_settingsService)
+        {
+            Owner = App.Current.MainWindow,
+        };
         if (settingsDialog.ShowDialog() == true)
         {
-            StatusMessage = "Settings saved. Re-scan to apply changes.";
+            // v0.76: apply immediately. "Settings saved. Re-scan to apply changes." left the grid
+            // describing the old paths until the user noticed and clicked Rescan.
+            StatusMessage = "Settings saved.";
+            await ScanAsync();
         }
     }
 
@@ -2615,10 +2861,11 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     $"nvidiaDlssGlom v{result.GlomVersion} installed\n" +
                     $"DLSS version: v{result.DllVersion}\n\n" +
                     $"Location: {result.InstalledPath}\n\n" +
-                    "DLSS Override has been activated globally.\n" +
-                    "Games using DLSS should now use v" + result.DllVersion + ".\n\n" +
-                    "What to do next: Launch a DLSS-enabled game to verify the override is working.",
+                    // Read back, not asserted (v0.76) — same check as the Update All dialog.
+                    BuildOverrideActivationLine(result.DllVersion) + "\n\n" +
+                    "What to do next: turn on the DLSS Indicator (top right) and launch a DLSS game to confirm.",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
+                RefreshOverrideStatus();
             }
             else
             {

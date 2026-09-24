@@ -1,14 +1,48 @@
 <Window x:Class="DLSSVersionToolkit.SettingsDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Settings" Width="480" SizeToContent="Height"
-        MinHeight="320" MinWidth="420" MaxHeight="720"
+        Title="Settings — DLSS Version Toolkit" Width="560" SizeToContent="Height"
+        MinHeight="360" MinWidth="460" MaxHeight="760"
         WindowStartupLocation="CenterOwner"
-        Background="{StaticResource DarkBackgroundBrush}"
+        Background="{StaticResource CanvasBrush}"
         ResizeMode="CanResize"
         ShowInTaskbar="False">
     <!-- v0.0.58: height sized by content (the v0.0.48 DPI-clip fix pattern) — a fixed 520px
-         Height clipped the Save/Cancel row behind the bottom edge at 150%+ scaling. -->
+         Height clipped the Save/Cancel row behind the bottom edge at 150%+ scaling.
+         v0.76: grouped into cards, detected-path hint, per-path "folder not found" warnings, a
+         status line for load/save errors, and "Restore previous" (snapshot taken on open). -->
+    <Window.Resources>
+        <Style x:Key="SectionCard" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Panel1Brush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="14,12"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource NvidiaGreenBrush}"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{StaticResource Text1Brush}"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{StaticResource Text3Brush}"/>
+        </Style>
+        <Style x:Key="Warn" TargetType="TextBlock" BasedOn="{StaticResource Hint}">
+            <Setter Property="Foreground" Value="{StaticResource AmberBrush}"/>
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Setter Property="Text" Value="⚠ Folder not found — auto-detect will be used instead."/>
+        </Style>
+    </Window.Resources>
+
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -17,106 +51,120 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Title -->
-        <TextBlock Grid.Row="0" Text="Settings" FontSize="18" FontWeight="Bold"
-                   Foreground="{StaticResource NvidiaGreenBrush}" Margin="0,0,0,16"/>
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <TextBlock Text="Settings" FontSize="20" FontWeight="Bold" Foreground="{StaticResource NvidiaGreenBrush}"/>
+            <TextBlock Text="Paths are optional — leave them empty and the toolkit finds them for you."
+                       Style="{StaticResource Hint}" Margin="0,2,0,0"/>
+        </StackPanel>
 
-        <!-- Settings Form -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <!-- Paths Section -->
-                <TextBlock Text="Paths" FontSize="12" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,8"/>
+                <Border Style="{StaticResource SectionCard}">
+                    <StackPanel>
+                        <TextBlock Text="PATHS" Style="{StaticResource SectionTitle}"/>
 
-                <!-- NGX Path -->
-                <Label Content="NGX Base Path:"/>
-                <Grid Margin="0,0,0,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="NgxPathTextBox" Grid.Column="0" Margin="0,0,8,0"/>
-                    <Button Grid.Column="1" Content="Browse..." Style="{StaticResource DarkButtonStyle}"
-                            Click="BrowseNgxPath_Click" Padding="12,6"/>
-                </Grid>
+                        <TextBlock Text="NGX base folder" Style="{StaticResource FieldLabel}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="NgxPathTextBox" Grid.Column="0" Margin="0,0,8,0"
+                                     TextChanged="Path_TextChanged" AutomationProperties.Name="NGX base folder"/>
+                            <Button Grid.Column="1" Content="Browse…" Style="{StaticResource DarkButtonStyle}"
+                                    Click="BrowseNgxPath_Click" Padding="12,6" Margin="0"/>
+                        </Grid>
+                        <TextBlock x:Name="NgxDetectedText" Style="{StaticResource Hint}" Margin="0,4,0,0"/>
+                        <TextBlock x:Name="NgxWarnText" Style="{StaticResource Warn}" Margin="0,2,0,0"/>
 
-                <!-- AnWave Path -->
-                <Label Content="AnWave Path (optional):"/>
-                <Grid Margin="0,0,0,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="AnWavePathTextBox" Grid.Column="0" Margin="0,0,8,0"/>
-                    <Button Grid.Column="1" Content="Browse..." Style="{StaticResource DarkButtonStyle}"
-                            Click="BrowseAnWavePath_Click" Padding="12,6"/>
-                </Grid>
-                <TextBlock Text="Leave empty for auto-detect" FontSize="10"
-                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,-8,0,12"/>
+                        <TextBlock Text="AnWave / nvidiaDlssGlom folder" Style="{StaticResource FieldLabel}" Margin="0,12,0,4"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="AnWavePathTextBox" Grid.Column="0" Margin="0,0,8,0"
+                                     TextChanged="Path_TextChanged" AutomationProperties.Name="AnWave folder"/>
+                            <Button Grid.Column="1" Content="Browse…" Style="{StaticResource DarkButtonStyle}"
+                                    Click="BrowseAnWavePath_Click" Padding="12,6" Margin="0"/>
+                        </Grid>
+                        <TextBlock Text="Empty = the copy Setup AnWave installs (or one unpacked in Downloads)."
+                                   Style="{StaticResource Hint}" Margin="0,4,0,0"/>
+                        <TextBlock x:Name="AnWaveWarnText" Style="{StaticResource Warn}" Margin="0,2,0,0"/>
 
-                <!-- Streamline Path -->
-                <Label Content="Streamline SDK Path (optional):"/>
-                <Grid Margin="0,0,0,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="StreamlinePathTextBox" Grid.Column="0" Margin="0,0,8,0"/>
-                    <Button Grid.Column="1" Content="Browse..." Style="{StaticResource DarkButtonStyle}"
-                            Click="BrowseStreamlinePath_Click" Padding="12,6"/>
-                </Grid>
-                <TextBlock Text="Leave empty for auto-detect" FontSize="10"
-                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,-8,0,16"/>
+                        <TextBlock Text="Streamline SDK folder" Style="{StaticResource FieldLabel}" Margin="0,12,0,4"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="StreamlinePathTextBox" Grid.Column="0" Margin="0,0,8,0"
+                                     TextChanged="Path_TextChanged" AutomationProperties.Name="Streamline SDK folder"/>
+                            <Button Grid.Column="1" Content="Browse…" Style="{StaticResource DarkButtonStyle}"
+                                    Click="BrowseStreamlinePath_Click" Padding="12,6" Margin="0"/>
+                        </Grid>
+                        <TextBlock Text="Empty = the x64 SDK that Update All downloads."
+                                   Style="{StaticResource Hint}" Margin="0,4,0,0"/>
+                        <TextBlock x:Name="StreamlineWarnText" Style="{StaticResource Warn}" Margin="0,2,0,0"/>
+                    </StackPanel>
+                </Border>
 
-                <!-- Options Section -->
-                <TextBlock Text="Options" FontSize="12" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,8"/>
+                <Border Style="{StaticResource SectionCard}">
+                    <StackPanel>
+                        <TextBlock Text="BEHAVIOUR" Style="{StaticResource SectionTitle}"/>
+                        <CheckBox x:Name="StartMinimizedCheckBox" Content="Start minimized to tray"/>
+                        <CheckBox x:Name="MinimizeToTrayCheckBox" Content="Minimize to tray instead of closing"/>
+                        <CheckBox x:Name="AutoScanCheckBox" Content="Re-scan in the background every 4 hours"/>
+                        <CheckBox x:Name="NotifyOnNewVersionCheckBox" Content="Notify me when a new DLSS version is available"/>
+                        <CheckBox x:Name="CheckForAppUpdatesCheckBox" Content="Check for toolkit updates on launch"/>
+                    </StackPanel>
+                </Border>
 
-                <CheckBox x:Name="StartMinimizedCheckBox" Content="Start minimized to tray" Margin="0,4"/>
-                <CheckBox x:Name="AutoScanCheckBox" Content="Enable periodic background scans (every 4 hours)" Margin="0,4"/>
-                <CheckBox x:Name="MinimizeToTrayCheckBox" Content="Minimize to tray instead of closing" Margin="0,4"/>
-                <CheckBox x:Name="NotifyOnNewVersionCheckBox" Content="Show notifications for new DLSS versions" Margin="0,4"/>
-                <CheckBox x:Name="CheckForAppUpdatesCheckBox" Content="Check for app updates on launch" Margin="0,4"/>
+                <!-- Update sources (v0.72). -->
+                <Border Style="{StaticResource SectionCard}">
+                    <StackPanel>
+                        <TextBlock Text="UPDATE SOURCES" Style="{StaticResource SectionTitle}"/>
 
-                <!-- Advanced update sources (v0.72). Both default off: they widen where version
-                     information and binaries come from, so they are the user's call. -->
-                <TextBlock Text="Update sources" FontSize="12" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,16,0,8"/>
+                        <CheckBox x:Name="IncludePreReleaseCheckBox" Content="Include pre-release (staging) channel"/>
+                        <TextBlock Text="Shows NVIDIA's staging builds, which run ahead of the ones the driver installs on its own. Labelled &quot;OTA pre-release&quot; and only shown when newer."
+                                   Style="{StaticResource Hint}" Margin="24,0,0,8"/>
 
-                <CheckBox x:Name="IncludePreReleaseCheckBox"
-                          Content="Include pre-release (staging) channel"
-                          Margin="0,4"/>
-                <TextBlock Text="Shows NVIDIA's staging builds, which run ahead of the ones the driver installs on its own. Labelled &quot;OTA pre-release&quot; and only shown when newer."
-                           FontSize="10" TextWrapping="Wrap" Margin="24,0,0,4"
-                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <CheckBox x:Name="AllowOtaDownloadsCheckBox" Content="Allow downloads from NVIDIA's OTA channel"/>
+                        <TextBlock Text="Fetches component files from NVIDIA's update CDN instead of GitHub only. Every file is checked against its published SHA-256 and NVIDIA's Authenticode signature before it is installed."
+                                   Style="{StaticResource Hint}" Margin="24,0,0,8"/>
 
-                <CheckBox x:Name="AllowOtaDownloadsCheckBox"
-                          Content="Allow downloads from NVIDIA's OTA channel"
-                          Margin="0,4"/>
-                <TextBlock Text="Fetches component files from NVIDIA's update CDN instead of GitHub only. Every file is checked against its published SHA-256 and NVIDIA's Authenticode signature before it is installed."
-                           FontSize="10" TextWrapping="Wrap" Margin="24,0,0,4"
-                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <CheckBox x:Name="OtaRedistributionAcceptedCheckBox"
+                                  Content="I accept responsibility for fetching NVIDIA components"
+                                  Margin="24,4,0,4"/>
+                        <TextBlock Text="Required before any OTA download runs. These are NVIDIA-copyrighted files served from an endpoint NVIDIA does not publicly document; redistribution terms are unresolved. Until this is checked the toolkit only reports which versions exist and downloads nothing."
+                                   Style="{StaticResource Hint}" Margin="44,0,0,4"/>
+                    </StackPanel>
+                </Border>
 
-                <CheckBox x:Name="OtaRedistributionAcceptedCheckBox"
-                          Content="I accept responsibility for fetching NVIDIA components"
-                          Margin="24,4,0,4"/>
-                <TextBlock Text="Required before any OTA download runs. These are NVIDIA-copyrighted files served from an endpoint NVIDIA does not publicly document; redistribution terms are unresolved. Until this is checked the toolkit only reports which versions exist and downloads nothing."
-                           FontSize="10" TextWrapping="Wrap" Margin="44,0,0,4"
-                           Foreground="{StaticResource TextSecondaryBrush}"/>
-
-                <!-- Watermark -->
-                <TextBlock Text="by Scubamount" FontSize="10"
-                           Foreground="{StaticResource TextSecondaryBrush}"
-                           HorizontalAlignment="Right" Margin="0,20,0,0" FontStyle="Italic"/>
+                <TextBlock Text="by Scubamount" FontSize="10" Foreground="{StaticResource Text3Brush}"
+                           HorizontalAlignment="Right" Margin="0,4,0,0" FontStyle="Italic"/>
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Buttons -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-            <Button Content="Save" Style="{StaticResource DarkButtonStyle}"
-                    Click="Save_Click" Width="80" Margin="0,0,8,0"/>
-            <Button Content="Cancel" Style="{StaticResource DarkButtonStyle}"
-                    Click="Cancel_Click" Width="80"/>
-        </StackPanel>
+        <TextBlock x:Name="StatusText" Grid.Row="2" Visibility="Collapsed" TextWrapping="Wrap"
+                   FontSize="11" Foreground="{StaticResource AmberBrush}" Margin="0,10,0,0"/>
+
+        <Grid Grid.Row="3" Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Button x:Name="RestorePreviousButton" Grid.Column="0" Content="↶  Restore previous"
+                    Style="{StaticResource DarkButtonStyle}" Margin="0" IsEnabled="False"
+                    Click="RestorePrevious_Click"
+                    ToolTip="Loads the settings as they were when this window was opened. Nothing is written until you click Save."/>
+            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <Button x:Name="SaveButton" Content="Save" Style="{StaticResource PrimaryButtonStyle}"
+                        Click="Save_Click" MinWidth="90" Margin="0,0,8,0" IsDefault="True"/>
+                <Button Content="Cancel" Style="{StaticResource DarkButtonStyle}"
+                        Click="Cancel_Click" MinWidth="90" Margin="0" IsCancel="True"/>
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

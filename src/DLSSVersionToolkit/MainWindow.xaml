@@ -189,6 +189,28 @@
                                     <Run Text="AnWave: "/><Run Text="{Binding AnWaveDllVersion, Mode=OneWay, TargetNullValue='not set', FallbackValue='not set'}"/>
                                 </TextBlock>
                             </StackPanel>
+                            <!-- Override state (v0.76): read from nvngx_config.txt each scan, so
+                                 "AnWave installed" and "override switched on" are distinguishable. -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                <Ellipse Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center"
+                                         AutomationProperties.Name="DLSS override status dot">
+                                    <Ellipse.Style>
+                                        <Style TargetType="Ellipse">
+                                            <Setter Property="Fill" Value="{StaticResource Text3Brush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsOverrideActive}" Value="True">
+                                                    <Setter Property="Fill" Value="{StaticResource SuccessBrush}"/>
+                                                    <Setter Property="AutomationProperties.Name" Value="DLSS override: active"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
+                                <TextBlock Foreground="{StaticResource Text2Brush}" FontSize="11" VerticalAlignment="Center"
+                                           ToolTip="What the NVIDIA driver will load, read from nvngx_config.txt. Use 'Reset all overrides' to switch it off.">
+                                    <Run Text="Override: "/><Run Text="{Binding OverrideStatus, Mode=OneWay}"/>
+                                </TextBlock>
+                            </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <Ellipse Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center">
                                     <Ellipse.Style>
@@ -402,6 +424,21 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
+                                <!-- Feed health (v0.76): names a version feed that did not answer, so a
+                                     dead endpoint is visible instead of silently narrowing "latest". -->
+                                <TextBlock Text="{Binding VersionFeedWarning}" FontSize="10" TextWrapping="Wrap"
+                                           ToolTip="{Binding VersionFeedDetail}"
+                                           MaxWidth="260" Foreground="{StaticResource AmberBrush}" Margin="0,2,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding VersionFeedWarning}" Value="">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </StackPanel>
                             <!-- Streamline SDK version (v0.0.38). Sits in the flexible column so the
                                  status pill stays pinned right. NGX folders can't carry a Streamline
@@ -572,11 +609,21 @@
                                      apply presets meant two things to keep in sync and no way to
                                      tell which one the user had actually run. Update All is the
                                      single apply path; Reset stays as the escape hatch. -->
-                                <Button Content="↺  Reset" Style="{StaticResource DarkButtonStyle}"
+                                <!-- v0.76: two distinct buttons. "Reset" used to only reset these dropdowns,
+                                     which read as an undo and was not one. -->
+                                <Button Content="↺  Default selections" Style="{StaticResource DarkButtonStyle}"
                                         HorizontalAlignment="Left"
                                         Command="{Binding ResetSelectionsCommand}"
                                         IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
                                         ToolTip="Restores every dropdown above to its recommended default (SR L, RR E, FG B, Dynamic 6x) and clears the saved selections. Changes nothing on your driver until you apply."/>
+                                <Button Style="{StaticResource DangerButtonStyle}"
+                                        HorizontalAlignment="Left" Margin="8,0,0,0"
+                                        Command="{Binding ResetOverridesCommand}"
+                                        IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
+                                        AutomationProperties.Name="Reset all overrides"
+                                        ToolTip="UNDO: turns off the driver preset overrides, restores nvngx_config.txt and the DLSS indicator to how they were before this app, and clears imported-override records. Asks for confirmation first.">
+                                    <TextBlock><Run Text="⟲"/><Run Text="  Reset all overrides…"/></TextBlock>
+                                </Button>
                             </StackPanel>
                         </StackPanel>
                     </Grid>
@@ -633,9 +680,12 @@
                             </DataGrid.CellStyle>
 
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Source" Binding="{Binding DisplaySource}" Width="140">
+                                <!-- v0.76: 140 truncated "NVIDIA OTA cache (pre-release)" to "NVIDIA OTA cache (" -->
+                                <DataGridTextColumn Header="Source" Binding="{Binding DisplaySource}" MinWidth="150" Width="Auto">
                                     <DataGridTextColumn.ElementStyle>
                                         <Style TargetType="TextBlock">
+                                            <Setter Property="ToolTip" Value="{Binding DisplaySource}"/>
+                                            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
                                             <Setter Property="Foreground" Value="{StaticResource NvidiaGreenBrush}"/>
                                             <Setter Property="FontWeight" Value="SemiBold"/>
                                             <Setter Property="VerticalAlignment" Value="Center"/>

@@ -113,20 +113,103 @@ public class OtaManifestTests
     }
 
     /// <summary>
-    /// Production channel, not staging. The dev-models root ran ahead of production
-    /// (310.9.0 / 2.14.0 versus 310.7.128 / 2.12.128) — but a staging build is not an update
-    /// available to the user, and prompting toward one produces an update that can never be
-    /// satisfied by the driver.
+    /// Production channel, not staging. The dev-models root runs ahead of production — but a
+    /// staging build is not an update available to the user, and prompting toward one produces an
+    /// update that can never be satisfied by the driver.
+    ///
+    /// v0.76: production is a candidate LIST, resolved at fetch time. The single pinned root
+    /// `3e933c08…` began returning 404 NoSuchKey for the manifest and every payload, while
+    /// `d6e9b45e…` served a live manifest — and the app, querying only the dead one, silently fell
+    /// back to GitHub-only. Both roots must stay candidates (NVIDIA has moved between them in both
+    /// directions), the live one first, and staging must never be among them.
     /// </summary>
     [Fact]
     public void UsesProductionChannel_NotStaging()
     {
-        var src = File.ReadAllText(Path.Combine(SiblingSweepTests.FindRepoSubdir("src"),
-            "DLSSVersionToolkit.Core", "Services", "NvidiaOtaService.cs"));
+        var candidates = NvidiaOtaService.ProductionChannelCandidates;
 
-        Assert.Contains("3e933c08-ea30-45ae-93d1-5114edf9c3b9", src);
-        // The staging root must not be what the app queries.
-        Assert.DoesNotContain("ManifestUrlTemplate, \"dev-models\"", src);
+        Assert.Equal("d6e9b45e-d4f6-4a84-a460-bf61decae3e8", candidates[0]);
+        Assert.Contains("3e933c08-ea30-45ae-93d1-5114edf9c3b9", candidates);
+        Assert.DoesNotContain(NvidiaOtaService.StagingChannel, candidates);
+        Assert.Contains(NvidiaOtaService.ProductionChannel, candidates);
+        Assert.Equal(new[] { NvidiaOtaService.StagingChannel },
+            NvidiaOtaService.CandidateRootsFor(OtaChannel.Staging));
+    }
+
+    // ---- root resolution (v0.76) -------------------------------------------
+
+    /// <summary>Serves a canned response per URL substring; everything else is 404.</summary>
+    private sealed class RoutedHandler : HttpMessageHandler
+    {
+        private readonly Dictionary<string, string> _routes;
+        public readonly List<string> Requested = new();
+        public RoutedHandler(Dictionary<string, string> routes) => _routes = routes;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var url = request.RequestUri!.ToString();
+            Requested.Add(url);
+            foreach (var (key, body) in _routes)
+                if (url.Contains(key))
+                    return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(body),
+                    });
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
+        }
+    }
+
+    private static string Manifest(string dlss) => $"[dlss]\napp_E658700 = {dlss}\n";
+
+    /// <summary>
+    /// The exact failure observed live: the first-listed root 404s. The service must fall through
+    /// to the next candidate instead of reporting "no OTA opinion".
+    /// </summary>
+    [Fact]
+    public async Task DeadRoot_FallsThroughToLiveRoot()
+    {
+        var handler = new RoutedHandler(new()
+        {
+            [NvidiaOtaService.ProductionChannelCandidates[1]] = Manifest("310.9.1"),
+        });
+        var svc = new NvidiaOtaService(new HttpClient(handler));
+
+        var v = await svc.GetComponentVersionAsync("dlss", OtaChannel.Production);
+
+        Assert.Equal("310.9.1", v);
+        Assert.Null(svc.GetLastError(OtaChannel.Production));
+        Assert.Equal(NvidiaOtaService.ProductionChannelCandidates[1], svc.ResolvedRootFor(OtaChannel.Production));
+        Assert.Contains(handler.Requested, u => u.Contains(NvidiaOtaService.ProductionChannelCandidates[0]));
+    }
+
+    /// <summary>Two live roots: the one publishing the newer DLSS wins, whatever the list order.</summary>
+    [Fact]
+    public async Task TwoLiveRoots_NewestManifestWins()
+    {
+        var handler = new RoutedHandler(new()
+        {
+            [NvidiaOtaService.ProductionChannelCandidates[0]] = Manifest("310.6.0"),
+            [NvidiaOtaService.ProductionChannelCandidates[1]] = Manifest("310.10.0"),
+        });
+        var svc = new NvidiaOtaService(new HttpClient(handler));
+
+        Assert.Equal("310.10.0", await svc.GetComponentVersionAsync("dlss", OtaChannel.Production));
+    }
+
+    /// <summary>
+    /// Every root dead: the result is still null (non-fatal), but the failure is REPORTED —
+    /// v0.75 and earlier wrote it to Debug only, which is how a dead endpoint went unnoticed.
+    /// </summary>
+    [Fact]
+    public async Task AllRootsDead_ReportsWhy()
+    {
+        var svc = new NvidiaOtaService(new HttpClient(new RoutedHandler(new())));
+
+        Assert.Null(await svc.GetComponentVersionAsync("dlss", OtaChannel.Production));
+        var error = svc.GetLastError(OtaChannel.Production);
+        Assert.NotNull(error);
+        Assert.Contains("HTTP 404", error);
     }
 
     /// <summary>

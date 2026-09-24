@@ -114,8 +114,7 @@ public class StreamlineDownloadService : IStreamlineDownloadService
                     foreach (var asset in assets.EnumerateArray())
                     {
                         var name = asset.GetProperty("name").GetString() ?? "";
-                        if (name.StartsWith(AssetNamePrefix, StringComparison.OrdinalIgnoreCase)
-                            && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                        if (IsX64SdkAssetName(name))
                         {
                             downloadUrl = asset.TryGetProperty("browser_download_url", out var bdu)
                                 ? bdu.GetString() ?? ""
@@ -162,8 +161,15 @@ public class StreamlineDownloadService : IStreamlineDownloadService
         var destPath = Path.Combine(CacheDir, fileName);
         if (File.Exists(destPath))
         {
-            _cachedDownloadPath = destPath;
-            return destPath;
+            if (ZipHasX64Bin(destPath))
+            {
+                _cachedDownloadPath = destPath;
+                return destPath;
+            }
+            // Wrong-architecture or corrupt cache from a pre-v0.76 build: re-fetch.
+            Console.Error.WriteLine($"Discarding cached Streamline zip without x64 binaries: {destPath}");
+            try { File.Delete(destPath); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            if (_cachedDownloadPath == destPath) _cachedDownloadPath = null;
         }
 
         try
@@ -216,6 +222,13 @@ public class StreamlineDownloadService : IStreamlineDownloadService
                 return null;
             }
 
+            if (!ZipHasX64Bin(destPath))
+            {
+                Console.Error.WriteLine($"Downloaded Streamline zip has no x64 nvngx_dlss.dll: {destPath}");
+                try { if (File.Exists(destPath)) File.Delete(destPath); } catch { }
+                return null;
+            }
+
             _cachedDownloadPath = destPath;
             Console.Error.WriteLine($"Streamline download complete: {destPath} ({totalRead} bytes)");
 
@@ -246,6 +259,60 @@ public class StreamlineDownloadService : IStreamlineDownloadService
 
     public string? GetCachedDownloadPath() => _cachedDownloadPath;
 
+    private static readonly System.Text.RegularExpressions.Regex X64AssetName =
+        new(@"^streamline-sdk-v?\d+(\.\d+){1,3}\.zip$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// True only for the plain x64 SDK asset, <c>streamline-sdk-v2.14.1.zip</c> (v0.76).
+    ///
+    /// Streamline 2.14.1 publishes <c>streamline-sdk-v2.14.1-aarch64.zip</c> alongside the x64 zip,
+    /// and GitHub lists the aarch64 asset FIRST. The old prefix+suffix match took the first hit —
+    /// the ARM64 SDK — and the recursive bin fallback then found its DLLs. Version strings are
+    /// identical across architectures, so no version display could reveal it. Any suffix after the
+    /// version (-aarch64, -arm64, -debug, …) is rejected.
+    /// </summary>
+    public static bool IsX64SdkAssetName(string name) => X64AssetName.IsMatch(name);
+
+    /// <summary>
+    /// True when the zip carries an x64 <c>nvngx_dlss.dll</c> under <c>bin/x64/</c> (at the root or
+    /// one folder down). A cached zip failing this was fetched by a pre-v0.76 build that picked the
+    /// aarch64 asset; it is discarded rather than trusted.
+    /// </summary>
+    public static bool ZipHasX64Bin(string zipPath)
+    {
+        try
+        {
+            using var zip = System.IO.Compression.ZipFile.OpenRead(zipPath);
+            foreach (var entry in zip.Entries)
+            {
+                var parts = entry.FullName.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+                var n = parts.Length;
+                if (n is < 3 or > 4) continue;
+                if (!parts[n - 1].Equals("nvngx_dlss.dll", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!parts[n - 2].Equals("x64", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!parts[n - 3].Equals("bin", StringComparison.OrdinalIgnoreCase)) continue;
+
+                // Only the headers matter: read a bounded prefix, not the whole DLL (this runs on
+                // every scan via ResolveNewestCachedZip).
+                using var s = entry.Open();
+                var head = new byte[4096];
+                var got = 0;
+                int r;
+                while (got < head.Length && (r = s.Read(head, got, head.Length - got)) > 0) got += r;
+                // Any x64 hit qualifies; a non-x64 entry does not end the search, so the verdict
+                // never depends on zip enumeration order.
+                if (OperationGuard.ReadPeMachine(head.AsSpan(0, got).ToArray()) == OperationGuard.MachineAmd64)
+                    return true;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine($"Streamline cache zip unreadable ({zipPath}): {ex.Message}");
+        }
+        return false;
+    }
+
     /// <summary>Parses "streamline-sdk-2.12.0.zip" → "2.12.0". Null if not that shape.</summary>
     public static string? ParseVersionFromZipName(string fileName)
     {
@@ -263,17 +330,32 @@ public class StreamlineDownloadService : IStreamlineDownloadService
     /// session state, so after an app restart the cached 2.12.0 zip was invisible and the UI
     /// fell back to a stale scanned folder.
     /// </summary>
+    // Per-path x64 verdict keyed on (size, mtime) so a scan does not reopen unchanged zips.
+    private readonly Dictionary<string, (long Size, DateTime Mtime, bool X64)> _x64Verdicts = new();
+
+    private bool IsX64ZipCached(string path)
+    {
+        var fi = new FileInfo(path);
+        if (_x64Verdicts.TryGetValue(path, out var v) && v.Size == fi.Length && v.Mtime == fi.LastWriteTimeUtc)
+            return v.X64;
+        var ok = ZipHasX64Bin(path);
+        _x64Verdicts[path] = (fi.Length, fi.LastWriteTimeUtc, ok);
+        return ok;
+    }
+
     private string? ResolveNewestCachedZip()
     {
         if (_cachedDownloadPath != null && File.Exists(_cachedDownloadPath))
             return _cachedDownloadPath;
 
         if (!Directory.Exists(CacheDir)) return null;
+        // Newest zip that actually carries x64 binaries; a wrong-architecture cache is skipped
+        // (and replaced on the next download) rather than synced into NGX.
         return Directory.GetFiles(CacheDir, "streamline-sdk-*.zip")
             .OrderByDescending(f =>
                 Version.TryParse(ParseVersionFromZipName(Path.GetFileName(f)) ?? "", out var v)
                     ? v : new Version(0, 0))
-            .FirstOrDefault();
+            .FirstOrDefault(IsX64ZipCached);
     }
 
     public string? GetCachedSdkVersion()
@@ -339,10 +421,8 @@ public class StreamlineDownloadService : IStreamlineDownloadService
             if (File.Exists(dllPath)) return Path.Combine(dir, "bin", "x64");
         }
 
-        // Fall back: find any nvngx_dlss.dll anywhere in the extracted folder
-        var found = Directory.GetFiles(rootDir, "nvngx_dlss.dll", SearchOption.AllDirectories).FirstOrDefault();
-        if (found != null) return Path.GetDirectoryName(found);
-
+        // No recursive "any nvngx_dlss.dll anywhere" fallback (removed v0.76): in a multi-arch SDK
+        // it found bin/arm64 and synced ARM64 DLLs into an x64 NGX tree.
         return null;
     }
 
