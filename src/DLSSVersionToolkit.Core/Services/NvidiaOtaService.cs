@@ -226,7 +226,7 @@ public class NvidiaOtaService
             var (text, error) = await FetchFromRootAsync(root, ct);
             if (text == null)
             {
-                failures.Add($"{ShortRoot(root)}: {error}");
+                failures.Add($"{root}: {error}");
                 continue;
             }
 
@@ -285,8 +285,6 @@ public class NvidiaOtaService
         }
     }
 
-    // Full GUID: this string is the user-facing "which root died" diagnostic.
-    private static string ShortRoot(string root) => root;
 
     /// <summary>
     /// Parses the INI-style manifest: one [section] per component, one app_&lt;CMSID&gt; = version

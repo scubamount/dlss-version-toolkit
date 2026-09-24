@@ -293,12 +293,16 @@ public class StreamlineDownloadService : IStreamlineDownloadService
                 if (!parts[n - 2].Equals("x64", StringComparison.OrdinalIgnoreCase)) continue;
                 if (!parts[n - 3].Equals("bin", StringComparison.OrdinalIgnoreCase)) continue;
 
+                // Only the headers matter: read a bounded prefix, not the whole DLL (this runs on
+                // every scan via ResolveNewestCachedZip).
                 using var s = entry.Open();
-                using var ms = new MemoryStream();
-                s.CopyTo(ms);
+                var head = new byte[4096];
+                var n = 0;
+                int r;
+                while (n < head.Length && (r = s.Read(head, n, head.Length - n)) > 0) n += r;
                 // Any x64 hit qualifies; a non-x64 entry does not end the search, so the verdict
                 // never depends on zip enumeration order.
-                if (OperationGuard.ReadPeMachine(ms.ToArray()) == OperationGuard.MachineAmd64)
+                if (OperationGuard.ReadPeMachine(head.AsSpan(0, n).ToArray()) == OperationGuard.MachineAmd64)
                     return true;
             }
         }
@@ -326,6 +330,19 @@ public class StreamlineDownloadService : IStreamlineDownloadService
     /// session state, so after an app restart the cached 2.12.0 zip was invisible and the UI
     /// fell back to a stale scanned folder.
     /// </summary>
+    // Per-path x64 verdict keyed on (size, mtime) so a scan does not reopen unchanged zips.
+    private readonly Dictionary<string, (long Size, DateTime Mtime, bool X64)> _x64Verdicts = new();
+
+    private bool IsX64ZipCached(string path)
+    {
+        var fi = new FileInfo(path);
+        if (_x64Verdicts.TryGetValue(path, out var v) && v.Size == fi.Length && v.Mtime == fi.LastWriteTimeUtc)
+            return v.X64;
+        var ok = ZipHasX64Bin(path);
+        _x64Verdicts[path] = (fi.Length, fi.LastWriteTimeUtc, ok);
+        return ok;
+    }
+
     private string? ResolveNewestCachedZip()
     {
         if (_cachedDownloadPath != null && File.Exists(_cachedDownloadPath))
@@ -338,7 +355,7 @@ public class StreamlineDownloadService : IStreamlineDownloadService
             .OrderByDescending(f =>
                 Version.TryParse(ParseVersionFromZipName(Path.GetFileName(f)) ?? "", out var v)
                     ? v : new Version(0, 0))
-            .FirstOrDefault(ZipHasX64Bin);
+            .FirstOrDefault(IsX64ZipCached);
     }
 
     public string? GetCachedSdkVersion()

@@ -427,6 +427,7 @@
                                 <!-- Feed health (v0.76): names a version feed that did not answer, so a
                                      dead endpoint is visible instead of silently narrowing "latest". -->
                                 <TextBlock Text="{Binding VersionFeedWarning}" FontSize="10" TextWrapping="Wrap"
+                                           ToolTip="{Binding VersionFeedDetail}"
                                            MaxWidth="260" Foreground="{StaticResource AmberBrush}" Margin="0,2,0,0">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">

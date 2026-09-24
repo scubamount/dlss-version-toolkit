@@ -156,6 +156,10 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     [ObservableProperty]
     private string _versionFeedWarning = "";
 
+    /// <summary>Full reason (which root, which HTTP status) behind VersionFeedWarning; shown as its tooltip.</summary>
+    [ObservableProperty]
+    private string _versionFeedDetail = "";
+
     /// <summary>
     /// Driver-visible override state, read from nvngx_config.txt on every scan (v0.76). The
     /// sidebar showed AnWave's DLL version and nothing about whether the override was actually
@@ -2268,11 +2272,19 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
             // The OTA service never throws for an unreachable endpoint; it records why. Read that
             // record here so a dead channel is on screen rather than only in the debugger.
-            if (_otaService.GetLastError(OtaChannel.Production) is not null)
+            if (_otaService.GetLastError(OtaChannel.Production) is { } prodErr)
+            {
                 feedProblems.Add("NVIDIA OTA");
+                Debug.WriteLine($"ScanAsync: {prodErr}");
+            }
+            // Staging is consulted only when the user opted in; its failure must show too.
+            if (_settingsService.GetCached().IncludePreReleaseChannel &&
+                _otaService.GetLastError(OtaChannel.Staging) is not null)
+                feedProblems.Add("NVIDIA OTA pre-release");
             VersionFeedWarning = feedProblems.Count == 0
                 ? ""
                 : $"Could not check {string.Join(", ", feedProblems.Distinct())} — latest version may be out of date";
+            VersionFeedDetail = _otaService.GetLastError(OtaChannel.Production) ?? "";
 
             // Take the newest of {upstream latest, cached, installed} as the displayed "available".
             foreach (var (candidate, label) in new[] { (cachedVersion, "cached download"), (installedVer, "installed") })
