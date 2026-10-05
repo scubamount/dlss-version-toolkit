@@ -25,6 +25,14 @@ public class AppUpdateInfo
 
     /// <summary>Release notes body from the GitHub release.</summary>
     public string ReleaseNotes { get; set; } = "";
+
+    /// <summary>
+    /// The .NET runtime the new release needs and this machine lacks, e.g.
+    /// "Microsoft.WindowsDesktop.App 10.0". Empty when every required runtime is installed, or
+    /// when the release publishes no runtimeconfig asset (releases up to v0.77, all .NET 9).
+    /// A non-empty value blocks the swap: the new exe could not start, and the old one is gone.
+    /// </summary>
+    public string MissingRuntime { get; set; } = "";
 }
 
 /// <summary>Result of downloading and swapping in a new app executable.</summary>

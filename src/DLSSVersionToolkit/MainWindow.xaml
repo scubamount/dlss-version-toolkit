@@ -20,7 +20,6 @@
         <converters:DlssPresetDescriptionConverter x:Key="DlssPresetDescriptionConverter"/>
         <converters:DlssPresetDescriptionConverter x:Key="DlssPresetRrDescriptionConverter" Mode="Rr"/>
         <converters:DlssPresetDescriptionConverter x:Key="DlssPresetFgDescriptionConverter" Mode="Fg"/>
-        <converters:DlssPresetShortLabelConverter x:Key="DlssPresetShortLabelConverter"/>
         <converters:DlssgModeLabelConverter x:Key="DlssgModeLabelConverter"/>
         <converters:FrameGenMultiplierLabelConverter x:Key="FrameGenMultiplierLabelConverter"/>
 
@@ -360,16 +359,16 @@
                                            Foreground="{StaticResource NvidiaGreenBrush}" Margin="0,0,0,8"/>
                                 <TextBlock Foreground="{StaticResource Text1Brush}" FontSize="13" TextWrapping="Wrap" LineHeight="22">
                                     <Run Text="1." FontWeight="Bold" Foreground="{StaticResource NvidiaGreenBrush}"/>
-                                    <Run Text="  Pick your preferred "/><Run Text="Override Preset" FontWeight="SemiBold"/><Run Text=" below (e.g. L)."/>
+                                    <Run Text="  Pick your "/><Run Text="DLSS-SR, RR and FG presets" FontWeight="SemiBold"/><Run Text=" and the FG mode below (the defaults are the recommended ones)."/>
                                     <LineBreak/>
                                     <Run Text="2." FontWeight="Bold" Foreground="{StaticResource NvidiaGreenBrush}"/>
-                                    <Run Text="  Click "/><Run Text="Update All" FontWeight="SemiBold"/><Run Text=" — it handles everything: whitelist, latest DLSS download, NGX sync, and applying your preset to every game."/>
+                                    <Run Text="  Click "/><Run Text="Update All" FontWeight="SemiBold"/><Run Text=" — it runs the whitelist, unlocks unsupported games, applies your presets to every game, downloads the latest Streamline and DLSS SDKs, syncs them to NGX, and sets up AnWave."/>
                                     <LineBreak/>
                                     <Run Text="3." FontWeight="Bold" Foreground="{StaticResource NvidiaGreenBrush}"/>
                                     <Run Text="  Fully restart your game"/><Run Text=" (not just to the menu) for changes to take effect."/>
                                 </TextBlock>
                                 <TextBlock Foreground="{StaticResource Text3Brush}" FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"
-                                           Text="Tip: turn on the DLSS Indicator (top right) to verify in-game — the overlay appears in the bottom-left corner. Items under ADVANCED are manual steps that Update All already runs for you."/>
+                                           Text="Tip: turn on the DLSS Indicator (top right) to verify in-game — the overlay appears in the bottom-left corner. Import Local DLLs under ADVANCED is the one step Update All cannot do for you; the items under More tools are steps it already runs."/>
                             </StackPanel>
                             <Button Grid.Column="1" Content="Got it" Style="{StaticResource SolidGreenButtonStyle}"
                                     VerticalAlignment="Top" Margin="16,0,0,0"
@@ -453,10 +452,18 @@
                             <!-- status pill -->
                             <Border Grid.Column="5" VerticalAlignment="Center" CornerRadius="2" Padding="10,4"
                                     BorderThickness="1" BorderBrush="{StaticResource NvidiaGreenBrush}">
+                                <!-- Three states (v0.78). UP TO DATE only when every feed answered and
+                                     nothing is newer. Before the first scan, or when a feed failed
+                                     with nothing newer found, the pill says NOT CHECKED: "up to date"
+                                     against a feed that never answered is a claim nobody verified.
+                                     UPDATE AVAILABLE wins over NOT CHECKED (a newer build was seen). -->
                                 <Border.Style>
                                     <Style TargetType="Border">
                                         <Setter Property="Background" Value="Transparent"/>
                                         <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsLatestVerified}" Value="False">
+                                                <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}"/>
+                                            </DataTrigger>
                                             <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
                                                 <Setter Property="BorderBrush" Value="{StaticResource AmberBrush}"/>
                                             </DataTrigger>
@@ -469,6 +476,10 @@
                                             <Setter Property="Text" Value="UP TO DATE"/>
                                             <Setter Property="Foreground" Value="{StaticResource NvidiaGreenBrush}"/>
                                             <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsLatestVerified}" Value="False">
+                                                    <Setter Property="Text" Value="NOT CHECKED"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource Text3Brush}"/>
+                                                </DataTrigger>
                                                 <DataTrigger Binding="{Binding UpdateAvailable}" Value="True">
                                                     <Setter Property="Text" Value="UPDATE AVAILABLE"/>
                                                     <Setter Property="Foreground" Value="{StaticResource AmberBrush}"/>
@@ -491,7 +502,7 @@
                         <!-- Update All -->
                         <Button Grid.Column="0" Style="{StaticResource PrimaryButtonStyle}" VerticalAlignment="Bottom"
                                 Command="{Binding OneClickUpdateAllCommand}"
-                                ToolTip="One click: applies the whitelist, pushes the selected presets to every game, downloads the latest DLSS SDK and syncs it to NGX, and sets up AnWave.">
+                                ToolTip="One click: applies the whitelist, unlocks unsupported games, pushes the selected presets to every game, downloads the latest Streamline and DLSS SDKs and syncs them to NGX, and sets up AnWave.">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="⟳  Update All" FontWeight="SemiBold"/>
                             </StackPanel>
@@ -837,26 +848,32 @@
                     <TextBlock Text="{Binding LastScanTime, Mode=OneWay}" Foreground="{StaticResource Text2Brush}" FontSize="10" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- center: progress during update OR preset apply -->
+                <!-- center: progress text for EVERY operation that writes DownloadStatus (v0.78).
+                     The panel used to be gated on IsUpdatingAll/IsApplyingPreset only, so SDK
+                     downloads, AnWave setup, whitelist, unlock, import, indexing and the app
+                     self-update wrote progress into a Collapsed panel and looked frozen. The text
+                     now shows whenever it is non-empty; the bar keeps its two gates because only
+                     those two operations feed ApplyProgressValue. -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <StackPanel.Style>
-                        <Style TargetType="StackPanel">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsUpdatingAll}" Value="True">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding IsApplyingPreset}" Value="True">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </StackPanel.Style>
-                    <ProgressBar Width="120" Height="6"
+                    <ProgressBar Width="120" Height="6" Margin="0,0,8,0"
                                  IsIndeterminate="{Binding ApplyProgressIndeterminate}"
                                  Value="{Binding ApplyProgressValue}" Maximum="100"
-                                 Foreground="{StaticResource NvidiaGreenBrush}" Background="{StaticResource Panel3Brush}"/>
-                    <TextBlock Text="{Binding DownloadStatus}" Foreground="{StaticResource NvidiaGreenBrush}" FontSize="10" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                 Foreground="{StaticResource NvidiaGreenBrush}" Background="{StaticResource Panel3Brush}">
+                        <ProgressBar.Style>
+                            <Style TargetType="ProgressBar">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsUpdatingAll}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsApplyingPreset}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ProgressBar.Style>
+                    </ProgressBar>
+                    <TextBlock Text="{Binding DownloadStatus}" Foreground="{StaticResource NvidiaGreenBrush}" FontSize="10" VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- right: warning / error message -->

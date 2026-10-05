@@ -345,11 +345,6 @@ public static class DlssPresetDisplay
         return new Version(nums[0], nums[1], nums[2], nums[3]);
     }
 
-    /// <summary>
-    /// All user-selectable SR presets in display order. Retained for backward compatibility
-    /// with existing bindings; equal to <see cref="SuperResolutionPresets"/>.
-    /// </summary>
-    public static readonly DlssPreset[] AllPresets = SuperResolutionPresets;
 
     // --- DLSSG (Frame Generation generator) mode + multiplier ---
 

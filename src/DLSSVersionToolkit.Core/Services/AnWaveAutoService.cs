@@ -503,7 +503,7 @@ progress?.Report(30);
             return result;
         }
 
-        var latestRelease = releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
+        var latestRelease = releases.OrderByDescending(e => VersionComparer.ParseLoose(e.DLSS) ?? new Version(0, 0)).First();
 
         progress?.Report(20);
 
@@ -864,20 +864,5 @@ app_E658703 = {version}
     {
         try { if (File.Exists(path)) File.Delete(path); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"AnWaveAutoService: could not delete {path}: {ex.Message}"); }
-    }
-
-    private static Version? TryParseVersion(string version)
-    {
-        try
-        {
-            var cleaned = System.Text.RegularExpressions.Regex.Replace(version, "[a-zA-Z]", "");
-            var parts = cleaned.Split('.');
-            var major = int.TryParse(parts.ElementAtOrDefault(0), out var m) ? m : 0;
-            var minor = int.TryParse(parts.ElementAtOrDefault(1), out var n) ? n : 0;
-            var build = int.TryParse(parts.ElementAtOrDefault(2), out var b) ? b : 0;
-            var rev = int.TryParse(parts.ElementAtOrDefault(3), out var r) ? r : 0;
-            return new Version(major, minor, build, rev);
-        }
-        catch { return null; }
     }
 }

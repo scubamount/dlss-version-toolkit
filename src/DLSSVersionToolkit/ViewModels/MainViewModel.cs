@@ -48,9 +48,6 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     private string _lastScanTime = "Never";
 
     [ObservableProperty]
-    private string _nextScanCountdown = "--";
-
-    [ObservableProperty]
     private string _scanStatus = "Ready";
 
     [ObservableProperty]
@@ -63,28 +60,13 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     private bool _isDownloading;
 
     [ObservableProperty]
-    private int _downloadProgress;
-
-    [ObservableProperty]
     private string _downloadStatus = "";
-
-    [ObservableProperty]
-    private string _cachedSdkVersion = "";
-
-    [ObservableProperty]
-    private bool _hasCachedSdk;
 
     [ObservableProperty]
     private string _anWaveDetectedPath = "";
 
     [ObservableProperty]
-    private bool _isAnWaveDetected;
-
-    [ObservableProperty]
     private string _anWaveInstalledPath = "";
-
-    [ObservableProperty]
-    private string _anWaveGlomVersion = "";
 
     [ObservableProperty]
     private string _anWaveDllVersion = "";
@@ -112,12 +94,6 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     [ObservableProperty]
     private bool _isIndexingProfiles;
 
-    [ObservableProperty]
-    private string _cachedStreamlineVersion = "";
-
-    [ObservableProperty]
-    private bool _hasCachedStreamline;
-
     // Streamline SDK version shown in the hero strip (v0.0.38). NGX version folders contain
     // only nvngx_*.dll — never sl.common.dll — so a per-NGX-row Streamline version cannot
     // exist; this surfaces the best available signal instead: the scanned Streamline SDK
@@ -143,9 +119,6 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     // instead of just wrong-looking.
     [ObservableProperty]
     private string _dlssLatestSource = "";
-
-    [ObservableProperty]
-    private string _streamlineLatestSource = "";
 
     /// <summary>
     /// Health of the version feeds behind LATEST AVAILABLE (v0.76). Empty when every feed
@@ -195,6 +168,15 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
 
 [ObservableProperty]
     private bool _updateAvailable;
+
+    /// <summary>
+    /// True once a scan has completed with every version feed answering (v0.78). False before
+    /// the first scan and whenever VersionFeedWarning names a feed that failed. The hero pill
+    /// shows NOT CHECKED instead of UP TO DATE while this is false, because "up to date" was
+    /// asserted on first paint and on a dead feed with nothing behind it.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isLatestVerified;
 
     [ObservableProperty]
     private ObservableCollection<DlssPreset> _availablePresets = new();
@@ -406,6 +388,13 @@ catch (Exception ex) { Debug.WriteLine($"Override baseline capture failed (non-f
     private async Task ApplyAppUpdateAsync()
     {
         if (_pendingAppUpdate is not { } update || IsApplyingAppUpdate) return;
+
+        if (!string.IsNullOrEmpty(update.MissingRuntime))
+        {
+            ThemedMessageBox.Show(AppUpdateService.MissingRuntimeMessage(update), "App Update",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
 
         var sizeMb = update.AssetSize > 0 ? $" (~{update.AssetSize / 1024.0 / 1024.0:F1} MB)" : "";
         var confirm = ThemedMessageBox.Show(
@@ -1737,8 +1726,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 			if (slPath != null)
 			{
 				streamlineVersion = _streamlineDownloadService.GetCachedSdkVersion();
-				CachedStreamlineVersion = streamlineVersion ?? "";
-				HasCachedStreamline = true;
 				DownloadStatus = $"Applying Streamline SDK v{streamlineVersion} to NGX...";
 				streamlineOp = await _streamlineDownloadService.SyncFromCachedSdkAsync(null);
 				if (streamlineOp != null && streamlineOp.Status == OperationStatus.Failed)
@@ -1782,8 +1769,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             }
 
             var sdkVersion = _dlssDownloadService.GetCachedSdkVersion() ?? "unknown";
-            CachedSdkVersion = sdkVersion;
-            HasCachedSdk = true;
 
             DownloadStatus = "Applying to NGX Release...";
 
@@ -1970,10 +1955,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 			{
 				IsAnWaveInstalled = true;
 				AnWaveInstalledPath = setupResult.InstalledPath ?? "";
-				AnWaveGlomVersion = setupResult.GlomVersion ?? "";
 				AnWaveDllVersion = setupResult.DllVersion ?? "";
 				AnWaveDetectedPath = setupResult.InstalledPath ?? "";
-		IsAnWaveDetected = true;
 
 		// Persist AnWave path to settings so subsequent scans find it
 		try
@@ -2176,7 +2159,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             // the "UP TO DATE" pill ignored Streamline entirely — 2.11.1 showed green while
             // 2.12.0 sat on GitHub).
             string? slLatest = null;
-            StreamlineLatestSource = "";
             var feedProblems = new List<string>();
             try
             {
@@ -2188,7 +2170,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                         _versionComparer.IsNewer(a, b) ? 1 : _versionComparer.IsNewer(b, a) ? -1 : 0))
                     .LastOrDefault();
                 if (slLatest != null)
-                    StreamlineLatestSource = "GitHub";
                 else
                     feedProblems.Add("GitHub (Streamline)");
             }
@@ -2207,7 +2188,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 if (otaSl != null && (slLatest == null || _versionComparer.IsNewer(otaSl.Version, slLatest)))
                 {
                     slLatest = otaSl.Version;
-                    StreamlineLatestSource = otaSl.IsPreRelease ? "OTA pre-release" : "OTA";
                 }
             }
             catch (Exception ex)
@@ -2322,6 +2302,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 ? ""
                 : $"Could not check {string.Join(", ", feedProblems.Distinct())} — latest version may be out of date";
             VersionFeedDetail = _otaService.GetLastError(OtaChannel.Production) ?? "";
+            IsLatestVerified = feedProblems.Count == 0;
 
             // Take the newest of {upstream latest, cached, installed} as the displayed "available".
             foreach (var (candidate, label) in new[] { (cachedVersion, "cached download"), (installedVer, "installed") })
@@ -2349,7 +2330,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     dlssUpdate && slUpdateAvailable ? $"DLSS v{latestAvailable} + Streamline v{slLatest} available"
                     : dlssUpdate ? $"v{latestAvailable} available (current: {CurrentDlssVersion})"
                     : slUpdateAvailable ? $"Streamline v{slLatest} available (installed: {slBestKnown ?? "none"}) — run Update All"
-                    : "Already up to date";
+                    : IsLatestVerified ? "Already up to date"
+                    : "Newest known version installed — not every feed answered";
             }
             else
             {
@@ -2365,7 +2347,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             if (anWaveEntry != null && !string.IsNullOrEmpty(anWaveEntry.Path))
             {
                 AnWaveDetectedPath = anWaveEntry.Path;
-                IsAnWaveDetected = true;
             }
             else
             {
@@ -2373,12 +2354,10 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 if (!string.IsNullOrEmpty(detectedPath))
                 {
                     AnWaveDetectedPath = detectedPath;
-                    IsAnWaveDetected = true;
                 }
                 else
                 {
                     AnWaveDetectedPath = "";
-                    IsAnWaveDetected = false;
                 }
             }
 
@@ -2391,7 +2370,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     IsAnWaveInstalled = true;
                     AnWaveInstalledPath = anWaveInstall.InstalledPath ?? "";
                     AnWaveDllVersion = anWaveInstall.DllVersion ?? "";
-                    AnWaveGlomVersion = anWaveInstall.GlomVersion ?? "";
                 }
             }
             catch (Exception ex)
@@ -2459,7 +2437,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         if (IsDownloading) return;
 
         IsDownloading = true;
-        DownloadProgress = 0;
         DownloadStatus = "Checking for latest release...";
         StatusMessage = "";
 
@@ -2467,7 +2444,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         {
             var progress = new Progress<int>(pct =>
             {
-                DownloadProgress = pct;
                 DownloadStatus = $"Downloading... {pct}%";
             });
 
@@ -2477,8 +2453,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             {
                 DownloadStatus = "Download complete.";
                 var version = _dlssDownloadService.GetCachedSdkVersion() ?? "unknown";
-                CachedSdkVersion = version;
-                HasCachedSdk = !string.IsNullOrEmpty(CachedSdkVersion);
 
                 var cacheInfo = _dlssDownloadService.GetCacheInfo();
                 var sizeMb = cacheInfo.TotalBytes / (1024.0 * 1024.0);
@@ -2521,7 +2495,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         if (IsDownloading) return;
 
         IsDownloading = true;
-        DownloadProgress = 0;
         DownloadStatus = "Checking for latest Streamline SDK release...";
         StatusMessage = "";
 
@@ -2529,7 +2502,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         {
             var progress = new Progress<int>(pct =>
             {
-                DownloadProgress = pct;
                 DownloadStatus = $"Downloading Streamline SDK... {pct}%";
             });
 
@@ -2539,8 +2511,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             {
                 DownloadStatus = "Download complete.";
                 var version = _streamlineDownloadService.GetCachedSdkVersion() ?? "unknown";
-                CachedStreamlineVersion = version;
-                HasCachedStreamline = !string.IsNullOrEmpty(CachedStreamlineVersion);
 
                 var cacheInfo = _streamlineDownloadService.GetCacheInfo();
                 var sizeMb = cacheInfo.TotalBytes / (1024.0 * 1024.0);
@@ -2653,21 +2623,12 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
     //     the user's games, not the plumbing inventory. Staleness is disclosed, not hidden.
     public ObservableCollection<string> GameProfiles { get; } = new();
 
-    // GamesFreshness/HasGames MUST raise PropertyChanged. They were plain auto-properties, so
-    // RefreshGamesSection() updated the backing values and WPF never re-read them — the initial
+    // GamesFreshness MUST raise PropertyChanged. It was a plain auto-property, so
+    // RefreshGamesSection() updated the backing value and WPF never re-read them — the initial
     // "No profile index yet" string stayed frozen on screen above a fully populated chip list
     // (user-visible self-contradiction). ObservableProperty generates the notification.
     [ObservableProperty]
     private string _gamesFreshness = "No profile index yet — run Index Game Profiles or Update All.";
-
-    [ObservableProperty]
-    private bool _hasGames;
-
-    /// <summary>
-    /// Count of indexed profiles whose names are real titles (not raw NVIDIA hex profile IDs).
-    /// </summary>
-    [ObservableProperty]
-    private int _namedGameCount;
 
     /// <summary>
     /// How many indexed profiles carry an unnamed hex identifier instead of a title. Surfaced as
@@ -2687,8 +2648,6 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         if (index == null || index.GameProfileNames.Count == 0)
         {
             GamesFreshness = "No profile index yet — run Index Game Profiles or Update All.";
-            HasGames = false;
-            NamedGameCount = 0;
             UnnamedGameCount = 0;
             return;
         }
@@ -2705,9 +2664,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         foreach (var name in named.Take(40))
             GameProfiles.Add(name);
 
-        NamedGameCount = named.Count;
         UnnamedGameCount = unnamedCount;
-        HasGames = GameProfiles.Count > 0;
         GamesFreshness =
             $"{named.Count} game(s) · indexed {index.IndexedAt.ToLocalTime():yyyy-MM-dd HH:mm}";
     }
@@ -2803,10 +2760,8 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             {
                 IsAnWaveInstalled = true;
                 AnWaveInstalledPath = result.InstalledPath ?? "";
-                AnWaveGlomVersion = result.GlomVersion ?? "";
                 AnWaveDllVersion = result.DllVersion ?? "";
                 AnWaveDetectedPath = result.InstalledPath ?? "";
-                IsAnWaveDetected = true;
 
                 ThemedMessageBox.Show(
                     $"AnWave setup complete!\n\n" +
