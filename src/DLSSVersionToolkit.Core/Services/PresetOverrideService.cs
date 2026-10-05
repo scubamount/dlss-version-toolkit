@@ -122,6 +122,13 @@ public interface IPresetOverrideService
     void EnsureDrsBaseline(bool trusted);
 
     /// <summary>
+    /// True when Reset can restore each profile's own pre-toolkit values. False (upgrade from
+    /// v0.76 or earlier) means Reset returns every managed setting to NVIDIA's default on every
+    /// game profile, including values set in the NVIDIA App — the Reset dialog must say so.
+    /// </summary>
+    bool DrsBaselineTrusted { get; }
+
+    /// <summary>
     /// Reset (v0.77): puts every DRS setting the toolkit manages back to its pre-toolkit value on
     /// the base profile and the game profiles — the captured user value, or NVIDIA's default where
     /// there was none. Replaces the v0.76 behavior of writing "override off" everywhere.
@@ -143,6 +150,8 @@ public sealed class PresetOverrideService : IPresetOverrideService
     public PresetOverrideService(DrsBaselineStore? baseline = null) => _baseline = baseline ?? new DrsBaselineStore();
 
     public void EnsureDrsBaseline(bool trusted) => _baseline.EnsureCreated(trusted);
+
+    public bool DrsBaselineTrusted => _baseline.Load().Trusted;
 
     public bool IsAvailable
     {
@@ -236,9 +245,14 @@ public sealed class PresetOverrideService : IPresetOverrideService
                 var baseProfile = session.BaseProfile;
                 if (baseProfile is not null)
                 {
-                    CaptureBeforeFirstWrite(baseProfile, DrsBaselineStore.BaseProfileKey);
-                    ApplyToProfile(baseProfile, presetValue, options);
-                    profilesUpdated++;
+                    // A capture that cannot be read must not fail the whole apply, and the profile
+                    // must not be written without one: skip it and count the skip.
+                    if (TryCaptureBeforeFirstWrite(baseProfile, DrsBaselineStore.BaseProfileKey))
+                    {
+                        ApplyToProfile(baseProfile, presetValue, options);
+                        profilesUpdated++;
+                    }
+                    else profilesSkipped++;
                 }
                 writeMs += sw.ElapsedMilliseconds;
 
@@ -342,12 +356,13 @@ public sealed class PresetOverrideService : IPresetOverrideService
                 }
 
                 sw.Restart();
-                session.Save();
-                // After the driver save: a baseline entry must never exist for a write that failed
-                // to land... and must exist for every write that did. Flushing after Save keeps
-                // a crash between the two on the safe side (missing capture = profile untouched
-                // by Reset under a trusted baseline, which only loses an undo, never user data).
+                // Persist captures BEFORE the driver save. Every capture holds pre-write values, so
+                // one whose write never lands is harmless. The reverse order is not: a failed or
+                // interrupted Save left in-memory captures unpersisted, the next apply re-captured
+                // the profile AFTER this run's writes, and a trusted Reset wrote those back as
+                // "originals".
                 _baseline.Flush();
+                session.Save();
                 var saveMs = sw.ElapsedMilliseconds;
                 total.Stop();
 
@@ -482,10 +497,12 @@ public sealed class PresetOverrideService : IPresetOverrideService
 
                 session.Save();
 
-                // An untrusted reset put every managed setting back to NVIDIA's default — a true
-                // original state — so captures from here on can be trusted. Only on a clean run:
-                // a skipped profile may still carry an older build's values.
-                if (!baseline.Trusted && profilesSkipped == 0)
+                // A clean reset leaves every touched profile in its original state (captured
+                // values, or NVIDIA's default after an untrusted reset), so the old captures are
+                // spent: clear them and trust fresh ones. Keeping them would let a later Reset
+                // overwrite changes the user makes in the NVIDIA App after this one. A skipped
+                // profile still carries toolkit values, so its capture (or distrust) must stay.
+                if (profilesSkipped == 0)
                     _baseline.MarkCleanAndTrusted();
 
                 total.Stop();
@@ -515,6 +532,20 @@ public sealed class PresetOverrideService : IPresetOverrideService
     /// Records this profile's managed values before the toolkit's first write to it. Skipped when
     /// the profile already has an entry, so the toolkit's own writes are never captured.
     /// </summary>
+    private bool TryCaptureBeforeFirstWrite(DriverSettingsProfile profile, string profileKey)
+    {
+        try
+        {
+            CaptureBeforeFirstWrite(profile, profileKey);
+            return true;
+        }
+        catch (NVIDIAApiException ex)
+        {
+            Debug.WriteLine($"PresetOverrideService: baseline capture for '{profileKey}' failed: {ex.Status}");
+            return false;
+        }
+    }
+
     private void CaptureBeforeFirstWrite(DriverSettingsProfile profile, string profileKey)
     {
         if (_baseline.HasProfile(profileKey)) return;

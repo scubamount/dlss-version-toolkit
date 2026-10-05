@@ -197,11 +197,14 @@ applied."
   (1) Reset wrote "override off" (0) to SR/RR/FG on every profile, switching off presets the user
   set in the NVIDIA App. `DrsBaselineStore` now captures each profile's managed values right before
   the toolkit's first write to it, and Reset restores them (`RestoreSettingToDefault` where the
-  profile used NVIDIA's default). Trust rule: captures count as originals only on a fresh install;
-  an upgrade starts untrusted and Reset returns every managed setting to NVIDIA's default, which
-  then makes the baseline trusted. (2) The SR preset alone gated all three features: SR = Default
-  skipped Update All's preset step entirely and switched RR/FG off. Each feature now gates on its
-  own preset. (3) The LAST RUN panel never appeared (`HasRunSteps` never raised PropertyChanged).
+  profile used NVIDIA's default). Trust rule: captures count as originals only on a fresh install
+  (no earlier AppData file: settings.json, profile index, overrides, Reset baseline). An upgrade
+  starts untrusted; Reset then returns every managed setting to NVIDIA's default and its dialog
+  says it will drop NVIDIA App presets. Captures are flushed BEFORE the driver save, and every
+  clean Reset clears them, so a later Reset never restores a stale pre-Reset value. (2) The SR
+  preset alone gated all three features: SR = Default skipped Update All's preset step entirely
+  and switched RR/FG off. Each feature now gates on its own preset, and Update All does not write
+  a feature left at Default. (3) The LAST RUN panel never appeared (`HasRunSteps` never raised PropertyChanged).
   (4) Six dialogs named removed buttons. (5) The unlock run-report status was inverted. (6) Failed
   `net start` was Debug-only, so "services restarted" showed with the service stopped. (7) The
   whitelist detector called unreadable files Applied (now `WhitelistState.Unreadable`). (8) The
@@ -211,6 +214,8 @@ applied."
   `SyncAsync` (and its second IsScanning owner) deleted.
   - Lesson: a value captured "before we write" is only original if nothing wrote before the
     capture existed. Version the trust, not just the data.
+  - Lesson: persist the undo record before the change it undoes. Saving it after let a failed
+    save re-capture the toolkit's own writes as originals.
   - Withdrawn: an RHI-comparison claim that the FG preset list should shrink to Default/A/B/Latest.
     `NvApiDriverSettings.h` defines FG presets A–Z; the A–M list is valid.
 

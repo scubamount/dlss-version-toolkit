@@ -302,9 +302,11 @@ public class V076RegressionTests : IDisposable
         var vm = SrcFile("DLSSVersionToolkit", "ViewModels", "MainViewModel.cs");
         var at = vm.IndexOf("private async Task ResetOverridesAsync()", StringComparison.Ordinal);
         Assert.True(at > 0);
-        var body = vm[at..];
+        // Bounded to the method body: an unbounded slice matched a later method's call and passed
+        // vacuously once Reset stopped calling ApplyPresetAsync (v0.77).
+        var body = vm[at..vm.IndexOf("[RelayCommand]", at + 10, StringComparison.Ordinal)];
         var confirm = body.IndexOf("MessageBoxButton.OKCancel", StringComparison.Ordinal);
-        var firstWrite = body.IndexOf("ApplyPresetAsync(", StringComparison.Ordinal);
+        var firstWrite = body.IndexOf("RestoreBaselineAsync(", StringComparison.Ordinal);
         Assert.True(confirm > 0 && firstWrite > confirm, "Reset must confirm before its first write");
     }
 

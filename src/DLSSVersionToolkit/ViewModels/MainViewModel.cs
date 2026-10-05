@@ -547,16 +547,21 @@ private void SetPresetStatusOnUi(DlssPreset? preset, string status)
 		dispatcher.Invoke(Apply);
 }
 
-/// <summary>
-/// Builds the per-feature override options from the current RR/FG dropdown selections.
-/// The SR preset is passed separately as the ApplyPresetAsync preset argument.
-/// </summary>
 /// <summary>"SR L · RR F · FG B" — one label for the three selections, used by run text.</summary>
 private string PresetTriplet(DlssPreset sr) =>
 	$"SR {DlssPresetDisplay.GetShortLabel(sr)} · RR {DlssPresetDisplay.GetShortLabel(SelectedRrPreset)} · FG {DlssPresetDisplay.GetShortLabel(SelectedFgPreset)}";
 
+/// <summary>
+/// Builds the per-feature override options from the current dropdown selections.
+/// The SR preset is passed separately as the ApplyPresetAsync preset argument.
+/// </summary>
 private PresetApplyOptions BuildPresetOptions() => new()
 {
+	// A feature left at Default is not written at all, so Update All never switches off an
+	// override the user set in the NVIDIA App for a feature this app is not managing.
+	EnableSuperResolution = SelectedPreset is { } sr && sr != DlssPreset.Default,
+	EnableRayReconstruction = SelectedRrPreset != DlssPreset.Default,
+	EnableFrameGeneration = SelectedFgPreset != DlssPreset.Default,
 	RayReconstructionPreset = SelectedRrPreset,
 	FrameGenerationPreset = SelectedFgPreset,
 	FrameGenerationMode = SelectedFgMode,
@@ -870,11 +875,21 @@ private async Task ResetOverridesAsync()
 		? $"Restores the state recorded on {baseline.CapturedAt.ToLocalTime():yyyy-MM-dd HH:mm}."
 		: "No pre-toolkit snapshot exists, so the override config will be removed.";
 
+	// Untrusted = installed over v0.76 or earlier, which wrote driver settings before any capture
+	// existed. Reset cannot tell those writes from the user's own, so it returns every game
+	// profile to NVIDIA's default — including presets set in the NVIDIA App. Say so plainly.
+	var driverLine = _presetOverrideService.DrsBaselineTrusted
+		? "  • Put the DLSS-SR / RR / FG preset and frame-generation settings in the NVIDIA driver back to\n" +
+		  "    how they were before this app changed them (NVIDIA's default where nothing was set)\n"
+		: "  • Return the DLSS-SR / RR / FG preset and frame-generation settings on EVERY game profile\n" +
+		  "    to NVIDIA's default. This includes per-game presets you set in the NVIDIA App: an earlier\n" +
+		  "    version of this app changed them before it kept a record, so they cannot be told apart.\n" +
+		  "    After this, Reset restores exact per-game values.\n";
+
 	var confirm = ThemedMessageBox.Show(
 		"Reset DLSS overrides to NVIDIA defaults?\n\n" +
 		"This will:\n" +
-		"  • Put the DLSS-SR / RR / FG preset and frame-generation settings in the NVIDIA driver back to\n" +
-		"    how they were before this app changed them (NVIDIA's default where nothing was set)\n" +
+		driverLine +
 		"  • Restore nvngx_config.txt (the global DLSS version override)\n" +
 		"  • Restore the DLSS on-screen indicator setting\n" +
 		"  • Clear this app's imported-override records\n\n" +

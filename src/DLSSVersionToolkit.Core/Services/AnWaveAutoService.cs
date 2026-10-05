@@ -280,14 +280,27 @@ progress?.Report(30);
 			return new AnWaveSetupResult { Success = false, ErrorMessage = "nvidiaDlssGlom.exe not found after extraction." };
 
 	}
-	catch (Exception ex)
+	// SharpCompressException is the base of every SharpCompress 0.49.1 archive/format error
+	// (ArchiveException, IncompleteArchiveException, InvalidFormatException, ...); a truncated
+	// stream can also surface as EndOfStream/InvalidData from the decoder.
+	catch (Exception ex) when (ex is SharpCompressException and not ReaderCancelledException
+		or EndOfStreamException or InvalidDataException)
 	{
 		// An archive that cannot be opened is almost always a truncated download cached by v0.76 or
 		// earlier (no length check). Drop it so the next setup downloads a fresh copy instead of
-		// failing on the same file forever.
+		// failing on the same file forever. Only archive failures: a copy into InstallDir that fails
+		// (glom running, access denied) or a cancel says nothing about the archive, and deleting a
+		// good cache would strand an offline user.
 		TryDeleteFile(glomPath);
 		return new AnWaveSetupResult { Success = false, ErrorMessage =
 			$"Failed to extract nvidiaDlssGlom: {ex.Message}. The cached archive was removed; run Setup AnWave again to download a fresh copy." };
+	}
+	catch (Exception ex)
+	{
+		// Not an archive problem (file in use, access denied, disk full, cancel): keep the cached
+		// archive. Returned as a failure, not thrown, as before v0.77 — callers expect a result.
+		return new AnWaveSetupResult { Success = false, ErrorMessage =
+			$"Failed to install nvidiaDlssGlom: {ex.Message}. Close any running AnWave/glom process and run Setup AnWave again." };
 	}
 	finally
 	{

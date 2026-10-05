@@ -95,6 +95,70 @@ public class V077RegressionTests : IDisposable
         Assert.False(store.LooksLikeFreshInstall());            // an earlier apply ran here
     }
 
+    [Theory]
+    [InlineData("settings.json")]          // v0.0.38 users who never built a profile index
+    [InlineData("overrides.json")]
+    [InlineData("override-baseline.json")]
+    public void DrsStore_AnyEarlierLaunchFile_MeansUntrusted(string marker)
+    {
+        var store = new DrsBaselineStore(_root);
+        File.WriteAllText(Path.Combine(_root, marker), "{}");
+        Assert.False(store.LooksLikeFreshInstall());
+    }
+
+    [Fact]
+    public void DrsStore_CleanReset_ClearsSpentCaptures_AndTrusts()
+    {
+        var store = new DrsBaselineStore(_root);
+        store.EnsureCreated(trusted: false);
+        store.RecordIfAbsent("Game", new Dictionary<uint, uint?> { [Sr] = 1 });
+        store.MarkCleanAndTrusted();
+
+        var reloaded = new DrsBaselineStore(_root).Load();
+        Assert.True(reloaded.Trusted);
+        Assert.Empty(reloaded.Profiles);   // a later apply captures the post-reset state afresh
+    }
+
+    [Fact]
+    public void Apply_PersistsCapturesBeforeDriverSave()
+    {
+        var src = SrcFile("DLSSVersionToolkit.Core", "Services", "PresetOverrideService.cs");
+        var flush = src.IndexOf("_baseline.Flush();", StringComparison.Ordinal);
+        Assert.True(flush > 0);
+        Assert.True(src.IndexOf("session.Save();", flush, StringComparison.Ordinal) > flush,
+            "captures must be persisted before the driver save");
+        Assert.Contains("if (profilesSkipped == 0)\n                    _baseline.MarkCleanAndTrusted();",
+            src.Replace("\r\n", "\n"));
+    }
+
+    [Fact]
+    public void UpdateAll_LeavesDefaultFeaturesUnwritten()
+    {
+        var vm = Vm();
+        Assert.Contains("EnableSuperResolution = SelectedPreset is { } sr && sr != DlssPreset.Default", vm);
+        Assert.Contains("EnableRayReconstruction = SelectedRrPreset != DlssPreset.Default", vm);
+        Assert.Contains("EnableFrameGeneration = SelectedFgPreset != DlssPreset.Default", vm);
+    }
+
+    [Fact]
+    public void ResetDialog_WarnsWhenItWillDropNvidiaAppPresets()
+    {
+        var vm = Vm();
+        var at = vm.IndexOf("private async Task ResetOverridesAsync()", StringComparison.Ordinal);
+        var body = vm[at..vm.IndexOf("[RelayCommand]", at + 10, StringComparison.Ordinal)];
+        Assert.Contains("_presetOverrideService.DrsBaselineTrusted", body);
+        Assert.Contains("per-game presets you set in the NVIDIA App", body);
+    }
+
+    [Fact]
+    public void AnWave_DeletesCachedArchiveOnlyOnArchiveFailure()
+    {
+        var src = SrcFile("DLSSVersionToolkit.Core", "Services", "AnWaveAutoService.cs");
+        var del = src.IndexOf("TryDeleteFile(glomPath);", StringComparison.Ordinal);
+        var guard = src.LastIndexOf("catch (Exception ex)", del, StringComparison.Ordinal);
+        Assert.Contains("when (ex is SharpCompressException", src[guard..del]);
+    }
+
     [Fact]
     public void DrsStore_ManagedIds_CoverEveryIdTheApplierWrites()
     {

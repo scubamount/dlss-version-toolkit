@@ -81,8 +81,21 @@ public sealed class DrsBaselineStore
     /// design: any sign of a previous install means untrusted, and Reset then uses NVIDIA defaults.
     /// </summary>
     public bool LooksLikeFreshInstall() =>
-        !File.Exists(System.IO.Path.Combine(AppDataRoot, "profile-index.json")) &&
-        !File.Exists(System.IO.Path.Combine(AppDataRoot, OverrideResetService.BaselineFileName));
+        !EarlierInstallMarkers.Any(name => File.Exists(System.IO.Path.Combine(AppDataRoot, name)));
+
+    /// <summary>
+    /// Files only an earlier launch creates. settings.json has carried applied presets since
+    /// v0.0.38, before the profile index existed (v0.0.39); overrides.json is written by local
+    /// imports. Any one present = untrusted.
+    /// </summary>
+    public static readonly IReadOnlyList<string> EarlierInstallMarkers = new[]
+    {
+        "profile-index.json",
+        OverrideResetService.BaselineFileName,
+        "settings.json",
+        "settings.previous.json",
+        OverrideManifestService.ManifestFileName,
+    };
 
     public bool Exists => File.Exists(BaselinePath);
 
@@ -149,7 +162,7 @@ public sealed class DrsBaselineStore
         }
     }
 
-    /// <summary>Persists the in-memory baseline. Call once per apply, after the session save.</summary>
+    /// <summary>Persists the in-memory baseline. Call once per apply, BEFORE the driver session save.</summary>
     public void Flush()
     {
         lock (_lock)
