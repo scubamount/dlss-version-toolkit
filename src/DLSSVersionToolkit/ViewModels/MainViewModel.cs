@@ -203,7 +203,7 @@ private readonly IDlssIndicatorService _dlssIndicatorService;
     private DlssPreset? _selectedPreset;
 
     // DLSS-RR (Ray Reconstruction) and DLSS-FG (Frame Generation) each have their OWN preset
-    // selection, independent of the SR preset above. Defaults: RR=E (best quality), FG=B.
+    // selection, independent of the SR preset above. Defaults: RR=F (DLSS 4.5 RR model), FG=B.
     [ObservableProperty]
     private ObservableCollection<DlssPreset> _availableRrPresets = new();
 
@@ -313,9 +313,20 @@ _resetService = new OverrideResetService(overrideManifestService);
 
 IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
 
+// HasRunSteps is computed from the report's step collection, so nothing raised PropertyChanged
+// for it and the LAST RUN panel's Visibility binding stayed at its first value (hidden) forever.
+// Begin() clears and Add() appends on the UI thread; both raise CollectionChanged.
+_runReports.Steps.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasRunSteps));
+
 // Record the pre-toolkit state once, before anything can change it, so Reset has something
 // true to restore to (v0.76). Never overwrites an existing baseline.
-try { _resetService.EnsureBaselineCaptured(_dlssIndicatorService.GetRawValue()); }
+try
+{
+	// DRS baseline first: its trust test looks for the files the other baseline creates.
+	_presetOverrideService.EnsureDrsBaseline(trusted: new DrsBaselineStore().LooksLikeFreshInstall());
+	var indicatorRead = _dlssIndicatorService.TryGetRawValue(out var indicatorRaw);
+	_resetService.EnsureBaselineCaptured(indicatorRaw, indicatorCaptureFailed: !indicatorRead);
+}
 catch (Exception ex) { Debug.WriteLine($"Override baseline capture failed (non-fatal): {ex.Message}"); }
 
  LoadPresetDefaults();
@@ -540,6 +551,10 @@ private void SetPresetStatusOnUi(DlssPreset? preset, string status)
 /// Builds the per-feature override options from the current RR/FG dropdown selections.
 /// The SR preset is passed separately as the ApplyPresetAsync preset argument.
 /// </summary>
+/// <summary>"SR L · RR F · FG B" — one label for the three selections, used by run text.</summary>
+private string PresetTriplet(DlssPreset sr) =>
+	$"SR {DlssPresetDisplay.GetShortLabel(sr)} · RR {DlssPresetDisplay.GetShortLabel(SelectedRrPreset)} · FG {DlssPresetDisplay.GetShortLabel(SelectedFgPreset)}";
+
 private PresetApplyOptions BuildPresetOptions() => new()
 {
 	RayReconstructionPreset = SelectedRrPreset,
@@ -858,7 +873,8 @@ private async Task ResetOverridesAsync()
 	var confirm = ThemedMessageBox.Show(
 		"Reset DLSS overrides to NVIDIA defaults?\n\n" +
 		"This will:\n" +
-		"  • Turn OFF the DLSS-SR / RR / FG preset overrides in the NVIDIA driver (all game profiles)\n" +
+		"  • Put the DLSS-SR / RR / FG preset and frame-generation settings in the NVIDIA driver back to\n" +
+		"    how they were before this app changed them (NVIDIA's default where nothing was set)\n" +
 		"  • Restore nvngx_config.txt (the global DLSS version override)\n" +
 		"  • Restore the DLSS on-screen indicator setting\n" +
 		"  • Clear this app's imported-override records\n\n" +
@@ -884,14 +900,19 @@ private async Task ResetOverridesAsync()
 	var ok = true;
 	try
 	{
-		// 1) Driver presets: Default writes "override off" for SR/RR/FG on base + every game profile.
+		// 1) Driver presets: restore the DRS baseline (v0.77). v0.76 wrote "override off" to SR/RR/FG
+		//    on every profile, which switched off presets the user had set in the NVIDIA App.
 		if (_presetOverrideService.IsAvailable)
 		{
-			var pr = await _presetOverrideService.ApplyPresetAsync(DlssPreset.Default, BuildPresetOptions(), MakeApplyProgress());
-			ok &= pr.Success;
-			lines.Add(pr.Success
-				? $"✅ Preset overrides turned off ({pr.GameProfilesUpdated} game profile(s))"
-				: $"❌ Preset overrides: {pr.ErrorMessage}");
+			var pr = await _presetOverrideService.RestoreBaselineAsync(MakeApplyProgress());
+			ok &= pr.Success && pr.ProfilesSkipped == 0;
+			lines.Add(!pr.Success
+				? $"❌ Driver presets: {pr.ErrorMessage}"
+				: pr.ProfilesSkipped > 0
+					? $"⚠️ Driver presets restored on {pr.ProfilesUpdated} profile(s); {pr.ProfilesSkipped} could not be written — close running games and run Reset again"
+					: $"✅ Driver presets restored on {pr.ProfilesUpdated} profile(s) ({pr.GameProfilesUpdated} game)");
+			if (pr.Success)
+				await DetectCurrentPresetSafeAsync();
 		}
 		else
 		{
@@ -910,7 +931,11 @@ private async Task ResetOverridesAsync()
 		//    No baseline at all = leave the indicator alone (nothing true to restore to).
 		try
 		{
-			if (baseline != null)
+			if (baseline is { IndicatorCaptureFailed: true })
+			{
+				lines.Add("ℹ️ DLSS indicator: left as is (its original value could not be read when the snapshot was taken)");
+			}
+			else if (baseline != null)
 			{
 				_dlssIndicatorService.SetRawValue(baseline.IndicatorRawValue);
 				IsDlssIndicatorEnabled = _dlssIndicatorService.IsEnabled();
@@ -1097,7 +1122,7 @@ private async Task IndexProfilesAsync()
 	var confirm = ThemedMessageBox.Show(
 		"Index game profiles now?\n\n" +
 		"This scans all NVIDIA driver profiles once (a few seconds) and remembers which ones " +
-		"belong to installed games. Future 'Apply to all games' and 'Update All' runs will use " +
+		"belong to installed games. Future 'Update All' runs and preset changes will use " +
 		"this index and be significantly faster.\n\n" +
 		"The index refreshes automatically when your NVIDIA driver changes.",
 		"DLSS Version Toolkit", MessageBoxButton.YesNo, MessageBoxImage.Question);
@@ -1113,7 +1138,7 @@ private async Task IndexProfilesAsync()
 		{
 			ThemedMessageBox.Show(
 				$"Indexed {result.GameProfilesUpdated} game profile(s) in {result.ElapsedMs / 1000.0:F1}s.\n\n" +
-				"Apply to all games and Update All will now use the fast path.",
+				"Update All and preset changes will now use the fast path.",
 				"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
 		}
 		else
@@ -1548,7 +1573,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 			{
 				ThemedMessageBox.Show(
 					"No internet connection detected and no cached DLSS SDK exists.\n\n" +
-					"What to do: Connect to the internet and try again, or use 'Sync from DLSS SDK' with a previously downloaded zip.",
+					"What to do: Connect to the internet and try again, or use 'Import Local DLLs' (ADVANCED) with DLLs you already have.",
 					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
 				return;
 			}
@@ -1603,7 +1628,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         {
             DownloadStatus = "Unlocking unsupported games...";
             var unlockResult = await _whitelistService.UnlockUnsupportedGamesAsync();
-            _runReports.Add("Unlock", unlockResult.Success && unlockResult.GamesModified > 0 ? "warn" : "ok",
+            _runReports.Add("Unlock", unlockResult.Success ? "ok" : "warn",
                 unlockResult.Success
                     ? $"unlocked {unlockResult.GamesModified} game(s)"
                     : "could not modify the App library file");
@@ -1621,10 +1646,15 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
             unlockLine = $"⚠️ Unlock unsupported games FAILED: {ex.Message}\n";
         }
 
-        // Step 0b: Push the selected DLSS preset to every game profile (enables the
+        // Step 0b: Push the selected DLSS presets to every game profile (enables the
         // SR/RR/FG overrides as "Custom"). Without this the games keep their own
         // per-profile defaults and ignore the global preset. Non-fatal.
-        if (SelectedPreset is { } presetToApply && presetToApply != DlssPreset.Default
+        // v0.77: runs when ANY feature has a preset. Before, SR = Default skipped the whole step,
+        // so an RR/FG-only user's presets and FG mode were silently never applied. All three at
+        // Default still skips: Update All never switches off overrides the user set elsewhere.
+        if (SelectedPreset is { } presetToApply
+            && (presetToApply != DlssPreset.Default || SelectedRrPreset != DlssPreset.Default
+                || SelectedFgPreset != DlssPreset.Default)
             && _presetOverrideService.IsAvailable)
         {
             try
@@ -1637,7 +1667,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 IsApplyingPreset = true;
                 ApplyProgressValue = 0;
                 ApplyProgressIndeterminate = true;
-                DownloadStatus = $"Applying preset {DlssPresetDisplay.GetDescription(presetToApply)} to all games...";
+                DownloadStatus = $"Applying presets ({PresetTriplet(presetToApply)}) to all games...";
                 var pr = await _presetOverrideService.ApplyPresetAsync(presetToApply, BuildPresetOptions(), MakeApplyProgress());
                 if (pr.Success)
                 {
@@ -1645,7 +1675,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     // Persist the applied selections (v0.0.38) — Update All is the main apply
                     // path for most users, so it must save too, not just the Apply button.
                     await SavePresetSelectionsAsync();
-                    _runReports.Add("Presets", "ok", $"{DlssPresetDisplay.GetShortLabel(presetToApply)} applied to {pr.GameProfilesUpdated} game profile(s)");
+                    _runReports.Add("Presets", "ok", $"{PresetTriplet(presetToApply)} applied to {pr.GameProfilesUpdated} game profile(s)");
                     // Re-read from the driver so "Current:" reflects what was written, not the
                     // startup probe (v0.76: it kept saying "Default (no override)" after an apply).
                     await DetectCurrentPresetSafeAsync();
@@ -1749,7 +1779,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 ThemedMessageBox.Show(
                     $"Failed to sync DLSS SDK v{sdkVersion} to NGX Release.\n\n" +
                     $"Error: {ngxOp?.ErrorMessage ?? "Unknown error"}\n\n" +
-                    "What to do: Ensure the NGX directory exists at %ProgramData%\\NVIDIA\\NGX. Try running 'Sync from DLSS SDK' separately for more details.",
+                    "What to do: Ensure the NGX directory exists at %ProgramData%\\NVIDIA\\NGX. Then run 'Update All' again; the NGX Backups window (ADVANCED) lists any backup taken.",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
@@ -2004,7 +2034,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 					$"Files copied ({ngxOp.FilesCopied.Count}):\n" +
 					$"{ngxFiles}\n\n" +
 					$"❌ AnWave auto-setup failed: {setupResult.ErrorMessage}\n\n" +
-					"What to do: NGX is updated. Try 'Setup AnWave' separately from the Advanced menu.",
+					"What to do: NGX is updated. Try 'Setup AnWave' separately from the ADVANCED section of the sidebar.",
 					"DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
 			}
 		}
@@ -2032,26 +2062,17 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
     /// <summary>
     /// Serializes scans. v0.75 and earlier had <c>if (IsScanning) return;</c> here, which DROPPED
-    /// the refresh instead of running it: SyncAsync sets IsScanning before calling ScanAsync (so its
-    /// refresh never ran), and the post-Update-All rescan was discarded whenever the launch scan or
+    /// the refresh instead of running it: the post-Update-All rescan was discarded whenever the launch scan or
     /// a Rescan click was still in flight. The completion dialog and grid then showed the numbers
     /// from before the run — and the NEXT run showed this run's results. A caller that asks for a
     /// refresh now waits its turn and gets one.
     /// </summary>
     private readonly SemaphoreSlim _scanGate = new(1, 1);
 
-    // IsScanning has two independent owners: a scan (inside the gate) and SyncAsync (around its
-    // whole operation). Each clears only its own flag; IsScanning is the OR. Capturing and
-    // restoring a single value let a queued scan re-assert true after Sync had cleared it.
-    // All writes run on the UI thread (async continuations), so plain bools are sufficient.
-    private bool _scanActive;
-    private bool _syncActive;
-
     [RelayCommand]
     private async Task ScanAsync()
     {
         await _scanGate.WaitAsync();
-        _scanActive = true;
         IsScanning = true;
         ScanStatus = "Scanning...";
         StatusMessage = "";
@@ -2370,6 +2391,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                 {
                     WhitelistState.Applied => "Applied",
                     WhitelistState.NotApplied => "Not applied",
+                    WhitelistState.Unreadable => "Unknown (NVIDIA App files locked)",
                     _ => "N/A (NVIDIA App not found)"
                 };
                 IsWhitelistApplied = whitelistState == WhitelistState.Applied;
@@ -2409,102 +2431,9 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
         }
         finally
         {
-            _scanActive = false;
-            IsScanning = _syncActive;
+            IsScanning = false;
             RefreshGamesSection();
             _scanGate.Release();
-        }
-    }
-
-    private async Task SyncAsync(string sourceType)
-    {
-        StatusMessage = "";
-
-        var sourceEntry = _lastScanResult?.Sources.FirstOrDefault(s => s.Source == sourceType);
-        var ngxRelease = _lastScanResult?.Sources.FirstOrDefault(s => s.Source == "NGX_Release");
-        var sourceVer = sourceEntry?.DLSS ?? "unknown";
-        var releaseVer = ngxRelease?.DLSS ?? "unknown";
-        var displaySource = sourceType == "StreamlineSDK" ? "Streamline SDK" : sourceType;
-
-        var result = ThemedMessageBox.Show(
-            $"Sync DLSS from {displaySource} (v{sourceVer}) to NGX Release (v{releaseVer})?\n\n" +
-            "A backup of the current NGX Release will be created before any changes.\n\n" +
-            "Continue?",
-            "Confirm Sync", MessageBoxButton.YesNo, MessageBoxImage.Question);
-
-        if (result != MessageBoxResult.Yes) return;
-
-        _syncActive = true;
-        IsScanning = true;
-        ScanStatus = "Syncing...";
-
-        try
-        {
-            var settings = await _settingsService.LoadAsync();
-            string? sourcePath = sourceType == "StreamlineSDK" ? settings.StreamlinePath : settings.AnWavePath;
-
-            if (string.IsNullOrEmpty(sourcePath) || !Directory.Exists(sourcePath))
-            {
-                ThemedMessageBox.Show(
-                    $"{displaySource} path is not configured or the folder does not exist.\n\n" +
-                    "What to do: Open Settings and set the correct path, or use 'Update All' to download the latest DLSS SDK instead.",
-                    "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            var operation = _upgradeService.SyncToNGX(sourcePath, sourceType, settings.NgxBasePath);
-
-            switch (operation.Status)
-            {
-                case OperationStatus.Completed:
-                    var files = string.Join("\n  • ", operation.FilesCopied);
-                    ThemedMessageBox.Show(
-                        $"Sync completed: {displaySource} v{sourceVer} → NGX Release\n\n" +
-                        $"Files copied ({operation.FilesCopied.Count}):\n" +
-                        $"  {files}\n\n" +
-                        $"Backup saved to:\n  {operation.BackupPath}\n\n" +
-                        "What to do next: If you use AnWave, run 'Update All' to keep it in sync.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
-                    break;
-                case OperationStatus.Failed:
-                    ThemedMessageBox.Show(
-                        $"Sync from {displaySource} v{sourceVer} to NGX failed.\n\n" +
-                        $"Error: {operation.ErrorMessage}\n\n" +
-                        "What to do: No files were changed. Check the error above and try again.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-                    break;
-                case OperationStatus.RolledBack:
-                    ThemedMessageBox.Show(
-                        $"Sync from {displaySource} v{sourceVer} to NGX failed and was rolled back.\n\n" +
-                        $"Error: {operation.ErrorMessage}\n\n" +
-                        $"Your previous NGX Release files have been restored.\n" +
-                        $"Backup preserved at:\n  {operation.BackupPath}\n\n" +
-                        "What to do: Check the error above. The backup folder contains the original files if needed.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-                    break;
-                default:
-                    ThemedMessageBox.Show(
-                        $"Sync status: {operation.Status}\n\n" +
-                        $"{operation.ErrorMessage}\n\n" +
-                        "What to do: This is an unexpected status. Try scanning and syncing again.",
-                        "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
-                    break;
-            }
-
-            await ScanAsync();
-        }
-        catch (Exception ex)
-        {
-            ThemedMessageBox.Show(
-                $"Sync failed: {ex.Message}\n\n" +
-                "What to do: Check the error above. If it's a file access issue, ensure no other programs are using the NGX directory.",
-                "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            _syncActive = false;
-            IsScanning = _scanActive;
-            ScanStatus = "Ready";
         }
     }
 
@@ -2542,7 +2471,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     $"DLSS SDK v{version} downloaded successfully.\n\n" +
                     $"Saved to:\n  {path}\n\n" +
                     $"Cache: {cacheInfo.Count} file(s), {sizeMb:F1} MB total\n\n" +
-                    "What to do next: Click 'Sync from DLSS SDK' to apply it to NGX Release, or use 'Update All' to sync to both NGX and AnWave.",
+                    "What to do next: Run 'Update All' to apply it to NGX Release and AnWave.",
                     "DLSS Version Toolkit", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
@@ -2771,6 +2700,13 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
     //     drawer can bind its steps; Backups opens a dialog over the existing BackupService.
     public ObservableCollection<UpdateRunStep> RunSteps => _runReports.Steps;
     public bool HasRunSteps => _runReports.HasSteps;
+
+    /// <summary>
+    /// True while any operation that WRITES machine state is running. The background scan timer
+    /// skips its tick on this (see App.SetupScanScheduler); user-requested scans still queue.
+    /// </summary>
+    public bool IsBusyMutating =>
+        IsUpdatingAll || IsApplyingPreset || IsSettingUpAnWave || IsDownloading || IsIndexingProfiles;
 
     [RelayCommand]
     private void OpenBackups()

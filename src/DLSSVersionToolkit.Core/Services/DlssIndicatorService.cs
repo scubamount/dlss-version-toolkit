@@ -7,8 +7,15 @@ public interface IDlssIndicatorService
 {
     bool IsEnabled();
     void SetEnabled(bool enabled);
-    /// <summary>Raw DWORD currently stored, or null if the value/key is absent.</summary>
+    /// <summary>Raw DWORD currently stored, or null if the value/key is absent OR unreadable.</summary>
     int? GetRawValue();
+
+    /// <summary>
+    /// Like <see cref="GetRawValue"/>, but tells "absent" (true, null) apart from "could not read"
+    /// (false). The Reset baseline needs the difference: recording a failed read as absent made
+    /// Reset delete the user's real value (v0.77).
+    /// </summary>
+    bool TryGetRawValue(out int? value);
 
     /// <summary>
     /// Writes <paramref name="value"/> verbatim, or DELETES the value when null (v0.76 Reset).
@@ -33,17 +40,21 @@ public class DlssIndicatorService : IDlssIndicatorService
     private const int EnabledValue = 1024; // 0x400
     private const int DisabledValue = 0;
 
-    public int? GetRawValue()
+    public int? GetRawValue() => TryGetRawValue(out var value) ? value : null;
+
+    public bool TryGetRawValue(out int? value)
     {
         try
         {
             using var key = Registry.LocalMachine.OpenSubKey(RegSubKey);
-            var value = key?.GetValue(RegValueName, null);
-            return value is int i ? i : (int?)null;
+            value = key?.GetValue(RegValueName, null) is int i ? i : null;
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            System.Diagnostics.Debug.WriteLine($"DlssIndicatorService: registry read failed: {ex.Message}");
+            value = null;
+            return false;
         }
     }
 

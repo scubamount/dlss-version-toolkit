@@ -179,8 +179,8 @@ public class V076RegressionTests : IDisposable
     // ---- Stale results -----------------------------------------------------------------
 
     /// <summary>
-    /// The drop-on-busy guard was the stale-results root cause: SyncAsync's rescan and the
-    /// post-Update-All rescan were silently discarded. Refreshes queue on a gate instead.
+    /// The drop-on-busy guard was the stale-results root cause: the post-Update-All rescan was
+    /// silently discarded. Refreshes queue on a gate instead.
     /// </summary>
     [Fact]
     public void ScanAsync_QueuesInsteadOfDropping()
@@ -192,11 +192,11 @@ public class V076RegressionTests : IDisposable
         Assert.DoesNotContain("if (IsScanning) return;", head);
         Assert.Contains("_scanGate.WaitAsync()", head);
         Assert.Contains("_scanGate.Release()", vm);
-        // Two owners, each clears only its own flag (reviewer finding: a restored snapshot wedged
-        // the UI in "Scanning..." when a queued scan finished after SyncAsync).
+        // v0.77: SyncAsync (the second IsScanning owner) had no caller and was deleted, so the
+        // scan is the flag's only owner again — no snapshot/restore that could wedge it.
         Assert.DoesNotContain("ownerHeldScanning", vm);
-        Assert.Contains("IsScanning = _syncActive;", vm);
-        Assert.Contains("IsScanning = _scanActive;", vm);
+        Assert.DoesNotContain("_syncActive", vm);
+        Assert.DoesNotContain("private async Task SyncAsync(", vm);
     }
 
     // ---- Reset baseline ----------------------------------------------------------------

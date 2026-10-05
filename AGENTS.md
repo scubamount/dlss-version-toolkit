@@ -35,9 +35,10 @@ src/
 │       ├── PresetOverrideService.cs     # SR/RR/FG preset writes via NvAPI
 │       ├── OperationGuard.cs            # PE signature + x64 machine, path containment, post-copy verify
 │       ├── OverrideResetService.cs      # pre-toolkit baseline + Reset (undo) of config/records
+│       ├── DrsBaselineStore.cs          # per-profile pre-toolkit DRS values; Reset restores them
 │       └── ...                          # scanners, downloaders, backup, export, app updater
 ├── DLSSVersionToolkit/                 # WPF application
-│   ├── ViewModels/MainViewModel.cs      # ~2.4k lines; Update All orchestration lives here
+│   ├── ViewModels/MainViewModel.cs      # ~2.8k lines; Update All orchestration lives here
 │   ├── Views/                           # SettingsDialog, BackupsDialog,
 │   │                                    #   UpdateAllPreflightDialog, ThemedMessageBox
 │   ├── Converters/
@@ -191,6 +192,27 @@ emoose/DLSSTweaks#137, not published by NVIDIA — which is why every write is b
 applied."
 
 ## Recent Changes
+
+- **v0.77**: Holistic audit (5 lanes; report `holistic-dlss-vt-20261005_1415.md`). Fixed at source:
+  (1) Reset wrote "override off" (0) to SR/RR/FG on every profile, switching off presets the user
+  set in the NVIDIA App. `DrsBaselineStore` now captures each profile's managed values right before
+  the toolkit's first write to it, and Reset restores them (`RestoreSettingToDefault` where the
+  profile used NVIDIA's default). Trust rule: captures count as originals only on a fresh install;
+  an upgrade starts untrusted and Reset returns every managed setting to NVIDIA's default, which
+  then makes the baseline trusted. (2) The SR preset alone gated all three features: SR = Default
+  skipped Update All's preset step entirely and switched RR/FG off. Each feature now gates on its
+  own preset. (3) The LAST RUN panel never appeared (`HasRunSteps` never raised PropertyChanged).
+  (4) Six dialogs named removed buttons. (5) The unlock run-report status was inverted. (6) Failed
+  `net start` was Debug-only, so "services restarted" showed with the service stopped. (7) The
+  whitelist detector called unreadable files Applied (now `WhitelistState.Unreadable`). (8) The
+  AnWave download wrote straight to the cache path with no length check, so a truncated archive
+  broke every later setup. (9) A failed indicator registry read was baselined as "absent", and
+  Reset deleted the real value. (10) The timer scan ran mid-mutation now that scans queue. Dead
+  `SyncAsync` (and its second IsScanning owner) deleted.
+  - Lesson: a value captured "before we write" is only original if nothing wrote before the
+    capture existed. Version the trust, not just the data.
+  - Withdrawn: an RHI-comparison claim that the FG preset list should shrink to Default/A/B/Latest.
+    `NvApiDriverSettings.h` defines FG presets A–Z; the A–M list is valid.
 
 - **v0.76**: Screenshot audit (Update All dialog + Settings). Root causes, each fixed at source:
   (1) NVIDIA's production OTA root `3e933c08…` began returning 404 NoSuchKey; the app queried only

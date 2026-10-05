@@ -49,7 +49,7 @@ public sealed record PresetApplyOptions
     /// <summary>
     /// DLSS-RR (Ray Reconstruction) render preset. Has its OWN preset selection, independent of
     /// SR — do NOT reuse the SR letter here. Null = derive from the SR preset is NOT done;
-    /// defaults to the recommended RR preset (E). Set to Default to clear the RR preset selection.
+    /// defaults to the recommended RR preset (F). Set to Default to clear the RR preset selection.
     /// </summary>
     public DlssPreset RayReconstructionPreset { get; init; } = DlssPresetDisplay.RayReconstructionDefault;
 
@@ -115,6 +115,20 @@ public interface IPresetOverrideService
     Task<PresetOverrideResult> RebuildProfileIndexAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Creates the DRS baseline file if none exists (v0.77). <paramref name="trusted"/> = the
+    /// toolkit has never written driver settings on this machine. Call once at startup, before
+    /// any apply.
+    /// </summary>
+    void EnsureDrsBaseline(bool trusted);
+
+    /// <summary>
+    /// Reset (v0.77): puts every DRS setting the toolkit manages back to its pre-toolkit value on
+    /// the base profile and the game profiles — the captured user value, or NVIDIA's default where
+    /// there was none. Replaces the v0.76 behavior of writing "override off" everywhere.
+    /// </summary>
+    Task<PresetOverrideResult> RestoreBaselineAsync(IProgress<(int Done, int Total)>? progress = null, CancellationToken ct = default);
+
+    /// <summary>
     /// Checks whether the NVIDIA DRS API is available (i.e., NVIDIA drivers are installed).
     /// </summary>
     bool IsAvailable { get; }
@@ -124,6 +138,11 @@ public interface IPresetOverrideService
 public sealed class PresetOverrideService : IPresetOverrideService
 {
     private bool? _isAvailable;
+    private readonly DrsBaselineStore _baseline;
+
+    public PresetOverrideService(DrsBaselineStore? baseline = null) => _baseline = baseline ?? new DrsBaselineStore();
+
+    public void EnsureDrsBaseline(bool trusted) => _baseline.EnsureCreated(trusted);
 
     public bool IsAvailable
     {
@@ -200,7 +219,12 @@ public sealed class PresetOverrideService : IPresetOverrideService
                 using var session = DriverSettingsSession.CreateAndLoad();
 
                 var presetValue = (uint)preset;
-                bool enable = preset != DlssPreset.Default;
+                // Per-feature (v0.77): each feature is on when ITS preset is not Default. Before,
+                // the SR preset alone decided for all three: SR = Default switched RR and FG off
+                // too, and SR = L with RR = Default wrote RR's enable ON with preset 0.
+                bool enable = preset != DlssPreset.Default
+                    || options.RayReconstructionPreset != DlssPreset.Default
+                    || options.FrameGenerationPreset != DlssPreset.Default;
                 int profilesUpdated = 0;
                 int gameProfilesUpdated = 0;
                 int profilesSkipped = 0;
@@ -212,7 +236,8 @@ public sealed class PresetOverrideService : IPresetOverrideService
                 var baseProfile = session.BaseProfile;
                 if (baseProfile is not null)
                 {
-                    ApplyToProfile(baseProfile, presetValue, enable, options);
+                    CaptureBeforeFirstWrite(baseProfile, DrsBaselineStore.BaseProfileKey);
+                    ApplyToProfile(baseProfile, presetValue, options);
                     profilesUpdated++;
                 }
                 writeMs += sw.ElapsedMilliseconds;
@@ -247,7 +272,8 @@ public sealed class PresetOverrideService : IPresetOverrideService
                                 var profile = session.FindProfileByName(names[i]);
                                 if (profile is null || !profile.IsValid)
                                     continue; // profile removed since indexing — harmless skip
-                                ApplyToProfile(profile, presetValue, enable, options);
+                                CaptureBeforeFirstWrite(profile, names[i]);
+                                ApplyToProfile(profile, presetValue, options);
                                 profilesUpdated++;
                                 gameProfilesUpdated++;
                             }
@@ -285,10 +311,12 @@ public sealed class PresetOverrideService : IPresetOverrideService
                                 if (appCount <= 0)
                                     continue;
 
-                                ApplyToProfile(profile, presetValue, enable, options);
+                                var profileName = profile.Name;
+                                CaptureBeforeFirstWrite(profile, profileName);
+                                ApplyToProfile(profile, presetValue, options);
                                 profilesUpdated++;
                                 gameProfilesUpdated++;
-                                indexedNames.Add(profile.Name);
+                                indexedNames.Add(profileName);
                             }
                             catch (NVIDIAApiException pex)
                             {
@@ -315,6 +343,11 @@ public sealed class PresetOverrideService : IPresetOverrideService
 
                 sw.Restart();
                 session.Save();
+                // After the driver save: a baseline entry must never exist for a write that failed
+                // to land... and must exist for every write that did. Flushing after Save keeps
+                // a crash between the two on the safe side (missing capture = profile untouched
+                // by Reset under a trusted baseline, which only loses an undo, never user data).
+                _baseline.Flush();
                 var saveMs = sw.ElapsedMilliseconds;
                 total.Stop();
 
@@ -398,6 +431,172 @@ public sealed class PresetOverrideService : IPresetOverrideService
         }, ct);
     }
 
+    public async Task<PresetOverrideResult> RestoreBaselineAsync(IProgress<(int Done, int Total)>? progress = null, CancellationToken ct = default)
+    {
+        return await Task.Run(() =>
+        {
+            var total = Stopwatch.StartNew();
+            try
+            {
+                EnsureInitialized();
+                using var session = DriverSettingsSession.CreateAndLoad();
+                var baseline = _baseline.Load();
+                int profilesUpdated = 0, gameProfilesUpdated = 0, profilesSkipped = 0;
+
+                // Base profile first: it is what every non-overriding profile inherits.
+                if (session.BaseProfile is { } baseProfile)
+                {
+                    if (RestoreProfile(baseProfile, DrsBaselineStore.PlanRestore(baseline, DrsBaselineStore.BaseProfileKey)))
+                        profilesUpdated++;
+                    else
+                        profilesSkipped++;
+                }
+
+                // Trusted: only profiles the toolkit captured (it never wrote any other).
+                // Untrusted: every game profile, since an older build may have written any of them.
+                var names = baseline.Trusted
+                    ? baseline.Profiles.Keys.Where(k => k != DrsBaselineStore.BaseProfileKey).ToList()
+                    : GameProfileNames(session, ct);
+
+                for (int i = 0; i < names.Count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var plan = DrsBaselineStore.PlanRestore(baseline, names[i]);
+                    if (plan.Count == 0) continue;
+                    try
+                    {
+                        var profile = session.FindProfileByName(names[i]);
+                        if (profile is null || !profile.IsValid)
+                            continue; // removed since capture (driver reinstall) — nothing to restore
+                        if (RestoreProfile(profile, plan)) { profilesUpdated++; gameProfilesUpdated++; }
+                        else profilesSkipped++;
+                    }
+                    catch (NVIDIAApiException pex)
+                    {
+                        profilesSkipped++;
+                        Debug.WriteLine($"RestoreBaseline: profile '{names[i]}' skipped: {pex.Status}");
+                    }
+                    if (progress != null && (i % 25 == 0 || i == names.Count - 1))
+                        progress.Report((i + 1, names.Count));
+                }
+
+                session.Save();
+
+                // An untrusted reset put every managed setting back to NVIDIA's default — a true
+                // original state — so captures from here on can be trusted. Only on a clean run:
+                // a skipped profile may still carry an older build's values.
+                if (!baseline.Trusted && profilesSkipped == 0)
+                    _baseline.MarkCleanAndTrusted();
+
+                total.Stop();
+                return new PresetOverrideResult(true, null, null, false, profilesUpdated, gameProfilesUpdated,
+                    total.ElapsedMilliseconds, ProfilesSkipped: profilesSkipped);
+            }
+            catch (NVIDIAApiException ex)
+            {
+                var permissionIssue = ex.Status == Status.InvalidUserPrivilege;
+                return new PresetOverrideResult(false, null,
+                    permissionIssue ? "Admin privileges required. Run as administrator." : $"NVIDIA API error: {ex.Status}",
+                    permissionIssue);
+            }
+            catch (DllNotFoundException)
+            {
+                _isAvailable = false;
+                return new PresetOverrideResult(false, null, "NVIDIA driver not found (nvapi64.dll missing).");
+            }
+            catch (Exception ex)
+            {
+                return new PresetOverrideResult(false, null, $"Error restoring driver settings: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    /// <summary>
+    /// Records this profile's managed values before the toolkit's first write to it. Skipped when
+    /// the profile already has an entry, so the toolkit's own writes are never captured.
+    /// </summary>
+    private void CaptureBeforeFirstWrite(DriverSettingsProfile profile, string profileKey)
+    {
+        if (_baseline.HasProfile(profileKey)) return;
+        var isBase = profileKey == DrsBaselineStore.BaseProfileKey;
+        var values = new Dictionary<uint, uint?>();
+        foreach (var id in DrsBaselineStore.ManagedSettingIds)
+            values[id] = ReadOwnUserValue(profile, id, isBase);
+        _baseline.RecordIfAbsent(profileKey, values);
+    }
+
+    /// <summary>
+    /// The value set by a user ON THIS profile, or null when the profile uses NVIDIA's default
+    /// (setting absent, NVIDIA-predefined, or inherited from the base/global profile). Restoring
+    /// null means RestoreSettingToDefault, which is exactly how such a profile looked before.
+    /// </summary>
+    private static uint? ReadOwnUserValue(DriverSettingsProfile profile, uint settingId, bool isBase)
+    {
+        try
+        {
+            var setting = profile.GetSetting(settingId);
+            if (setting is null || setting.IsCurrentValuePredefined) return null;
+            var own = setting.SettingLocation == DRSSettingLocation.CurrentProfile
+                || (isBase && setting.SettingLocation == DRSSettingLocation.BaseProfile);
+            if (!own) return null;
+            var raw = setting.CurrentValue;
+            return raw is uint u ? u : Convert.ToUInt32(raw);
+        }
+        catch (NVIDIAApiException ex) when (ex.Status == Status.SettingNotFound)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Applies a restore plan to one profile. False when any setting could not be written.</summary>
+    private static bool RestoreProfile(DriverSettingsProfile profile, IReadOnlyList<DrsRestoreAction> plan)
+    {
+        var ok = true;
+        foreach (var action in plan)
+        {
+            try
+            {
+                if (action.Value is uint v)
+                    profile.SetSetting(action.SettingId, DRSSettingType.Integer, v);
+                else
+                    profile.RestoreSettingToDefault(action.SettingId);
+            }
+            catch (NVIDIAApiException ex) when (ex.Status == Status.SettingNotFound)
+            {
+                // Already at NVIDIA's default: nothing set on this profile.
+            }
+            catch (NVIDIAApiException ex)
+            {
+                ok = false;
+                Debug.WriteLine($"RestoreProfile: 0x{action.SettingId:X8} failed: {ex.Status}");
+            }
+        }
+        return ok;
+    }
+
+    /// <summary>Game-profile names from the valid index, or a full scan when there is none.</summary>
+    private static List<string> GameProfileNames(DriverSettingsSession session, CancellationToken ct)
+    {
+        var index = ProfileIndexStore.LoadValid(GetDriverVersionString());
+        if (index != null) return index.GameProfileNames.ToList();
+
+        var names = new List<string>();
+        foreach (var profile in session.Profiles)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                if (profile is null || !profile.IsValid || profile.NumberOfApplications <= 0) continue;
+                names.Add(profile.Name);
+            }
+            catch (NVIDIAApiException pex)
+            {
+                Debug.WriteLine($"GameProfileNames: skipped a profile: {pex.Status}");
+            }
+        }
+        return names;
+    }
+
     /// <summary>Driver version string used to invalidate the profile index. Never throws.</summary>
     private static string GetDriverVersionString()
     {
@@ -416,36 +615,38 @@ public sealed class PresetOverrideService : IPresetOverrideService
     /// Applies the per-feature override enables + render presets to a single DRS profile.
     /// <paramref name="srPresetValue"/> is the DLSS-SR preset; RR and FG take their OWN presets
     /// from <paramref name="options"/> (each feature has an independent preset-selection ID — do
-    /// NOT cross-assign). When <paramref name="enable"/> is false (SR preset = Default), every
-    /// override is turned OFF so behavior reverts to the driver/app default.
+    /// NOT cross-assign). Each feature's override is ON exactly when its own preset is not
+    /// Default (v0.77); a Default feature has its override turned OFF.
     /// </summary>
-    private static void ApplyToProfile(DriverSettingsProfile profile, uint srPresetValue, bool enable, PresetApplyOptions options)
+    private static void ApplyToProfile(DriverSettingsProfile profile, uint srPresetValue, PresetApplyOptions options)
     {
-        var onOff = enable ? DlssPresetSettingIds.OVERRIDE_ON : DlssPresetSettingIds.OVERRIDE_OFF;
+        static uint OnOff(bool on) => on ? DlssPresetSettingIds.OVERRIDE_ON : DlssPresetSettingIds.OVERRIDE_OFF;
+        var srOn = srPresetValue != (uint)DlssPreset.Default;
+        var rrOn = options.RayReconstructionPreset != DlssPreset.Default;
+        var fgOn = options.FrameGenerationPreset != DlssPreset.Default;
 
         if (options.EnableSuperResolution)
         {
             // Enable flag MUST be set or the preset selection is ignored ("Custom" vs default).
-            profile.SetSetting(DlssPresetSettingIds.SR_OVERRIDE_ENABLE, DRSSettingType.Integer, onOff);
-            profile.SetSetting(DlssPresetSettingIds.SR_RENDER_PRESET, DRSSettingType.Integer, srPresetValue);
+            profile.SetSetting(DlssPresetSettingIds.SR_OVERRIDE_ENABLE, DRSSettingType.Integer, OnOff(srOn));
+            if (srOn)
+                profile.SetSetting(DlssPresetSettingIds.SR_RENDER_PRESET, DRSSettingType.Integer, srPresetValue);
         }
 
         if (options.EnableRayReconstruction)
         {
             // DLSS-RR ("NR" / Ray Reconstruction denoiser) override + its OWN preset selection.
-            // BUG FIX (v0.0.35): previously the SR letter was mirrored onto RR, so RR got L when
-            // it should default to E. RR now uses options.RayReconstructionPreset.
-            profile.SetSetting(DlssPresetSettingIds.RR_OVERRIDE_ENABLE, DRSSettingType.Integer, onOff);
-            if (enable)
+            // BUG FIX (v0.0.35): previously the SR letter was mirrored onto RR.
+            profile.SetSetting(DlssPresetSettingIds.RR_OVERRIDE_ENABLE, DRSSettingType.Integer, OnOff(rrOn));
+            if (rrOn)
                 profile.SetSetting(DlssPresetSettingIds.RR_RENDER_PRESET, DRSSettingType.Integer, (uint)options.RayReconstructionPreset);
         }
 
         if (options.EnableFrameGeneration)
         {
             // DLSS-FG (Frame Generation) override + its OWN preset selection (0x10E41DF1).
-            // NEW (v0.0.35): FG previously had no preset selection set at all.
-            profile.SetSetting(DlssPresetSettingIds.FG_OVERRIDE_ENABLE, DRSSettingType.Integer, onOff);
-            if (enable)
+            profile.SetSetting(DlssPresetSettingIds.FG_OVERRIDE_ENABLE, DRSSettingType.Integer, OnOff(fgOn));
+            if (fgOn)
             {
                 profile.SetSetting(DlssPresetSettingIds.FG_RENDER_PRESET, DRSSettingType.Integer, (uint)options.FrameGenerationPreset);
 

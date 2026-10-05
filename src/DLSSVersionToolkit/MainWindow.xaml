@@ -524,7 +524,7 @@
                                     </ComboBox>
                                 </StackPanel>
 
-                                <!-- DLSS-RR (Ray Reconstruction) — independent preset; recommended E -->
+                                <!-- DLSS-RR (Ray Reconstruction) — independent preset; recommended F -->
                                 <StackPanel Grid.Column="1" Margin="0,0,12,0">
                                     <TextBlock Text="DLSS-RR PRESET" Foreground="{StaticResource Text3Brush}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"
                                                ToolTip="DLSS Ray Reconstruction (denoiser) render preset. Recommended: E (best quality)."/>
@@ -615,7 +615,7 @@
                                         HorizontalAlignment="Left"
                                         Command="{Binding ResetSelectionsCommand}"
                                         IsEnabled="{Binding IsApplyingPreset, Converter={StaticResource InverseBoolConverter}}"
-                                        ToolTip="Restores every dropdown above to its recommended default (SR L, RR E, FG B, Dynamic 6x) and clears the saved selections. Changes nothing on your driver until you apply."/>
+                                        ToolTip="Restores every dropdown above to its recommended default (SR L, RR F, FG B, Dynamic 6x) and clears the saved selections. Changes nothing on your driver until you apply."/>
                                 <Button Style="{StaticResource DangerButtonStyle}"
                                         HorizontalAlignment="Left" Margin="8,0,0,0"
                                         Command="{Binding ResetOverridesCommand}"
