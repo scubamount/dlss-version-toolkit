@@ -120,15 +120,35 @@ public class V077RegressionTests : IDisposable
     }
 
     [Fact]
+    public void DrsStore_UnwritableFile_ReportsFailure_SoTheDriverSaveIsAborted()
+    {
+        var blocker = Path.Combine(_root, "blocker");
+        File.WriteAllText(blocker, "");                       // a file where the folder should be
+        var store = new DrsBaselineStore(Path.Combine(blocker, "sub"));
+        store.RecordIfAbsent("Game", new Dictionary<uint, uint?> { [Sr] = null });
+        Assert.False(store.Flush());
+        Assert.False(store.MarkCleanAndTrusted());
+    }
+
+    [Fact]
+    public void Apply_AbortsDriverSave_WhenCapturesCannotBePersisted()
+    {
+        var src = SrcFile("DLSSVersionToolkit.Core", "Services", "PresetOverrideService.cs");
+        var flush = src.IndexOf("if (!_baseline.Flush())", StringComparison.Ordinal);
+        Assert.True(flush > 0);
+        Assert.Contains("No driver settings were changed", src[flush..src.IndexOf("session.Save();", flush, StringComparison.Ordinal)]);
+        Assert.Contains("!_baseline.MarkCleanAndTrusted()", src);
+    }
+
+    [Fact]
     public void Apply_PersistsCapturesBeforeDriverSave()
     {
         var src = SrcFile("DLSSVersionToolkit.Core", "Services", "PresetOverrideService.cs");
-        var flush = src.IndexOf("_baseline.Flush();", StringComparison.Ordinal);
+        var flush = src.IndexOf("_baseline.Flush()", StringComparison.Ordinal);
         Assert.True(flush > 0);
         Assert.True(src.IndexOf("session.Save();", flush, StringComparison.Ordinal) > flush,
             "captures must be persisted before the driver save");
-        Assert.Contains("if (profilesSkipped == 0)\n                    _baseline.MarkCleanAndTrusted();",
-            src.Replace("\r\n", "\n"));
+        Assert.Contains("if (profilesSkipped == 0 && !_baseline.MarkCleanAndTrusted())", src);
     }
 
     [Fact]

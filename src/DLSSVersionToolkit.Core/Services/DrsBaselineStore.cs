@@ -162,12 +162,16 @@ public sealed class DrsBaselineStore
         }
     }
 
-    /// <summary>Persists the in-memory baseline. Call once per apply, BEFORE the driver session save.</summary>
-    public void Flush()
+    /// <summary>
+    /// Persists the in-memory baseline. Call once per apply, BEFORE the driver session save, and
+    /// abort the save when this returns false: driver writes without persisted captures would be
+    /// re-captured on the next launch as if they were the user's originals.
+    /// </summary>
+    public bool Flush()
     {
         lock (_lock)
         {
-            if (_cached != null) Save(_cached);
+            return _cached == null || Save(_cached);
         }
     }
 
@@ -175,12 +179,19 @@ public sealed class DrsBaselineStore
     /// After an untrusted Reset every managed setting is back at NVIDIA's default, which is a true
     /// original state, so later captures can be trusted. Clears the captures and marks it trusted.
     /// </summary>
-    public void MarkCleanAndTrusted()
+    /// <returns>False when the file could not be written; the old captures are then still on disk.</returns>
+    public bool MarkCleanAndTrusted()
     {
         lock (_lock)
         {
-            _cached = new DrsBaseline { CreatedAt = DateTime.UtcNow, Trusted = true };
-            Save(_cached);
+            var fresh = new DrsBaseline { CreatedAt = DateTime.UtcNow, Trusted = true };
+            if (!Save(fresh))
+            {
+                _cached = null; // stay consistent with disk; the caller reports the failure
+                return false;
+            }
+            _cached = fresh;
+            return true;
         }
     }
 
@@ -202,7 +213,7 @@ public sealed class DrsBaselineStore
         return ManagedSettingIds.Select(id => new DrsRestoreAction(id, null)).ToList();
     }
 
-    private void Save(DrsBaseline baseline)
+    private bool Save(DrsBaseline baseline)
     {
         try
         {
@@ -211,10 +222,12 @@ public sealed class DrsBaselineStore
             var tmp = BaselinePath + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(baseline, JsonOptions));
             File.Move(tmp, BaselinePath, overwrite: true);
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Debug.WriteLine($"DrsBaselineStore: save failed (non-fatal): {ex.Message}");
+            Debug.WriteLine($"DrsBaselineStore: save failed: {ex.Message}");
+            return false;
         }
     }
 }

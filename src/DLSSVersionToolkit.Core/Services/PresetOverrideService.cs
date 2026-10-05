@@ -37,7 +37,7 @@ public sealed record PresetOverrideResult(
 /// </summary>
 public sealed record PresetApplyOptions
 {
-    /// <summary>Enable the DLSS-SR (Super Resolution) override and set its render preset. Always true in practice.</summary>
+    /// <summary>Write the DLSS-SR (Super Resolution) settings at all. False = leave SR untouched (Update All passes false when SR is Default).</summary>
     public bool EnableSuperResolution { get; init; } = true;
 
     /// <summary>Also enable the DLSS-RR (Ray Reconstruction / "NR" denoiser) DLL override.</summary>
@@ -360,8 +360,12 @@ public sealed class PresetOverrideService : IPresetOverrideService
                 // one whose write never lands is harmless. The reverse order is not: a failed or
                 // interrupted Save left in-memory captures unpersisted, the next apply re-captured
                 // the profile AFTER this run's writes, and a trusted Reset wrote those back as
-                // "originals".
-                _baseline.Flush();
+                // "originals". A capture file that cannot be written blocks the driver save for the
+                // same reason: the writes would land with no record of what they replaced.
+                if (!_baseline.Flush())
+                    return new PresetOverrideResult(false, null,
+                        "Could not save the Reset record (drs-baseline.json in %AppData%\\DLSSVersionToolkit). " +
+                        "No driver settings were changed. Check that the folder is writable, then try again.");
                 session.Save();
                 var saveMs = sw.ElapsedMilliseconds;
                 total.Stop();
@@ -502,8 +506,11 @@ public sealed class PresetOverrideService : IPresetOverrideService
                 // spent: clear them and trust fresh ones. Keeping them would let a later Reset
                 // overwrite changes the user makes in the NVIDIA App after this one. A skipped
                 // profile still carries toolkit values, so its capture (or distrust) must stay.
-                if (profilesSkipped == 0)
-                    _baseline.MarkCleanAndTrusted();
+                if (profilesSkipped == 0 && !_baseline.MarkCleanAndTrusted())
+                    return new PresetOverrideResult(false, null,
+                        "Driver settings were restored, but the Reset record (drs-baseline.json) could not be " +
+                        "updated. Check that %AppData%\\DLSSVersionToolkit is writable, then run Reset again.",
+                        false, profilesUpdated, gameProfilesUpdated, total.ElapsedMilliseconds);
 
                 total.Stop();
                 return new PresetOverrideResult(true, null, null, false, profilesUpdated, gameProfilesUpdated,
@@ -646,8 +653,8 @@ public sealed class PresetOverrideService : IPresetOverrideService
     /// Applies the per-feature override enables + render presets to a single DRS profile.
     /// <paramref name="srPresetValue"/> is the DLSS-SR preset; RR and FG take their OWN presets
     /// from <paramref name="options"/> (each feature has an independent preset-selection ID — do
-    /// NOT cross-assign). Each feature's override is ON exactly when its own preset is not
-    /// Default (v0.77); a Default feature has its override turned OFF.
+    /// NOT cross-assign). Each enabled feature's override is ON exactly when its own preset is
+    /// not Default (v0.77). Update All disables Default features, so it never writes them.
     /// </summary>
     private static void ApplyToProfile(DriverSettingsProfile profile, uint srPresetValue, PresetApplyOptions options)
     {

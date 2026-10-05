@@ -881,7 +881,8 @@ private async Task ResetOverridesAsync()
 	var driverLine = _presetOverrideService.DrsBaselineTrusted
 		? "  • Put the DLSS-SR / RR / FG preset and frame-generation settings in the NVIDIA driver back to\n" +
 		  "    how they were before this app changed them (NVIDIA's default where nothing was set)\n"
-		: "  • Return the DLSS-SR / RR / FG preset and frame-generation settings on EVERY game profile\n" +
+		: "  • Return the DLSS-SR / RR / FG preset and frame-generation settings on the global profile and\n" +
+		  "    EVERY game profile\n" +
 		  "    to NVIDIA's default. This includes per-game presets you set in the NVIDIA App: an earlier\n" +
 		  "    version of this app changed them before it kept a record, so they cannot be told apart.\n" +
 		  "    After this, Reset restores exact per-game values.\n";
