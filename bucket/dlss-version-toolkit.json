@@ -1,10 +1,10 @@
 {
-  "version": "0.77",
+  "version": "0.78",
   "description": "Windows GUI for checking, upgrading, and syncing NVIDIA DLSS versions across NGX, AnWave, and Streamline SDK",
   "homepage": "https://github.com/scubamount/dlss-version-toolkit",
   "license": "MIT",
-  "url": "https://github.com/scubamount/dlss-version-toolkit/releases/download/v0.77/DLSSVersionToolkit.exe",
-  "hash": "7cde24bc6e457a595a484c99bcdc5f720af4092398843b6246c84f2230514089",
+  "url": "https://github.com/scubamount/dlss-version-toolkit/releases/download/v0.78/DLSSVersionToolkit.exe",
+  "hash": "90eaa120c7a0c59c0fb6ced472c8f306535c51283f75ac500f8b483a1dc56661",
   "checkver": {
     "url": "https://github.com/scubamount/dlss-version-toolkit/releases/latest",
     "regex": "tag/v([\\d.]+)"
