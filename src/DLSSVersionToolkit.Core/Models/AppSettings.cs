@@ -20,13 +20,13 @@ public class AppSettings
     // --- Persisted preset selections (v0.0.38) ---
     // Stored as strings/ints so a hand-edited or partially-corrupt settings.json degrades to
     // the defaults instead of failing deserialization. Empty string = "not saved yet" — the
-    // ViewModel falls back to the recommended defaults (SR=L, RR=E, FG=B, mode=Dynamic, 6x).
+    // ViewModel falls back to the recommended defaults (SR=L, RR=F, FG=B, mode=Dynamic, 6x).
     // Before v0.0.38 NONE of these were saved, so the app reset to Preset L on every launch.
 
     /// <summary>Last applied/selected DLSS-SR preset ("K", "L", "Latest", …). Empty = default.</summary>
     public string SelectedSrPreset { get; set; } = "";
 
-    /// <summary>Last applied/selected DLSS-RR preset. Empty = default (E).</summary>
+    /// <summary>Last applied/selected DLSS-RR preset. Empty = default (F).</summary>
     public string SelectedRrPreset { get; set; } = "";
 
     /// <summary>Last applied/selected DLSS-FG preset. Empty = default (B).</summary>

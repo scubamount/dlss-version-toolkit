@@ -22,6 +22,13 @@ public sealed class OverrideBaseline
     /// existed", which Reset would then report as fact.
     /// </summary>
     public bool ConfigCaptureFailed { get; set; }
+
+    /// <summary>
+    /// True when the ShowDlssIndicator value could not be read at capture (v0.77). Before this
+    /// flag a failed read was stored as null ("absent"), and Reset then deleted the user's value.
+    /// Reset leaves the indicator alone when this is set.
+    /// </summary>
+    public bool IndicatorCaptureFailed { get; set; }
 }
 
 /// <summary>One line of the Reset report: what was undone, or why it could not be.</summary>
@@ -95,7 +102,7 @@ public sealed class OverrideResetService
     /// (the user ran a pre-v0.76 build before any baseline existed); the baseline then records
     /// "no config", which is the state before any toolkit write.
     /// </summary>
-    public bool EnsureBaselineCaptured(int? indicatorRawValue)
+    public bool EnsureBaselineCaptured(int? indicatorRawValue, bool indicatorCaptureFailed = false)
     {
         if (File.Exists(BaselinePath)) return false;
 
@@ -123,7 +130,8 @@ public sealed class OverrideResetService
             NgxConfigText = configText,
             ConfigCaptureFailed = captureFailed,
             // 1024 is the value this app writes; treat it as toolkit state, not original.
-            IndicatorRawValue = indicatorRawValue == 1024 ? null : indicatorRawValue,
+            IndicatorRawValue = indicatorCaptureFailed || indicatorRawValue == 1024 ? null : indicatorRawValue,
+            IndicatorCaptureFailed = indicatorCaptureFailed,
         };
 
         Directory.CreateDirectory(_appDataRoot);

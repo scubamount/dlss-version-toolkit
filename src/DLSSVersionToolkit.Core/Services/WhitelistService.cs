@@ -23,7 +23,14 @@ public enum WhitelistState
     /// <summary>One or more Disable_*_Override flags are still ON (true / "1") — not yet whitelisted.</summary>
     NotApplied,
     /// <summary>All Disable_*_Override flags are OFF (false / "0") — whitelist already in effect.</summary>
-    Applied
+    Applied,
+    /// <summary>
+    /// A backend file exists but could not be read (NVIDIA App holds it open, or access denied),
+    /// and no readable file showed a flag ON. The state is unknown. Before v0.77 this case
+    /// returned Applied: an unreadable file counted as present with every flag off, while the
+    /// applier reports the same condition as an error.
+    /// </summary>
+    Unreadable
 }
 
 public interface IWhitelistService
@@ -140,6 +147,7 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
     {
         bool anyBackendFilePresent = false;
         bool anyFlagStillOn = false;
+        bool anyReadFailed = false;
 
         // ApplicationStorage.json — count "Disable_*_Override": true occurrences (read-only).
         if (File.Exists(ApplicationStoragePath))
@@ -153,6 +161,7 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
             }
             catch (Exception ex)
             {
+                anyReadFailed = true;
                 Debug.WriteLine($"DetectStateAsync: could not read ApplicationStorage.json: {ex.Message}");
             }
         }
@@ -172,12 +181,14 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
             }
             catch (Exception ex)
             {
+                anyReadFailed = true;
                 Debug.WriteLine($"DetectStateAsync: could not read {fpdbPath}: {ex.Message}");
             }
         }
 
         if (!anyBackendFilePresent) return WhitelistState.NotApplicable;
-        return anyFlagStillOn ? WhitelistState.NotApplied : WhitelistState.Applied;
+        if (anyFlagStillOn) return WhitelistState.NotApplied;
+        return anyReadFailed ? WhitelistState.Unreadable : WhitelistState.Applied;
     }
 
     /// <summary>Counts <c>"Disable_*_Override": true</c> occurrences in raw JSON (read-only twin of
@@ -265,23 +276,37 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
         // Try NVDisplay.ContainerLocalSystem first, then NvContainerLocalSystem
         var services = new[] { "NVDisplay.ContainerLocalSystem", "NvContainerLocalSystem" };
 
+        var restartedAny = false;
         foreach (var serviceName in services)
         {
+            // Only one of the two container services exists on a given driver/App generation.
+            // Skip the absent one: `net` fails on an unknown service name, and before v0.77 that
+            // failure was invisible because every non-zero exit was Debug-only.
+            if (!ServiceIsInstalled(serviceName))
+                continue;
+
             try
             {
+                // net stop also exits non-zero when the service was already stopped; the start
+                // below decides whether the service ends up running, so the result rests on it.
                 var stopResult = await RunNetCommandAsync("stop", serviceName, ct);
-                if (!stopResult)
-                {
-                    Debug.WriteLine($"RestartNvidiaServicesAsync: net stop {serviceName} may have failed");
-                }
 
                 // Small delay between stop and start
                 await Task.Delay(500, ct);
 
+                // A failed start was Debug-only before v0.77, so the method returned success and
+                // the UI said "The NVIDIA services were restarted." with the service left stopped.
                 var startResult = await RunNetCommandAsync("start", serviceName, ct);
-                if (!startResult)
+                if (startResult)
                 {
-                    Debug.WriteLine($"RestartNvidiaServicesAsync: net start {serviceName} may have failed");
+                    restartedAny = true;
+                }
+                else
+                {
+                    errors.Add(stopResult
+                        ? $"{serviceName} stopped but did not start again (net start failed)."
+                        : $"{serviceName} could not be restarted (net stop and net start both failed).");
+                    Debug.WriteLine($"RestartNvidiaServicesAsync: net start {serviceName} failed (stop ok={stopResult})");
                 }
             }
             catch (Win32Exception ex) when (ex.NativeErrorCode == 5)
@@ -301,6 +326,9 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
                 Debug.WriteLine($"RestartNvidiaServicesAsync: {serviceName} unexpected error: {ex.Message}");
             }
         }
+
+        if (!restartedAny && errors.Count == 0)
+            errors.Add("No NVIDIA container service is installed, so nothing was restarted.");
 
         if (errors.Count == 0)
             return (true, null);
@@ -692,6 +720,24 @@ public async Task<WhitelistResult> ApplyWhitelistAsync(CancellationToken ct = de
         catch (Exception ex)
         {
             Debug.WriteLine($"TrySetReadOnly: {path} — {ex.Message}");
+        }
+    }
+
+    /// <summary>True when a Windows service with this name is registered (read-only registry probe).</summary>
+    private static bool ServiceIsInstalled(string serviceName)
+    {
+        if (!OperatingSystem.IsWindows()) return true;
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                $@"SYSTEM\CurrentControlSet\Services\{serviceName}");
+            return key != null;
+        }
+        catch (Exception ex)
+        {
+            // Can't tell: try the restart and let net's exit code decide, as before.
+            Debug.WriteLine($"ServiceIsInstalled: probe failed for {serviceName}: {ex.Message}");
+            return true;
         }
     }
 

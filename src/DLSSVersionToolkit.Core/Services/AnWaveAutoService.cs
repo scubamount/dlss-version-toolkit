@@ -280,9 +280,27 @@ progress?.Report(30);
 			return new AnWaveSetupResult { Success = false, ErrorMessage = "nvidiaDlssGlom.exe not found after extraction." };
 
 	}
+	// SharpCompressException is the base of every SharpCompress 0.49.1 archive/format error
+	// (ArchiveException, IncompleteArchiveException, InvalidFormatException, ...); a truncated
+	// stream can also surface as EndOfStream/InvalidData from the decoder.
+	catch (Exception ex) when (ex is SharpCompressException and not ReaderCancelledException
+		or EndOfStreamException or InvalidDataException)
+	{
+		// An archive that cannot be opened is almost always a truncated download cached by v0.76 or
+		// earlier (no length check). Drop it so the next setup downloads a fresh copy instead of
+		// failing on the same file forever. Only archive failures: a copy into InstallDir that fails
+		// (glom running, access denied) or a cancel says nothing about the archive, and deleting a
+		// good cache would strand an offline user.
+		TryDeleteFile(glomPath);
+		return new AnWaveSetupResult { Success = false, ErrorMessage =
+			$"Failed to extract nvidiaDlssGlom: {ex.Message}. The cached archive was removed; run Setup AnWave again to download a fresh copy." };
+	}
 	catch (Exception ex)
 	{
-		return new AnWaveSetupResult { Success = false, ErrorMessage = $"Failed to extract nvidiaDlssGlom: {ex.Message}" };
+		// Not an archive problem (file in use, access denied, disk full, cancel): keep the cached
+		// archive. Returned as a failure, not thrown, as before v0.77 — callers expect a result.
+		return new AnWaveSetupResult { Success = false, ErrorMessage =
+			$"Failed to install nvidiaDlssGlom: {ex.Message}. Close any running AnWave/glom process and run Setup AnWave again." };
 	}
 	finally
 	{
@@ -792,30 +810,60 @@ app_E658703 = {version}
         return null;
     }
 
+    /// <summary>
+    /// Downloads <paramref name="url"/> to <paramref name="destPath"/> atomically. Before v0.77 this
+    /// streamed straight into destPath and never compared the byte count with Content-Length, so a
+    /// dropped connection left a truncated archive at the final cache path; every later setup found
+    /// it "cached", tried to extract it and failed until the user cleared the cache by hand. Now the
+    /// bytes land in destPath + ".part", the length is checked when the server sent one, and only a
+    /// complete file is moved into place. A failed or short download leaves nothing behind.
+    /// </summary>
     private async Task<bool> DownloadFileAsync(string url, string destPath, CancellationToken ct)
     {
+        var partPath = destPath + ".part";
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!response.IsSuccessStatusCode) return false;
 
-            var totalBytes = response.Content.Headers.ContentLength ?? -1L;
-            await using var contentStream = await response.Content.ReadAsStreamAsync(ct);
-            await using var fileStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
-
-            var buffer = new byte[8192];
+            var expectedBytes = response.Content.Headers.ContentLength;
             long totalRead = 0;
-            int bytesRead;
-            while ((bytesRead = await contentStream.ReadAsync(buffer, ct)) > 0)
+            await using (var contentStream = await response.Content.ReadAsStreamAsync(ct))
+            await using (var fileStream = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true))
             {
-                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                totalRead += bytesRead;
+                var buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = await contentStream.ReadAsync(buffer, ct)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                    totalRead += bytesRead;
+                }
             }
 
+            if (totalRead == 0 || (expectedBytes is long expected && totalRead != expected))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"AnWaveAutoService: download of {url} incomplete ({totalRead} of {expectedBytes?.ToString() ?? "unknown"} bytes)");
+                TryDeleteFile(partPath);
+                return false;
+            }
+
+            File.Move(partPath, destPath, overwrite: true);
             return true;
         }
-        catch { return false; }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"AnWaveAutoService: download of {url} failed: {ex.Message}");
+            TryDeleteFile(partPath);
+            return false;
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"AnWaveAutoService: could not delete {path}: {ex.Message}"); }
     }
 
     private static Version? TryParseVersion(string version)

@@ -225,7 +225,11 @@ public partial class App : Application
         _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(intervalHours > 0 ? intervalHours : 4) };
         _scanTimer.Tick += async (s, e) =>
         {
-            if (_mainViewModel != null)
+            // A background tick is the one refresh that should be DROPPED, not queued: ScanAsync
+            // now waits its turn on _scanGate (v0.76), so a tick during Update All, a preset apply
+            // or Reset would run mid-mutation and paint half-written state. The next tick (or the
+            // post-run rescan those operations already do) covers it.
+            if (_mainViewModel is { IsBusyMutating: false })
                 await _mainViewModel.ScanCommand.ExecuteAsync(null);
         };
         _scanTimer.Start();
