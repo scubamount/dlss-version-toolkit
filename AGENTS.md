@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-09-24 (v0.76).
+Hand-maintained. Last updated: 2026-10-05 (v0.77).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -22,7 +22,7 @@ not referenced by the README. Nothing reads them. Treat as removable, not as a s
 
 ```text
 src/
-├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 33 services
+├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 34 services
 │   ├── Models/                         # AppSettings, DlssPreset, OverrideManifest,
 │   │                                   #   UpdateRunReport, ScanResult, ...
 │   └── Services/
@@ -48,7 +48,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 29 files, 530+ tests at v0.76
+└── DLSSVersionToolkit.Tests/            # xUnit, 30 files, 550+ tests at v0.77
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
