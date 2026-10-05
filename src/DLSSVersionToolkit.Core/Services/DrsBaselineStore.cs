@@ -102,6 +102,9 @@ public sealed class DrsBaselineStore
     /// <summary>
     /// Creates the baseline file if none exists. <paramref name="trusted"/> must be true only when
     /// the toolkit has never written DRS settings on this machine (fresh install). Idempotent.
+    /// Returns false when a baseline already existed. Throws <see cref="IOException"/> when the
+    /// file cannot be written: a trusted baseline that only lives in memory is lost on exit, and
+    /// the next launch can no longer tell a fresh install from one the toolkit already changed.
     /// </summary>
     public bool EnsureCreated(bool trusted)
     {
@@ -109,7 +112,8 @@ public sealed class DrsBaselineStore
         {
             if (File.Exists(BaselinePath)) return false;
             _cached = new DrsBaseline { CreatedAt = DateTime.UtcNow, Trusted = trusted };
-            Save(_cached);
+            if (!Save(_cached))
+                throw new IOException($"Could not write the DRS baseline to {BaselinePath}.");
             return true;
         }
     }
