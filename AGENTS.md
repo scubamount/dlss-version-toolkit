@@ -48,7 +48,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 31 files, 600+ tests at v0.78
+└── DLSSVersionToolkit.Tests/            # xUnit, 31 files, 590 tests at v0.78
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
