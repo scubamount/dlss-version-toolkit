@@ -135,7 +135,8 @@ public class V078RegressionTests
         var h = Release(withConfig: true);
         var v = Environment.Version;
         h.Map[Cfg] = (HttpStatusCode.OK,
-            $$"""{"runtimeOptions":{"framework":{"name":"Microsoft.NETCore.App","version":"{{v.Major}}.{{v.Minor}}.0"}}}""");
+            "{\"runtimeOptions\":{\"framework\":{\"name\":\"Microsoft.NETCore.App\",\"version\":\"" +
+            $"{v.Major}.{v.Minor}.0" + "\"}}}");
         var info = await new AppUpdateService(new HttpClient(h)).CheckForUpdateAsync();
         Assert.True(info.IsUpdateAvailable);
         Assert.Equal("", info.MissingRuntime);

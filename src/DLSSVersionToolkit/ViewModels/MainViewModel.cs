@@ -2169,8 +2169,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
                     .OrderBy(v => v, Comparer<string>.Create((a, b) =>
                         _versionComparer.IsNewer(a, b) ? 1 : _versionComparer.IsNewer(b, a) ? -1 : 0))
                     .LastOrDefault();
-                if (slLatest != null)
-                else
+                if (slLatest == null)
                     feedProblems.Add("GitHub (Streamline)");
             }
             catch (Exception ex)
