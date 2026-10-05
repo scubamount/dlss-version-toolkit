@@ -258,7 +258,7 @@ dlss-version-toolkit/
 │   │   ├── MainWindow.xaml           # Sidebar-dashboard UI
 │   │   └── App.xaml                  # Theme, styles, startup
 │   └── DLSSVersionToolkit.sln
-├── tests/DLSSVersionToolkit.Tests/   # xUnit tests (590) — including gates that pin doc claims,
+├── tests/DLSSVersionToolkit.Tests/   # xUnit tests (596) — including gates that pin doc claims,
 │                                     # bug-class regressions, and UI accessibility in CI
 └── .github/workflows/                # ci.yml (build+test on push/PR) · release.yml (tag → exe; read-only build job, separate publish job)
 ```
