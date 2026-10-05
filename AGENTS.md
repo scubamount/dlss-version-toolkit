@@ -198,11 +198,14 @@ applied."
   with `contents: write` downloads the artifact, re-checks its SHA-256, attaches it and pins the
   manifests. Every action in both workflows is pinned to a full commit SHA. (2) The updater reads
   a new release asset, `DLSSVersionToolkit.runtimeconfig.json`, before offering an update, and
-  refuses one whose .NET runtime is missing (`AppUpdateInfo.MissingRuntime`). The swap replaces the
+  refuses one whose .NET runtime is missing (`AppUpdateInfo.MissingRuntime`) or could not be
+  checked (`RuntimeCheckFailed`: asset unreadable, or absent on a v0.78+ release); the update stays
+  visible and clicking Update re-checks. Prerelease runtime folders do not count. The swap replaces the
   running exe, so a new exe that cannot start leaves no working app; this is what makes a later
   move off .NET 9 safe. The project stays on `net9.0`: `RollForward=LatestMajor` already runs it
   on a .NET 10-only machine. (3) Progress text showed only during Update All and preset apply; every
-  other operation wrote to a Collapsed panel. The text now shows whenever it is non-empty.
+  other operation wrote to a Collapsed panel. The text now shows whenever it is non-empty; one-off
+  confirmations clear themselves (`ShowTransientStatus`).
   (4) The hero pill said UP TO DATE before any scan and on a dead feed; it now says NOT CHECKED
   until every feed answers (`IsLatestVerified`). (5) README: the OTA download section described an
   unwired feature, "every step non-fatal" was false (five conditions stop the run), and whitelist

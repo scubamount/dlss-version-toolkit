@@ -262,8 +262,8 @@
 
                         <TextBlock Text="ADVANCED" Style="{StaticResource NavGroupLabel}"/>
 
-                        <!-- Import Local DLLs is the ONE action Update All cannot do for you: it
-                             needs a folder you pick. Amber, not the nav grey, so it does not read
+                        <!-- Import Local DLLs needs a folder you pick. Update All offers the same import in its
+                             pre-flight dialog; this button imports without a full run. Amber, not the nav grey, so it does not read
                              as "another step Update All already ran". -->
                         <Button Command="{Binding ImportLocalDllsCommand}"
                                 Content="📥   Import Local DLLs"
@@ -368,7 +368,7 @@
                                     <Run Text="  Fully restart your game"/><Run Text=" (not just to the menu) for changes to take effect."/>
                                 </TextBlock>
                                 <TextBlock Foreground="{StaticResource Text3Brush}" FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"
-                                           Text="Tip: turn on the DLSS Indicator (top right) to verify in-game — the overlay appears in the bottom-left corner. Import Local DLLs under ADVANCED is the one step Update All cannot do for you; the items under More tools are steps it already runs."/>
+                                           Text="Tip: turn on the DLSS Indicator (top right) to verify in-game — the overlay appears in the bottom-left corner. Import Local DLLs under ADVANCED imports without a full run (Update All offers it in its pre-flight dialog); the items under More tools are steps Update All already runs."/>
                             </StackPanel>
                             <Button Grid.Column="1" Content="Got it" Style="{StaticResource SolidGreenButtonStyle}"
                                     VerticalAlignment="Top" Margin="16,0,0,0"

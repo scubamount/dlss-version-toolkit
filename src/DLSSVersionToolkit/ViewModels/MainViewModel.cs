@@ -384,12 +384,33 @@ catch (Exception ex) { Debug.WriteLine($"Override baseline capture failed (non-f
         IsQuickGuideVisible = true;
     }
 
+    /// <summary>
+    /// Shows a confirmation in the progress line, then clears it unless another operation has
+    /// written its own status meanwhile. The line is visible whenever it is non-empty, so a
+    /// one-off message left in place would read as a stuck operation.
+    /// </summary>
+    private async void ShowTransientStatus(string text)
+    {
+        DownloadStatus = text;
+        await Task.Delay(TimeSpan.FromSeconds(4));
+        if (DownloadStatus == text) DownloadStatus = "";
+    }
+
     [RelayCommand]
     private async Task ApplyAppUpdateAsync()
     {
         if (_pendingAppUpdate is not { } update || IsApplyingAppUpdate) return;
 
-        if (!string.IsNullOrEmpty(update.MissingRuntime))
+        // The startup check can be stale: the user may have installed the runtime the message
+        // asked for, or the runtimeconfig fetch may have failed transiently. Re-check on click.
+        if (update.IsBlockedByRuntime)
+        {
+            var fresh = await _appUpdateService.CheckForUpdateAsync();
+            if (fresh.IsUpdateAvailable)
+                _pendingAppUpdate = update = fresh;
+        }
+
+        if (update.IsBlockedByRuntime)
         {
             ThemedMessageBox.Show(AppUpdateService.MissingRuntimeMessage(update), "App Update",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -840,7 +861,7 @@ private async Task ResetSelectionsAsync()
 		// Clear the one-time preset prompt too, so a reset genuinely restores first-run behaviour.
 		settings.DismissedPresetRule = "";
 		await _settingsService.SaveAsync(settings);
-		DownloadStatus = "Selections reset to defaults.";
+		ShowTransientStatus("Selections reset to defaults.");
 	}
 	catch (Exception ex)
 	{
@@ -2450,7 +2471,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
             if (path != null)
             {
-                DownloadStatus = "Download complete.";
+                DownloadStatus = ""; // the dialog below reports completion
                 var version = _dlssDownloadService.GetCachedSdkVersion() ?? "unknown";
 
                 var cacheInfo = _dlssDownloadService.GetCacheInfo();
@@ -2508,7 +2529,7 @@ private async Task<WhitelistOutcome> ApplyWhitelistInternalAsync(bool restartSer
 
             if (path != null)
             {
-                DownloadStatus = "Download complete.";
+                DownloadStatus = ""; // the dialog below reports completion
                 var version = _streamlineDownloadService.GetCachedSdkVersion() ?? "unknown";
 
                 var cacheInfo = _streamlineDownloadService.GetCacheInfo();

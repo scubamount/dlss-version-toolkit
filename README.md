@@ -86,7 +86,7 @@ DLSS override enabled.
 | **AnWave auto-setup** | Downloads + installs nvidiaDlssGlom, fetches the latest DLSS DLLs, activates the global override |
 | **NGX Backups** | Every sync backs up the current NGX DLLs first; the Backups dialog restores any of them with its own safety backup |
 | **Export** | Save a snapshot of your DLSS setup as CSV or JSON |
-| **Advanced (manual)** | Import Local DLLs (the one thing Update All cannot do for you), SDK downloads into the cache without applying them, profile indexing, and under **More tools**: whitelist, unlock, export and NGX backups |
+| **Advanced (manual)** | Import Local DLLs without a full run (Update All also offers it in its pre-flight dialog), SDK downloads into the cache without applying them, profile indexing, and under **More tools**: whitelist, unlock, export and NGX backups |
 | **DLSS Indicator** | Top-right toggle for NVIDIA's on-screen DLSS overlay, to check in-game which DLL and preset loaded |
 | **Your Games** | Lists the game profiles the driver knows for installed games |
 
@@ -219,7 +219,8 @@ The in-app auto-updater is opt-out, never silent: it downloads a size-verified e
 published `.sha256` checksum must match, swaps it in place with rollback on failure, and prompts
 before restarting. From v0.78 it also reads the new release's `DLSSVersionToolkit.runtimeconfig.json`
 and refuses an update whose .NET runtime is not installed, naming the runtime to install, so a
-future move to a newer .NET cannot leave you with an exe that will not start.
+future move to a newer .NET cannot leave you with an exe that will not start. When that file
+cannot be read, the update is still shown but not installed; clicking Update retries the check.
 
 ---
 

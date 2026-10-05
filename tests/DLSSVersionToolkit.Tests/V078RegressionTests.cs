@@ -69,6 +69,7 @@ public class V078RegressionTests
     [InlineData("{}")]
     [InlineData("""{"runtimeOptions":{}}""")]
     [InlineData("""{"runtimeOptions":{"framework":{"name":"Microsoft.NETCore.App","version":"ten"}}}""")]
+    [InlineData("""{"runtimeOptions":{"framework":{"name":"Microsoft.NETCore.App","version":"10.0.0-rc.1"}}}""")]
     public void ParseRuntimeConfig_Unreadable_ReturnsNull(string json) =>
         Assert.Null(AppUpdateService.ParseRuntimeConfig(json));
 
@@ -100,12 +101,12 @@ public class V078RegressionTests
                 : new HttpResponseMessage(HttpStatusCode.NotFound));
     }
 
-    private static Handler Release(bool withConfig)
+    private static Handler Release(bool withConfig, string tag = "v99.0")
     {
         var h = new Handler();
         var cfgAsset = withConfig ? $$""",{"name":"DLSSVersionToolkit.runtimeconfig.json","browser_download_url":"{{Cfg}}","size":300}""" : "";
         h.Map[Api] = (HttpStatusCode.OK, $$"""
-            {"tag_name":"v99.0","body":"","assets":[
+            {"tag_name":"{{tag}}","body":"","assets":[
               {"name":"DLSSVersionToolkit.exe","browser_download_url":"{{Exe}}","size":100},
               {"name":"DLSSVersionToolkit.exe.sha256","browser_download_url":"{{Sha}}","size":89}{{cfgAsset}}]}
             """);
@@ -143,20 +144,60 @@ public class V078RegressionTests
     }
 
     [Fact]
-    public async Task CheckForUpdate_RuntimeConfigUnreadable_OffersNoUpdate()
+    public async Task CheckForUpdate_RuntimeConfigUnreadable_ShowsUpdate_ButBlocksTheSwap()
     {
+        // Hiding the update would strand the user silently; installing it could brick the app.
         var h = Release(withConfig: true);
         h.Map[Cfg] = (HttpStatusCode.OK, "<html>rate limited</html>");
-        var info = await new AppUpdateService(new HttpClient(h)).CheckForUpdateAsync();
-        Assert.False(info.IsUpdateAvailable);
+        var svc = new AppUpdateService(new HttpClient(h));
+        var info = await svc.CheckForUpdateAsync();
+        Assert.True(info.IsUpdateAvailable);
+        Assert.True(info.RuntimeCheckFailed);
+        Assert.True(info.IsBlockedByRuntime);
+        var result = await svc.DownloadAndApplyAsync(info);
+        Assert.False(result.Success);
+        Assert.Contains("Could not read which .NET runtime", result.ErrorMessage);
     }
 
     [Fact]
-    public async Task CheckForUpdate_PreV078ReleaseWithoutConfig_StillOffered()
+    public async Task CheckForUpdate_V078OrLaterWithoutConfig_FailsTheCheck()
     {
-        var info = await new AppUpdateService(new HttpClient(Release(withConfig: false))).CheckForUpdateAsync();
+        // From v0.78 every release publishes the asset; one without it was built some other way.
+        var svc = new AppUpdateService(new HttpClient(Release(withConfig: false, tag: "v0.78")), new Version(0, 77));
+        var info = await svc.CheckForUpdateAsync();
         Assert.True(info.IsUpdateAvailable);
-        Assert.Equal("", info.MissingRuntime);
+        Assert.True(info.IsBlockedByRuntime);
+    }
+
+    [Theory]
+    [InlineData("v0.0.0.1")]
+    [InlineData("v0.77.9")]
+    public async Task CheckForUpdate_PreV078ReleaseWithoutConfig_StillOffered(string tag)
+    {
+        var svc = new AppUpdateService(new HttpClient(Release(withConfig: false, tag: tag)), new Version(0, 0, 0));
+        var info = await svc.CheckForUpdateAsync();
+        Assert.True(info.IsUpdateAvailable);
+        Assert.False(info.IsBlockedByRuntime);
+    }
+
+    [Fact]
+    public void ParseFrameworkFolders_DropsPrereleases()
+    {
+        // The host never binds 10.0.0-rc.1 to a 10.0.0 requirement; counting it would brick the swap.
+        var v = AppUpdateService.ParseFrameworkFolders(new[] { "9.0.9", "10.0.0-rc.1.25451.107", "10.0.0-preview.7", "junk" });
+        Assert.Equal(new[] { new Version(9, 0, 9) }, v);
+    }
+
+    [Fact]
+    public void ParseRuntimeConfig_SelfContained_NeedsNothingInstalled() =>
+        Assert.Empty(AppUpdateService.ParseRuntimeConfig(
+            """{"runtimeOptions":{"includedFrameworks":[{"name":"Microsoft.NETCore.App","version":"10.0.0"}]}}""")!);
+
+    [Fact]
+    public void FindMissingRuntime_Disable_NeedsTheExactVersion()
+    {
+        Assert.NotNull(AppUpdateService.FindMissingRuntime(Req("10.0.0", "Disable"), Installed("10.0.3")));
+        Assert.Null(AppUpdateService.FindMissingRuntime(Req("10.0.0", "Disable"), Installed("10.0.0")));
     }
 
     [Fact]
@@ -179,7 +220,9 @@ public class V078RegressionTests
         var build = yml[yml.IndexOf("\n  build:", StringComparison.Ordinal)..yml.IndexOf("\n  publish:", StringComparison.Ordinal)];
         Assert.DoesNotContain("contents: write", build);
         Assert.Contains("contents: read", yml[..yml.IndexOf("\njobs:", StringComparison.Ordinal)]);
-        Assert.Contains("DLSSVersionToolkit.runtimeconfig.json", yml[yml.IndexOf("\n  publish:", StringComparison.Ordinal)..]);
+        var publish = yml[yml.IndexOf("\n  publish:", StringComparison.Ordinal)..];
+        Assert.Contains("DLSSVersionToolkit.runtimeconfig.json", publish);
+        Assert.Contains("sha256sum -c artifact.sha256", publish);
 
         foreach (var file in new[] { "release.yml", "ci.yml" })
         {
