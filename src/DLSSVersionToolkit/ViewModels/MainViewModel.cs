@@ -306,6 +306,17 @@ try
 {
 	// DRS baseline first: its trust test looks for the files the other baseline creates.
 	_presetOverrideService.EnsureDrsBaseline(trusted: new DrsBaselineStore().LooksLikeFreshInstall());
+}
+catch (IOException ex)
+{
+	// Reset restores to this baseline. Without it on disk, Reset can only switch overrides off.
+	Debug.WriteLine($"DRS baseline write failed: {ex.Message}");
+	StatusMessage = "Could not save your original driver settings, so Reset can only turn overrides off. " +
+		"Check that %APPDATA%\\DLSSVersionToolkit is writable, then restart the app.";
+}
+catch (Exception ex) { Debug.WriteLine($"DRS baseline capture failed (non-fatal): {ex.Message}"); }
+try
+{
 	var indicatorRead = _dlssIndicatorService.TryGetRawValue(out var indicatorRaw);
 	_resetService.EnsureBaselineCaptured(indicatorRaw, indicatorCaptureFailed: !indicatorRead);
 }

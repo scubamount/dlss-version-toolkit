@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-10-05 (v0.78).
+Hand-maintained. Last updated: 2026-10-05 (v0.79).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -48,7 +48,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 31 files, 596 tests at v0.78
+└── DLSSVersionToolkit.Tests/            # xUnit, 31 files, 597 tests at v0.79
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -193,6 +193,13 @@ applied."
 
 ## Recent Changes
 
+- **v0.79**: `DrsBaselineStore.EnsureCreated` threw away `Save`'s result and reported success
+  when the baseline never reached disk; a trusted baseline held only in memory is lost on exit and
+  the next launch treats the machine as already changed. It now throws `IOException`, and startup
+  shows a status message naming `%APPDATA%\DLSSVersionToolkit`. The indicator baseline capture
+  runs in its own `try`. Test packages: coverlet.collector 10.1.0, Microsoft.NET.Test.Sdk 18.10.1,
+  xunit.runner.visualstudio 4.0.0. The FG preset list stays A–M: NVIDIA's `NvApiDriverSettings.h`
+  (R615) lists FG presets A–Z plus `Default = 0x00fffffe` and `Latest`.
 - **v0.78**: Release hardening plus the v0.77 audit's remaining fixes. (1) `release.yml` split: the
   `build` job (restore, compile, tests, publish) holds a read-only token; a separate `publish` job
   with `contents: write` downloads the artifact, re-checks its SHA-256, attaches it and pins the

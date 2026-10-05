@@ -107,6 +107,16 @@ public class V077RegressionTests : IDisposable
     }
 
     [Fact]
+    public void DrsStore_EnsureCreated_UnwritableLocation_Throws_InsteadOfClaimingSuccess()
+    {
+        // A file where the directory should be: Directory.CreateDirectory fails with IOException.
+        var blocker = Path.Combine(_root, "not-a-dir");
+        File.WriteAllText(blocker, "");
+        var store = new DrsBaselineStore(Path.Combine(blocker, "sub"));
+        Assert.Throws<IOException>(() => store.EnsureCreated(trusted: true));
+    }
+
+    [Fact]
     public void DrsStore_CleanReset_ClearsSpentCaptures_AndTrusts()
     {
         var store = new DrsBaselineStore(_root);
