@@ -74,8 +74,8 @@ public class UpgradeService : IUpgradeService
             return operation;
         }
 
-        var latestRelease = releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
-        var latestStaging = stagings.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
+        var latestRelease = releases.OrderByDescending(e => VersionComparer.ParseLoose(e.DLSS) ?? new Version(0, 0)).First();
+        var latestStaging = stagings.OrderByDescending(e => VersionComparer.ParseLoose(e.DLSS) ?? new Version(0, 0)).First();
 
         if (!_versionComparer.IsNewer(latestStaging.DLSS, latestRelease.DLSS))
         {
@@ -144,7 +144,7 @@ public class UpgradeService : IUpgradeService
             SourceType = sourceType,
             TargetType = "NGX_Release",
             SourcePath = sourcePath,
-            TargetPath = releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First().Path
+            TargetPath = releases.OrderByDescending(e => VersionComparer.ParseLoose(e.DLSS) ?? new Version(0, 0)).First().Path
         };
 
         var sourceVersions = ReadSourceVersions(sourcePath, sourceType);
@@ -155,7 +155,7 @@ public class UpgradeService : IUpgradeService
             return operation;
         }
 
-	var latestRelease = releases.OrderByDescending(e => TryParseVersion(e.DLSS) ?? new Version(0, 0)).First();
+	var latestRelease = releases.OrderByDescending(e => VersionComparer.ParseLoose(e.DLSS) ?? new Version(0, 0)).First();
 
 	if (!_versionComparer.IsNewer(sourceVersions.DLSS, latestRelease.DLSS))
 	{
@@ -513,26 +513,5 @@ return false;
             return Directory.GetFiles(folder, "nvngx_package_config.txt", SearchOption.TopDirectoryOnly).FirstOrDefault();
         }
         catch { return null; }
-    }
-
-    private static Version? TryParseVersion(string version)
-    {
-        try
-        {
-            var parts = NormalizeVersion(version).Split('.');
-            var major = int.TryParse(parts.ElementAtOrDefault(0), out var m) ? m : 0;
-            var minor = int.TryParse(parts.ElementAtOrDefault(1), out var n) ? n : 0;
-            var build = int.TryParse(parts.ElementAtOrDefault(2), out var b) ? b : 0;
-            var rev = int.TryParse(parts.ElementAtOrDefault(3), out var r) ? r : 0;
-            return new Version(major, minor, build, rev);
-        }
-        catch { return null; }
-    }
-
-    private static string NormalizeVersion(string version)
-    {
-        var cleaned = System.Text.RegularExpressions.Regex.Replace(version, @"[a-zA-Z]", "");
-        var parts = cleaned.Split('.').Take(4);
-        return string.Join(".", parts);
     }
 }

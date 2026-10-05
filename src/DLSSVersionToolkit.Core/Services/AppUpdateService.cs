@@ -36,6 +36,12 @@ public class AppUpdateService
     /// <summary>Test constructor — inject a custom HttpClient (e.g. with a mock HttpMessageHandler).</summary>
     public AppUpdateService(HttpClient http) => _http = http;
 
+    /// <summary>Tests: pin the running version instead of reading the entry assembly.</summary>
+    public AppUpdateService(HttpClient http, Version currentVersion) : this(http) =>
+        _currentVersion = currentVersion;
+
+    private readonly Version? _currentVersion;
+
     private const string LatestReleaseApiUrl =
         "https://api.github.com/repos/scubamount/dlss-version-toolkit/releases/latest";
     private const string ExeAssetName = "DLSSVersionToolkit.exe";
@@ -43,8 +49,19 @@ public class AppUpdateService
     /// <summary>Checksum asset published alongside the exe (sha256sum format: "hash  filename").</summary>
     private const string Sha256AssetName = ExeAssetName + ".sha256";
 
+    /// <summary>
+    /// The new exe's runtimeconfig, published as its own asset from v0.78. The single-file exe
+    /// embeds the same file, so without this asset the updater learns which .NET runtime a
+    /// release needs only after swapping it in, when the new exe fails to start.
+    /// </summary>
+    private const string RuntimeConfigAssetName = "DLSSVersionToolkit.runtimeconfig.json";
+
     /// <summary>Manual download fallback shown in error messages when the swap fails.</summary>
     public const string ReleasesPageUrl = "https://github.com/scubamount/dlss-version-toolkit/releases/latest";
+
+    /// <summary>The first release that publishes DLSSVersionToolkit.runtimeconfig.json. A newer
+    /// release without it fails the runtime check instead of skipping it.</summary>
+    public static readonly Version FirstReleaseWithRuntimeConfig = new(0, 78);
 
     private static readonly string UpdateStagingDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -105,7 +122,7 @@ public class AppUpdateService
     /// </summary>
     public async Task<AppUpdateInfo> CheckForUpdateAsync(CancellationToken ct = default)
     {
-        var current = GetCurrentVersion();
+        var current = _currentVersion ?? GetCurrentVersion();
         var none = new AppUpdateInfo { CurrentVersion = ToDisplayVersion(current) };
 
         try
@@ -131,6 +148,7 @@ public class AppUpdateService
 
             string? downloadUrl = null;
             string? sha256Url = null;
+            string? runtimeConfigUrl = null;
             long assetSize = 0;
             if (root.TryGetProperty("assets", out var assets))
             {
@@ -148,10 +166,39 @@ public class AppUpdateService
                         sha256Url = asset.TryGetProperty("browser_download_url", out var bdu)
                             ? bdu.GetString() : null;
                     }
+                    else if (name.Equals(RuntimeConfigAssetName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        runtimeConfigUrl = asset.TryGetProperty("browser_download_url", out var bdu)
+                            ? bdu.GetString() : null;
+                    }
                 }
             }
 
             var notes = root.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "";
+
+            // A release's runtime requirements are checked against this machine before any
+            // download. When they cannot be read the update is still SHOWN but the swap is
+            // blocked (RuntimeCheckFailed): hiding it would leave the user on an old build with
+            // no sign a new one exists, and installing it could swap in an exe that cannot start.
+            // Only releases before v0.78 (all .NET 9) may lack the asset; from v0.78 on a missing
+            // asset is a failed check, not a pass.
+            var missingRuntime = "";
+            var runtimeCheckFailed = false;
+            if (IsNewer(latest, current))
+            {
+                IReadOnlyList<RuntimeRequirement>? required = null;
+                if (!string.IsNullOrEmpty(runtimeConfigUrl))
+                    required = await FetchRuntimeRequirementsAsync(runtimeConfigUrl, ct);
+                else if (!IsNewer(FirstReleaseWithRuntimeConfig, latest))
+                    Debug.WriteLine("AppUpdateService: release has no runtimeconfig asset");
+                else
+                    required = Array.Empty<RuntimeRequirement>();
+
+                if (required == null)
+                    runtimeCheckFailed = true;
+                else
+                    missingRuntime = FindMissingRuntime(required, GetInstalledFrameworks) ?? "";
+            }
 
             return new AppUpdateInfo
             {
@@ -163,6 +210,8 @@ public class AppUpdateService
                 AssetSize = assetSize,
                 Sha256Url = sha256Url ?? "",
                 ReleaseNotes = notes,
+                MissingRuntime = missingRuntime,
+                RuntimeCheckFailed = runtimeCheckFailed,
             };
         }
         catch (TaskCanceledException)
@@ -188,6 +237,9 @@ public class AppUpdateService
     {
         if (!update.IsUpdateAvailable || string.IsNullOrEmpty(update.DownloadUrl))
             return AppUpdateResult.Failed("No update is available to apply.");
+
+        if (update.IsBlockedByRuntime)
+            return AppUpdateResult.Failed(MissingRuntimeMessage(update));
 
         if (string.IsNullOrEmpty(update.Sha256Url))
             return AppUpdateResult.Failed(
@@ -410,6 +462,146 @@ public class AppUpdateService
                 Debug.WriteLine($"AppUpdateService: wait-for-pid skipped: {ex.Message}");
             }
             return;
+        }
+    }
+
+    /// <summary>One framework a release needs: name, minimum version, and its roll-forward policy.</summary>
+    public sealed record RuntimeRequirement(string Name, Version MinVersion, string RollForward);
+
+    /// <summary>User-facing text for an update this machine cannot run yet, or whose runtime
+    /// requirements could not be read.</summary>
+    public static string MissingRuntimeMessage(AppUpdateInfo update)
+    {
+        if (update.RuntimeCheckFailed)
+            return $"Could not read which .NET runtime v{update.LatestVersion} needs, so it was not " +
+                   "installed automatically. Nothing was downloaded or changed.\n\n" +
+                   $"What to do: click Update again later (the check is retried each time), or " +
+                   $"download it manually from {ReleasesPageUrl}.";
+        var parts = update.MissingRuntime.Split(' ', 2);
+        var major = parts.Length == 2 && Version.TryParse(parts[1], out var v) ? v.Major.ToString() : "";
+        var winget = parts[0] == "Microsoft.WindowsDesktop.App" && major != ""
+            ? $"winget install Microsoft.DotNet.DesktopRuntime.{major}"
+            : "the runtime from https://dotnet.microsoft.com/download";
+        return $"v{update.LatestVersion} needs {update.MissingRuntime}, which is not installed. " +
+               "Nothing was downloaded or changed.\n\n" +
+               $"What to do: install it ({winget}), then click Update again.";
+    }
+
+    /// <summary>
+    /// Parses a runtimeconfig.json body into its framework requirements. Handles both the
+    /// single "framework" and the "frameworks" array forms. A self-contained build
+    /// ("includedFrameworks") carries its runtime and needs nothing installed: empty list.
+    /// Returns null when the JSON is not a runtimeconfig or a version does not parse (a
+    /// prerelease requirement such as 10.0.0-rc.1 included): the caller fails closed.
+    /// </summary>
+    public static IReadOnlyList<RuntimeRequirement>? ParseRuntimeConfig(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("runtimeOptions", out var opts)) return null;
+            var rollForward = opts.TryGetProperty("rollForward", out var rf) ? rf.GetString() ?? "Minor" : "Minor";
+            var list = new List<RuntimeRequirement>();
+            if (opts.TryGetProperty("includedFrameworks", out _)) return list;
+            void Add(JsonElement fw)
+            {
+                var name = fw.TryGetProperty("name", out var n) ? n.GetString() : null;
+                var ver = fw.TryGetProperty("version", out var vv) ? vv.GetString() : null;
+                if (string.IsNullOrEmpty(name) || ver == null || !Version.TryParse(ver, out var parsed))
+                    throw new FormatException("framework entry without name/version");
+                list.Add(new RuntimeRequirement(name, parsed, rollForward));
+            }
+            if (opts.TryGetProperty("frameworks", out var many) && many.ValueKind == JsonValueKind.Array)
+                foreach (var fw in many.EnumerateArray()) Add(fw);
+            else if (opts.TryGetProperty("framework", out var one))
+                Add(one);
+            return list.Count > 0 ? list : null;
+        }
+        catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Returns "Name major.minor" for the first required framework that no installed version
+    /// satisfies, or null when all are satisfied. Mirrors the host's roll-forward rules:
+    /// LatestMajor/Major accept any newer major; Minor/LatestMinor need the same major;
+    /// LatestPatch needs the same major.minor; Disable needs the exact version.
+    /// </summary>
+    public static string? FindMissingRuntime(
+        IReadOnlyList<RuntimeRequirement> required, Func<string, IEnumerable<Version>> installed)
+    {
+        foreach (var req in required)
+        {
+            var min = req.MinVersion;
+            var ok = installed(req.Name).Any(v =>
+            {
+                if (Pad(v) < Pad(min)) return false;
+                return req.RollForward.ToLowerInvariant() switch
+                {
+                    "latestmajor" or "major" => true,
+                    "disable" => Pad(v) == Pad(min),
+                    "latestpatch" => v.Major == min.Major && v.Minor == min.Minor,
+                    _ => v.Major == min.Major,
+                };
+            });
+            if (!ok) return $"{req.Name} {min.Major}.{Math.Max(min.Minor, 0)}";
+        }
+        return null;
+
+        static Version Pad(Version v) => new(
+            Math.Max(v.Major, 0), Math.Max(v.Minor, 0), Math.Max(v.Build, 0), Math.Max(v.Revision, 0));
+    }
+
+    /// <summary>
+    /// Installed versions of a shared framework, read from the dotnet root this process runs
+    /// on (…\dotnet\shared\&lt;name&gt;\&lt;version&gt;). Using the running runtime's own root
+    /// covers Program Files, DOTNET_ROOT and per-user installs without guessing paths.
+    /// </summary>
+    public static IEnumerable<Version> GetInstalledFrameworks(string name)
+    {
+        try
+        {
+            // …\dotnet\shared\Microsoft.NETCore.App\9.0.x\ → …\dotnet\shared
+            var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
+            var shared = Directory.GetParent(runtimeDir.TrimEnd('\\', '/'))?.Parent?.FullName;
+            if (shared == null) return Array.Empty<Version>();
+            var dir = Path.Combine(shared, name);
+            if (!Directory.Exists(dir)) return Array.Empty<Version>();
+            return ParseFrameworkFolders(Directory.GetDirectories(dir).Select(d => Path.GetFileName(d)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Debug.WriteLine($"AppUpdateService: framework probe failed: {ex.Message}");
+            return Array.Empty<Version>();
+        }
+    }
+
+    /// <summary>
+    /// Framework folder names to versions. Prerelease folders (10.0.0-rc.1) are dropped: the host
+    /// never binds a prerelease to a release requirement, so counting one as 10.0.0 would pass
+    /// the check and swap in an exe that cannot start.
+    /// </summary>
+    public static IReadOnlyList<Version> ParseFrameworkFolders(IEnumerable<string> names) =>
+        names.Where(n => !string.IsNullOrEmpty(n) && !n.Contains('-'))
+             .Select(n => Version.TryParse(n, out var v) ? v : null)
+             .Where(v => v != null).Select(v => v!).ToList();
+
+    private async Task<IReadOnlyList<RuntimeRequirement>?> FetchRuntimeRequirementsAsync(
+        string url, CancellationToken ct)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Add("User-Agent", "DLSSVersionToolkit/2.0");
+            using var resp = await _http.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return ParseRuntimeConfig(await resp.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return null;
         }
     }
 

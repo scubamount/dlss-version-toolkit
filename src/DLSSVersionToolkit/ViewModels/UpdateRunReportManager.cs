@@ -63,37 +63,4 @@ public sealed class UpdateRunReportManager
         _current = null;
     }
 
-    /// <summary>True when every recorded step ended in ok (nothing to warn about).</summary>
-    public bool AllOk()
-    {
-        foreach (var s in _steps)
-            if (s.Status == "fail" || s.Status == "warn")
-                return false;
-        return true;
-    }
-
-    /// <summary>Load persisted runs, newest first, for the "last runs" surface.</summary>
-    public List<UpdateRunReport> LoadRecent(int max = 10)
-    {
-        var result = new List<UpdateRunReport>();
-        try
-        {
-            if (!Directory.Exists(RunsDirectory)) return result;
-            var files = Directory.GetFiles(RunsDirectory, "run-*.json");
-            Array.Sort(files, StringComparer.OrdinalIgnoreCase);
-            Array.Reverse(files);
-            foreach (var f in files)
-            {
-                if (result.Count >= max) break;
-                try
-                {
-                    var json = System.Text.Json.JsonSerializer.Deserialize<UpdateRunReport>(File.ReadAllText(f));
-                    if (json != null) result.Add(json);
-                }
-                catch { /* skip corrupt */ }
-            }
-        }
-        catch { /* never break the UI for a report read */ }
-        return result;
-    }
 }

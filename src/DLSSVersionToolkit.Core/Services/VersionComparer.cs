@@ -124,18 +124,8 @@ public class VersionComparer : IVersionComparer
         if (!DllVersionReader.IsReportedVersion(version2)) return true;
         try
         {
-            // Normalize: remove letters, trim to 4 parts
-            var v1 = NormalizeVersion(version1);
-            var v2 = NormalizeVersion(version2);
-
-            // Pad to exactly 4 components so 2-part versions (e.g. "310.6") don't
-            // IndexOutOfRange at parts[i] — caught as "never newer" before this fix.
-            var parts1 = v1.Split('.').Take(4)
-                .Select(p => int.TryParse(p, out var n) ? n : 0)
-                .Concat(Enumerable.Repeat(0, 4)).Take(4).ToArray();
-            var parts2 = v2.Split('.').Take(4)
-                .Select(p => int.TryParse(p, out var n) ? n : 0)
-                .Concat(Enumerable.Repeat(0, 4)).Take(4).ToArray();
+            var parts1 = LooseParts(version1);
+            var parts2 = LooseParts(version2);
 
             for (int i = 0; i < 4; i++)
             {
@@ -150,11 +140,26 @@ public class VersionComparer : IVersionComparer
         }
     }
 
-    private static string NormalizeVersion(string version)
+    /// <summary>
+    /// The one loose version reader: strips letters, reads up to 4 dotted parts, and pads with 0,
+    /// so "310.6" is 310.6.0.0 (never an IndexOutOfRange) and a non-numeric part reads as 0.
+    /// UpgradeService and AnWaveAutoService carried byte-identical private copies until v0.78.
+    /// </summary>
+    private static int[] LooseParts(string version)
     {
-        // Remove letters, take first 4 parts
         var cleaned = System.Text.RegularExpressions.Regex.Replace(version, @"[a-zA-Z]", "");
-        var parts = cleaned.Split('.').Take(4);
-        return string.Join(".", parts);
+        return cleaned.Split('.').Take(4)
+            .Select(p => int.TryParse(p, out var n) ? n : 0)
+            .Concat(Enumerable.Repeat(0, 4)).Take(4).ToArray();
+    }
+
+    /// <summary>
+    /// <see cref="LooseParts"/> as a <see cref="Version"/> for ordering. Null when a part is
+    /// negative (Version cannot hold it); callers order nulls as 0.0.
+    /// </summary>
+    public static Version? ParseLoose(string version)
+    {
+        var p = LooseParts(version ?? "");
+        return p.Any(x => x < 0) ? null : new Version(p[0], p[1], p[2], p[3]);
     }
 }

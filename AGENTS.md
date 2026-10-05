@@ -1,6 +1,6 @@
 ﻿# dlss-version-toolkit Development Guidelines
 
-Hand-maintained. Last updated: 2026-10-05 (v0.77).
+Hand-maintained. Last updated: 2026-10-05 (v0.78).
 
 > Regenerate this file when shipping a release that changes structure, commands, or a standing
 > lesson. There is no generator — the previous header claimed to be machine-derived from feature
@@ -12,9 +12,9 @@ Hand-maintained. Last updated: 2026-10-05 (v0.77).
 
 **.NET 9 + WPF** (`002-dlss-gui`) — the whole shipping app. Single-file `.exe`,
 framework-dependent (needs the .NET 9 Desktop Runtime), C# core logic, CommunityToolkit.Mvvm,
-Hardcodet.NotifyIcon.Wpf, SharpCompress.
+Hardcodet.NotifyIcon.Wpf, NvAPIWrapper.Net (DRS), SharpCompress.
 
-`src/DLSSVersion/*.psm1` + `check-dlss-versions.ps1` + `install.ps1` are the **dead**
+`src/DLSSVersion/*.psm1`, `src/DLSSVersion.psd1`, `src/DLSSVersion.psm1`, `check-dlss-versions.ps1` and `install.ps1` are the **dead**
 `001-dlss-version-checker` PowerShell module. Not in `DLSSVersionToolkit.sln`, not built by CI,
 not referenced by the README. Nothing reads them. Treat as removable, not as a supported path.
 
@@ -22,7 +22,7 @@ not referenced by the README. Nothing reads them. Treat as removable, not as a s
 
 ```text
 src/
-├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 34 services
+├── DLSSVersionToolkit.Core/            # Core logic library (no WPF) — all 33 services
 │   ├── Models/                         # AppSettings, DlssPreset, OverrideManifest,
 │   │                                   #   UpdateRunReport, ScanResult, ...
 │   └── Services/
@@ -48,7 +48,7 @@ src/
 └── DLSSVersionToolkit.sln               # 3 projects: Core, app, Tests
 
 tests/
-└── DLSSVersionToolkit.Tests/            # xUnit, 30 files, 550+ tests at v0.77
+└── DLSSVersionToolkit.Tests/            # xUnit, 31 files, 596 tests at v0.78
 ```
 
 The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produced by CI on each
@@ -58,7 +58,7 @@ The single-file `DLSSVersionToolkit.exe` (~4 MB, framework-dependent) is produce
 
 **Windows only.** The app targets `net9.0-windows` with `UseWPF`, so it cannot be built or tested
 on macOS or Linux — the `windows-latest` GitHub Actions runners are the only build/test path.
-`ci.yml` runs build + tests on every push and PR; `release.yml` publishes the exe on a `v*` tag.
+`ci.yml` runs build + tests on pushes to `main`, `feat/**`, `fix/**`, `chore/**`, `perf/**`, `refactor/**`, `docs/**` and on every PR to main; `release.yml` publishes the exe on a `v*` tag from a separate `contents: write` job that runs no project code.
 
 ```bash
 # Build
@@ -193,6 +193,26 @@ applied."
 
 ## Recent Changes
 
+- **v0.78**: Release hardening plus the v0.77 audit's remaining fixes. (1) `release.yml` split: the
+  `build` job (restore, compile, tests, publish) holds a read-only token; a separate `publish` job
+  with `contents: write` downloads the artifact, re-checks its SHA-256, attaches it and pins the
+  manifests. Every action in both workflows is pinned to a full commit SHA. (2) The updater reads
+  a new release asset, `DLSSVersionToolkit.runtimeconfig.json`, before offering an update, and
+  refuses one whose .NET runtime is missing (`AppUpdateInfo.MissingRuntime`) or could not be
+  checked (`RuntimeCheckFailed`: asset unreadable, or absent on a v0.78+ release); the update stays
+  visible and clicking Update re-checks. Prerelease runtime folders do not count. The swap replaces the
+  running exe, so a new exe that cannot start leaves no working app; this is what makes a later
+  move off .NET 9 safe. The project stays on `net9.0`: `RollForward=LatestMajor` already runs it
+  on a .NET 10-only machine. (3) Progress text showed only during Update All and preset apply; every
+  other operation wrote to a Collapsed panel. The text now shows whenever it is non-empty; one-off
+  confirmations clear themselves (`ShowTransientStatus`).
+  (4) The hero pill said UP TO DATE before any scan and on a dead feed; it now says NOT CHECKED
+  until every feed answers (`IsLatestVerified`). (5) README: the OTA download section described an
+  unwired feature, "every step non-fatal" was false (five conditions stop the run), and whitelist
+  backups did not exist; all three now match the code. (6) Dead code removed: `FileLogger.cs` and
+  its `Microsoft.Extensions.Logging` reference, 11 never-read view-model properties, three unused
+  converters, `AllPresets`, `AllOk`, `LoadRecent`; the two private `TryParseVersion` copies now use
+  `VersionComparer.ParseLoose`.
 - **v0.77**: Holistic audit (5 lanes; report `holistic-dlss-vt-20261005_1415.md`). Fixed at source:
   (1) Reset wrote "override off" (0) to SR/RR/FG on every profile, switching off presets the user
   set in the NVIDIA App. `DrsBaselineStore` now captures each profile's managed values right before
@@ -347,7 +367,7 @@ applied."
   (1) The same-version resync guard counted DLLs NO source ships: NgxDllNames grew to include
   nvngx_dlssnr.dll, no NVIDIA/Streamline release carries it, so every up-to-date install read
   "dlssnr missing" forever — Update All re-synced and created a fresh backup every run (and
-  `CleanupOldBackups` has NO callers, so retention is dead code — follow-up open). Fix:
+  `CleanupOldBackups` has NO callers, so retention is dead code — closed in v0.66). Fix:
   `ShouldResyncForMissingDlls` intersects missing-target with source-present (PerformSync's own
   predicate). (2) winget/scoop manifest hashes had been wrong on EVERY release since at least
   v0.0.59 (all pinned a stale v0.0.13-era hash; v0.63 pinned a LOCAL rebuild's hash) — release.yml
