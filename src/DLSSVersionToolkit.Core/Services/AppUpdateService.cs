@@ -457,9 +457,7 @@ public class AppUpdateService
             ? $"winget install Microsoft.DotNet.DesktopRuntime.{major}"
             : "the runtime from https://dotnet.microsoft.com/download";
         return $"v{update.LatestVersion} needs {update.MissingRuntime}, which is not installed. " +
-               "Nothing was downloaded or changed.
-
-" +
+               "Nothing was downloaded or changed.\n\n" +
                $"What to do: install it ({winget}), then click Update again.";
     }
 
