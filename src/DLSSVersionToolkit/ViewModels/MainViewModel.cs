@@ -788,7 +788,7 @@ private async Task<string> ReassertOverridesAsync(string? dlssChannelVersion, st
 /// Applies the version-gated preset recommendation, if one applies and the user has not already
 /// been asked about it (v0.0.52).
 ///
-/// WHY IT ASKS. Andrew's own Windows testing established that DLSS 4.5 Ray Reconstruction
+/// WHY IT ASKS. the maintainer's own Windows testing established that DLSS 4.5 Ray Reconstruction
 /// (310.7.128) only engages on Preset F — Preset E does not work. That is a real requirement, but
 /// it is OBSERVED rather than NVIDIA-documented, and silently changing a setting the user chose is
 /// hostile. So it is offered once, and the answer is remembered either way.

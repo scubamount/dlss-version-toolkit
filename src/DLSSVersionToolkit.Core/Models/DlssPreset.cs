@@ -259,7 +259,7 @@ public static class DlssPresetDisplay
     /// for both. Encoding it as data means the next model's requirement is one row, not a code
     /// change, and the app can explain the recommendation instead of silently changing a dropdown.
     ///
-    /// PROVENANCE of the DLSS 4.5 / Preset F row: confirmed by first-party testing on Andrew's
+    /// PROVENANCE of the DLSS 4.5 / Preset F row: confirmed by first-party testing on the maintainer's
     /// Windows machine — Ray Reconstruction 310.7.128 required Preset F to engage; Preset E did not
     /// work. It matches the letter NVIDIA's own materials attach to the 4.5 RR model, but the
     /// requirement itself is OBSERVED, not documented, which is why this is a suggestion the user
@@ -276,7 +276,7 @@ public static class DlssPresetDisplay
     /// or null when no rule matches.
     ///
     /// BOUNDARY CORRECTNESS. The comparison is "installed >= MinVersion", and it must be true at
-    /// EXACTLY MinVersion — the whole point of the DLSS 4.5 row is the build Andrew actually tested,
+    /// EXACTLY MinVersion — the whole point of the DLSS 4.5 row is the build the maintainer actually tested,
     /// 310.7.128. Two ways of writing this were tried and both were wrong:
     ///   * <c>version == MinVersion || IsNewer(version, MinVersion)</c> — string equality cannot
     ///     match "310.7.128.0" against "310.7.128", so the exact target version fell through.

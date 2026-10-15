@@ -121,7 +121,7 @@ public class OverrideManifestTests
     [Fact]
     public void ChannelOlderThanOverride_IsNotSuperseded()
     {
-        // Andrew's real situation: 4.5 RR imported, NVIDIA still publishing 310.7.0.
+        // the maintainer's real situation: 4.5 RR imported, NVIDIA still publishing 310.7.0.
         var (svc, root) = NewService();
         try
         {

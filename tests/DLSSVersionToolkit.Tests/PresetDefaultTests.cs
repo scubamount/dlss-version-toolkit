@@ -7,7 +7,7 @@ namespace DLSSVersionToolkit.Tests;
 ///
 /// The app carried two contradictory statements about the same question. PresetVersionRules has
 /// said since it was written that Ray Reconstruction 310.7.128+ "needs Preset F — Preset E does
-/// not engage the new model" (first-party observation on Andrew's machine). Meanwhile the
+/// not engage the new model" (first-party observation on the maintainer's machine). Meanwhile the
 /// constant every fresh install and every Reset read from said E. Since every RR build this
 /// toolkit installs is 310.7.128 or newer, the default was a preset that silently does nothing.
 /// </summary>

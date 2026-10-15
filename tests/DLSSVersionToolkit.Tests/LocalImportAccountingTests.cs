@@ -5,7 +5,7 @@ namespace DLSSVersionToolkit.Tests;
 /// <summary>
 /// Pins the accounting of <see cref="LocalDllImportService"/> (v0.0.55).
 ///
-/// Found by reconciling a real run report against itself. Andrew's screenshot showed
+/// Found by reconciling a real run report against itself. the maintainer's screenshot showed
 /// "Imported 4 component(s), 11 file(s) written" over a breakdown listing 2 files per component —
 /// 4 x 2 = 8, not 11. The total was CORRECT (8 renamed .bin payloads plus 3 dlss_override copies
 /// for dlssg/dlssd/deepdvc); the breakdown printed <c>BinFilesWritten</c> only, so three real
@@ -54,7 +54,7 @@ public class LocalImportAccountingTests
     }
 
     /// <summary>
-    /// The exact shape of Andrew's screenshot: 4 components, 2 bins each, override copies for the
+    /// The exact shape of the maintainer's screenshot: 4 components, 2 bins each, override copies for the
     /// three components that get one. Headline 11 must equal the sum of the breakdown.
     /// </summary>
     [Fact]
