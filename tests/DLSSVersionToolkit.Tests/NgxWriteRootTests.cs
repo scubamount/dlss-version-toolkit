@@ -25,7 +25,7 @@ public class NgxWriteRootTests
     private static readonly string[] Roots =
     {
         @"C:\ProgramData\NVIDIA\NGX",
-        @"C:\Users\andrew\AppData\Roaming\NVIDIA\NGX"
+        @"C:\Users\test-user\AppData\Roaming\NVIDIA\NGX"
     };
 
     [Theory]
@@ -35,7 +35,7 @@ public class NgxWriteRootTests
     // The two legitimate roots, and descendants of them.
     [InlineData(@"C:\ProgramData\NVIDIA\NGX", true)]
     [InlineData(@"C:\ProgramData\NVIDIA\NGX\Staging\models\dlss", true)]
-    [InlineData(@"C:\Users\andrew\AppData\Roaming\NVIDIA\NGX", true)]
+    [InlineData(@"C:\Users\test-user\AppData\Roaming\NVIDIA\NGX", true)]
     // Containment must be separator-aware, not a bare StartsWith.
     [InlineData(@"C:\ProgramData\NVIDIA\NGX-evil", false)]
     // A parent of a root is not inside it.
@@ -53,7 +53,7 @@ public class NgxWriteRootTests
     }
 
     /// <summary>
-    /// RED ARM. The old code took the first candidate that existed on disk, and on Andrew's machine
+    /// RED ARM. The old code took the first candidate that existed on disk, and on the test user's machine
     /// that is the driver store. This asserts the driver store would have been chosen by that rule
     /// — so if someone reintroduces "just take candidate #1", this test fails and names why.
     /// </summary>
