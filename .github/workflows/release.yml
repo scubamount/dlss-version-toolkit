@@ -106,7 +106,7 @@ jobs:
         run: cd publish && sha256sum -c artifact.sha256 && sha256sum -c DLSSVersionToolkit.exe.sha256
 
       - name: Attach exe + checksum to release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           # IMPORTANT: the in-app auto-updater (AppUpdateService.ExeAssetName) matches the
           # release asset by the EXACT name "DLSSVersionToolkit.exe". Do NOT rename this asset
